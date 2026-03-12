@@ -1,0 +1,10 @@
+{
+  "default": true,
+  "MD013": false,
+  "MD033": false,
+  "MD041": true,
+  "MD029": { "style": "one" },
+  "MD007": { "indent": 2 },
+  "no-inline-html": false,
+  "MD034": true
+}

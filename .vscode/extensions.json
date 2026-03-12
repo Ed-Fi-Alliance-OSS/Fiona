@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "psioniq.psi-header",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "EditorConfig.editorconfig",
+    "streetsidesoftware.code-spell-checker",
+    "DavidAnson.vscode-markdownlint"
+  ]
+}
