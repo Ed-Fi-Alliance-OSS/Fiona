@@ -30,6 +30,9 @@ jobs:
   test-fiona-slack:
     name: Setup - apps/fiona-slack
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
     permissions:
       contents: read
       checks: write
@@ -47,12 +50,11 @@ jobs:
 
       - name: Install dependencies (ci)
         run: npm ci
+
       - name: Lint code
-        working-directory: apps/fiona-slack
         run: npm run lint
 
       - name: Run tests
-        working-directory: apps/fiona-slack
         run: npm run test:ci
 
       - name: Report test results
@@ -66,7 +68,6 @@ jobs:
 
       - name: Report code coverage
         if: always()
-        working-directory: apps/fiona-slack
         run: |
           if [ ! -f coverage/coverage-summary.json ]; then
             echo "## Code Coverage - fiona-slack" >> $GITHUB_STEP_SUMMARY
@@ -89,6 +90,9 @@ jobs:
   code_analysis:
     name: Code Analysis (CodeQL & Dependency Review)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
     permissions:
       security-events: write
     steps:
