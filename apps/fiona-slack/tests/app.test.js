@@ -11,15 +11,14 @@ describe('app.js', () => {
 	beforeEach(() => {
 		originalLog = console.log;
 		console.log = jest.fn();
-		jest.resetModules();
 	});
 
 	afterEach(() => {
 		console.log = originalLog;
 	});
 
-	test('logs hello world on load', () => {
-		require('../src/app');
+	test('logs hello world on load', async () => {
+		await import('../src/app');
 		expect(console.log).toHaveBeenCalledWith('hello world');
 	});
 });
