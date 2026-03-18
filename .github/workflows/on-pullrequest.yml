@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: On Pull Request
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+  workflow_dispatch:
+
+# Adopt standard concurrency pattern
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Set broad read permissions; job-level security-events added where needed
+permissions: read-all
+
+jobs:
+  scan-actions-bidi:
+    name: Scan Actions, scan all files for BIDI Trojan Attacks
+    uses: ed-fi-alliance-oss/ed-fi-actions/.github/workflows/repository-scanner.yml@main
+
+  test-fiona-slack:
+    name: Setup - apps/fiona-slack
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fiona-slack/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Report test results
+        uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+        if: always()
+        with:
+          name: Jest Tests - fiona-slack
+          path: apps/fiona-slack/junit.xml
+          reporter: jest-junit
+          fail-on-error: false
+
+      - name: Report code coverage
+        if: always()
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "## Code Coverage - fiona-slack" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage report not available (tests may have failed before coverage was collected)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          echo "## Code Coverage - fiona-slack" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            const t = data.total;
+            console.log('| Statements | ' + t.statements.pct + '% |');
+            console.log('| Branches | ' + t.branches.pct + '% |');
+            console.log('| Functions | ' + t.functions.pct + '% |');
+            console.log('| Lines | ' + t.lines.pct + '% |');
+          " >> $GITHUB_STEP_SUMMARY
+
+  code_analysis:
+    name: Code Analysis (CodeQL & Dependency Review)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fiona-slack/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169 # v3.28.0
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169 # v3.28.0
