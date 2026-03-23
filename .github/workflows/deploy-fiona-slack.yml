@@ -1,0 +1,67 @@
+name: Deploy Fiona Slack App (Slack CLI)
+
+on:
+  push:
+    branches:
+      - main
+      - 'insiders-**'
+    paths:
+      - 'apps/fiona-slack/**'
+      - '.github/workflows/deploy-fiona-slack.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'insiders'
+        type: choice
+        options:
+          - insiders
+          - production
+      force_deploy:
+        description: 'Force deployment even if no changes detected'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'insiders') }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: apps/fiona-slack/package-lock.json
+
+    - name: Install app dependencies
+      working-directory: apps/fiona-slack
+      run: npm ci
+
+    - name: Install Slack CLI
+      run: |
+        curl -fsSL https://downloads.slack-edge.com/slack-cli/install.sh | bash
+        echo "$HOME/.slack/bin" >> $GITHUB_PATH
+
+    - name: Deploy the app
+      working-directory: apps/fiona-slack
+      env:
+        SLACK_SERVICE_TOKEN: ${{ secrets.SLACK_SERVICE_TOKEN }}
+      run: slack deploy -s --token $SLACK_SERVICE_TOKEN
+
+    - name: Deployment summary
+      if: always()
+      run: |
+        echo "## Slack App Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **App directory:** apps/fiona-slack" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'insiders') }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Git commit:** $(git rev-parse --short HEAD)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
