@@ -78,6 +78,6 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
       logger.error('Failed to record feedback to Cosmos DB:', e);
     }
   } catch (error) {
-    logger.error(`:warning: Something went wrong! ${error}`);
+    logger.error('Something went wrong while handling feedback action.', error);
   }
 };
