@@ -104,7 +104,12 @@ if (AZURE_OPENAI_ENDPOINT) {
     apiKey: PERPLEXITY_API_KEY,
     baseURL: 'https://api.perplexity.ai',
   });
-} else {
+} else if (LLM_PROVIDER !== 'foundry') {
+  if (!OPENAI_API_KEY) {
+    throw new Error(
+      'OPENAI_API_KEY is required when LLM_PROVIDER is "openai". Set the OPENAI_API_KEY environment variable.',
+    );
+  }
   defaultClient = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_BASE_URL });
 }
 
@@ -288,6 +293,14 @@ async function callOpenAICompatible(streamer, prompts, logger) {
   if (usingPerplexity) {
     await callPerplexityChat(streamer, prompts);
     return;
+  }
+
+  if (!client) {
+    throw new Error(
+      `No OpenAI-compatible client is configured for LLM_PROVIDER="${LLM_PROVIDER}". ` +
+        'Set OPENAI_API_KEY (and optionally OPENAI_BASE_URL) to use the "openai" provider, ' +
+        'or configure AZURE_OPENAI_ENDPOINT for the "azure" provider.',
+    );
   }
 
   const tools = [rollDiceDefinition];
