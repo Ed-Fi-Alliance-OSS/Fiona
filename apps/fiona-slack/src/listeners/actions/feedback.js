@@ -15,14 +15,19 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
   try {
     await ack();
 
-    if (body.type !== 'block_actions' || body.actions[0].type !== 'feedback_buttons') {
+    if (body.type !== 'block_actions' || !Array.isArray(body.actions) || body.actions.length === 0) {
+      return;
+    }
+
+    const action = body.actions[0];
+    if (action.type !== 'feedback_buttons') {
       return;
     }
 
     const message_ts = body.message.ts;
     const channel_id = body.channel.id;
     const user_id = body.user.id;
-    const value = body.actions[0].value;
+    const value = action.value;
 
     if (value === 'good-feedback') {
       await client.chat.postEphemeral({
