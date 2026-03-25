@@ -36,13 +36,21 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
         thread_ts: message_ts,
         text: "We're glad you found this useful.",
       });
-    } else {
+    } else if (value === 'bad-feedback') {
       await client.chat.postEphemeral({
         channel: channel_id,
         user: user_id,
         thread_ts: message_ts,
         text: "Sorry to hear that response wasn't up to par :slightly_frowning_face: Starting a new chat may help with AI mistakes and hallucinations.",
       });
+    } else {
+      logger.warn('Received unexpected feedback value', {
+        value,
+        channel_id,
+        user_id,
+        message_ts,
+      });
+      return;
     }
 
     try {
