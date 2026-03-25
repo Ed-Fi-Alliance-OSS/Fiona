@@ -72,12 +72,14 @@ if (AZURE_PROJECT_ENDPOINT) {
 
 // Standard OpenAI / Azure OpenAI client
 if (AZURE_OPENAI_ENDPOINT) {
+  const endpointUrl = new URL(AZURE_OPENAI_ENDPOINT);
+  const endpointHostname = endpointUrl.hostname;
   let isInferenceEndpoint = false;
-  let baseHost = undefined;
-  try {
+    endpointHostname.endsWith('inference.ai.azure.com') ||
+    endpointHostname.endsWith('services.ai.azure.com');
     const parsedEndpoint = new URL(AZURE_OPENAI_ENDPOINT);
     const hostname = parsedEndpoint.hostname;
-    const inferenceSuffixes = ['.inference.ai.azure.com', '.services.ai.azure.com'];
+    const baseHost = endpointUrl.origin;
     isInferenceEndpoint = inferenceSuffixes.some(
       (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix)
     );
