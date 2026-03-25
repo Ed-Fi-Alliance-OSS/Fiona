@@ -72,12 +72,22 @@ if (AZURE_PROJECT_ENDPOINT) {
 
 // Standard OpenAI / Azure OpenAI client
 if (AZURE_OPENAI_ENDPOINT) {
-  const isInferenceEndpoint =
-    AZURE_OPENAI_ENDPOINT.includes('.inference.ai.azure.com') ||
-    AZURE_OPENAI_ENDPOINT.includes('.services.ai.azure.com');
+  let isInferenceEndpoint = false;
+  let baseHost = undefined;
+  try {
+    const parsedEndpoint = new URL(AZURE_OPENAI_ENDPOINT);
+    const hostname = parsedEndpoint.hostname;
+    const inferenceSuffixes = ['.inference.ai.azure.com', '.services.ai.azure.com'];
+    isInferenceEndpoint = inferenceSuffixes.some(
+      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix)
+    );
+    baseHost = parsedEndpoint.origin;
+  } catch {
+    // If the endpoint is not a valid URL, fall back to treating it as a non-inference endpoint.
+    isInferenceEndpoint = false;
+  }
 
-  if (isInferenceEndpoint) {
-    const baseHost = new URL(AZURE_OPENAI_ENDPOINT).origin;
+  if (isInferenceEndpoint && baseHost) {
     defaultClient = new OpenAI({
       apiKey: 'DUMMY', // SDK requires this; Azure ignores it in favour of api-key header
       baseURL: `${baseHost}/openai/v1/`,
