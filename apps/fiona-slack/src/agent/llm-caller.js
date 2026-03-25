@@ -99,13 +99,16 @@ if (AZURE_OPENAI_ENDPOINT) {
       apiVersion: AZURE_OPENAI_API_VERSION || '2024-05-01-preview',
     });
   }
-} else if (PERPLEXITY_API_KEY) {
+} else if (!PERPLEXITY_API_KEY) {
+  defaultClient = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_BASE_URL });
+}
+
+// Perplexity client (independent of defaultClient selection)
+if (PERPLEXITY_API_KEY) {
   perplexityClient = new OpenAI({
     apiKey: PERPLEXITY_API_KEY,
     baseURL: 'https://api.perplexity.ai',
   });
-} else {
-  defaultClient = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_BASE_URL });
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
