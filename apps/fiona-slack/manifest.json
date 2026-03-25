@@ -3,7 +3,7 @@
         "name": "Fiona",
         "description": "AI Powered Ed-Fi Knowledge and Documentation Retrieval",
         "background_color": "#004492",
-        "long_description": "Fiona is your AI companion designed to super-charge your navigation through Ed-Fi documentation, best practices and community resources. Get personalize guidance through Ed-Fi tools and resources using natural language."
+        "long_description": "Fiona is your AI companion designed to super-charge your navigation through Ed-Fi documentation, best practices, and community resources. Get personalized guidance through Ed-Fi tools and resources using natural language."
     },
     "features": {
         "app_home": {
