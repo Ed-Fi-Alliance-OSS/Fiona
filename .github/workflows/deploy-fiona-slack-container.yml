@@ -42,7 +42,7 @@ jobs:
         echo "CONTAINER_MANAGED_IDENTITY_NAME=fiona-slack-${ENV_SUFFIX}-identity" >> $GITHUB_ENV
 
     - name: Log in to Azure
-      uses: azure/login@v2
+      uses: azure/login@v4
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
