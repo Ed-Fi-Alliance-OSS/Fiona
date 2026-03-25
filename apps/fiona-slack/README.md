@@ -2,20 +2,39 @@
 
 An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https://slack.dev/bolt-js/) and deployed via Slack CLI in Socket Mode.
 
+## App Configuration
+
+The `manifest.json` file in this directory is the single source of truth for
+the Slack app's permissions, features, and event subscriptions. It is read by
+the Slack CLI via the `get-manifest` hook defined in `slack.json`. Keep these
+files committed and treat them like infrastructure code — run
+`slack manifest validate` before any deployment.
+
+The `slack.json` file configures the [Slack CLI hooks][hooks] for this project.
+The `get-hooks` entry delegates to `@slack/cli-hooks` (installed as a dev
+dependency) to provide the `doctor`, `check-update`, `get-manifest`, and
+`start` hooks automatically.
+
+[hooks]: https://docs.slack.dev/tools/slack-cli/reference/hooks/
+
 ## Setup
 
 1. Copy `.env.sample` to `.env` and fill in the required values.
-2. Install dependencies:
+1. Install dependencies:
 
    ```sh
    npm ci
    ```
 
-3. Run locally with the Slack CLI:
+1. Run locally with the Slack CLI (recommended):
 
    ```sh
    slack run
    ```
+
+   The CLI uses `slack.json` to invoke the app and `manifest.json` to
+   configure the Slack app in your workspace. On first run it will prompt you
+   to create or select a workspace app.
 
    Or without the CLI (requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `.env`):
 
@@ -32,14 +51,14 @@ Set `LLM_PROVIDER` in `.env` to one of: `openai`, `azure`, `foundry`, `perplexit
 User feedback (thumbs up/down) is persisted to Azure Cosmos DB. Three auth methods are supported, in priority order:
 
 1. **Connection string** &mdash; set `COSMOS_CONNECTION_STRING`
-2. **Endpoint + key** &mdash; set `COSMOS_ENDPOINT` and `COSMOS_KEY`
-3. **Managed identity** &mdash; set `COSMOS_ENDPOINT` only (uses `DefaultAzureCredential`)
+1. **Endpoint + key** &mdash; set `COSMOS_ENDPOINT` and `COSMOS_KEY`
+1. **Managed identity** &mdash; set `COSMOS_ENDPOINT` only (uses `DefaultAzureCredential`)
 
 If none are configured, feedback is acknowledged to the user but not persisted.
 
 ## Project Structure
 
-```
+```none
 src/
   app.js                       Entry point
   agent/

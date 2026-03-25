@@ -4,3 +4,8 @@
 !.env.sample
 /coverage
 /junit.xml
+
+# Slack CLI — workspace credentials and cache (auto-generated, never commit)
+.slack/apps.dev.json
+.slack/apps.json
+.slack/cache/
