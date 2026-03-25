@@ -72,17 +72,13 @@ if (AZURE_PROJECT_ENDPOINT) {
 
 // Standard OpenAI / Azure OpenAI client
 if (AZURE_OPENAI_ENDPOINT) {
-  const endpointUrl = new URL(AZURE_OPENAI_ENDPOINT);
-  const endpointHostname = endpointUrl.hostname;
   let isInferenceEndpoint = false;
-    endpointHostname.endsWith('inference.ai.azure.com') ||
-    endpointHostname.endsWith('services.ai.azure.com');
+  let baseHost;
+  try {
     const parsedEndpoint = new URL(AZURE_OPENAI_ENDPOINT);
     const hostname = parsedEndpoint.hostname;
-    const baseHost = endpointUrl.origin;
-    isInferenceEndpoint = inferenceSuffixes.some(
-      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix)
-    );
+    const inferenceSuffixes = ['.inference.ai.azure.com', '.services.ai.azure.com'];
+    isInferenceEndpoint = inferenceSuffixes.some((suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix));
     baseHost = parsedEndpoint.origin;
   } catch {
     // If the endpoint is not a valid URL, fall back to treating it as a non-inference endpoint.
