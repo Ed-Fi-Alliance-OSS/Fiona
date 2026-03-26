@@ -25,9 +25,12 @@ on:
         type: boolean
 
 env:
-  # Pin Slack CLI to a known version. Update deliberately after review.
-  # TODO [AI-87]: Add checksum verification once Slack publishes release manifests.
-  SLACK_CLI_VERSION: "2.26.1"
+  # Configure these as repository or environment variables so updates can be
+  # made in GitHub UI without requiring a code change.
+  SLACK_CLI_VERSION: ${{ vars['SLACK_CLI_VERSION'] }}
+  # Optional: checksum (md5) for install.sh when you manually verify a release.
+  # Leave empty to skip checksum verification.
+  SLACK_CLI_INSTALL_MD5: ${{ vars['SLACK_CLI_INSTALL_MD5'] }}
 
 jobs:
   deploy:
@@ -73,11 +76,14 @@ jobs:
         "
 
     - name: Install Slack CLI
-      # TODO [AI-87/AI-88]: curl|bash is a supply-chain risk; replace with a
-      # verified installation method once Slack publishes release checksums or
-      # an official GitHub Action.
       run: |
-        curl -fsSL https://downloads.slack-edge.com/slack-cli/install.sh | SLACK_CLI_VERSION="${SLACK_CLI_VERSION}" bash
+        INSTALL_SCRIPT="/tmp/slack-cli-install.sh"
+        CLI_VERSION="${SLACK_CLI_VERSION:-2.26.1}"
+        curl -fsSL -o "${INSTALL_SCRIPT}" https://downloads.slack-edge.com/slack-cli/install.sh
+        if [ -n "${SLACK_CLI_INSTALL_MD5}" ]; then
+          echo "${SLACK_CLI_INSTALL_MD5}  ${INSTALL_SCRIPT}" | md5sum --check --status
+        fi
+        SLACK_CLI_VERSION="${CLI_VERSION}" bash "${INSTALL_SCRIPT}"
         echo "$HOME/.slack/bin" >> $GITHUB_PATH
 
     - name: Deploy the app
