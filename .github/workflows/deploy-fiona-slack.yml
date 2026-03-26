@@ -24,6 +24,14 @@ on:
         default: false
         type: boolean
 
+env:
+  # Configure these as repository or environment variables so updates can be
+  # made in GitHub UI without requiring a code change.
+  SLACK_CLI_VERSION: ${{ vars['SLACK_CLI_VERSION'] }}
+  # Optional: checksum (md5) for install.sh when you manually verify a release.
+  # Leave empty to skip checksum verification.
+  SLACK_CLI_INSTALL_MD5: ${{ vars['SLACK_CLI_INSTALL_MD5'] }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -45,9 +53,37 @@ jobs:
       working-directory: apps/fiona-slack
       run: npm ci
 
+    - name: Generate .slack/apps.json from secrets
+      working-directory: apps/fiona-slack
+      env:
+        SLACK_TEAM_ID: ${{ secrets.SLACK_TEAM_ID }}
+        SLACK_APP_ID: ${{ secrets.SLACK_APP_ID }}
+        SLACK_TEAM_DOMAIN: ${{ vars.SLACK_TEAM_DOMAIN }}
+      run: |
+        node -e "
+        const config = {
+          apps: {
+            [process.env.SLACK_TEAM_ID]: {
+              app_id: process.env.SLACK_APP_ID,
+              team_domain: process.env.SLACK_TEAM_DOMAIN,
+              team_id: process.env.SLACK_TEAM_ID
+            }
+          },
+          default: process.env.SLACK_TEAM_DOMAIN
+        };
+        require('fs').writeFileSync('.slack/apps.json', JSON.stringify(config, null, 2));
+        console.log('Generated .slack/apps.json for workspace:', process.env.SLACK_TEAM_DOMAIN);
+        "
+
     - name: Install Slack CLI
       run: |
-        curl -fsSL https://downloads.slack-edge.com/slack-cli/install.sh | bash
+        INSTALL_SCRIPT="/tmp/slack-cli-install.sh"
+        CLI_VERSION="${SLACK_CLI_VERSION:-2.26.1}"
+        curl -fsSL -o "${INSTALL_SCRIPT}" https://downloads.slack-edge.com/slack-cli/install.sh
+        if [ -n "${SLACK_CLI_INSTALL_MD5}" ]; then
+          echo "${SLACK_CLI_INSTALL_MD5}  ${INSTALL_SCRIPT}" | md5sum --check --status
+        fi
+        SLACK_CLI_VERSION="${CLI_VERSION}" bash "${INSTALL_SCRIPT}"
         echo "$HOME/.slack/bin" >> $GITHUB_PATH
 
     - name: Deploy the app
