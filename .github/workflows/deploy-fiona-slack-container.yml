@@ -1,0 +1,114 @@
+name: Deploy Fiona Slack Container
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'insiders'
+        type: choice
+        options:
+          - insiders
+          - production
+
+env:
+  RESOURCE_GROUP: edfi-fiona-rg
+  CONTAINER_ENV_NAME: fiona-container-env
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment || 'insiders' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Generate build metadata
+      id: meta
+      run: |
+        TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
+        SHORT_COMMIT=$(git rev-parse --short HEAD)
+        BUILD_VERSION="${TIMESTAMP}-${SHORT_COMMIT}"
+        echo "build-version=${BUILD_VERSION}" >> $GITHUB_OUTPUT
+        echo "image-tag=${BUILD_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Set environment-specific names
+      run: |
+        ENV_SUFFIX="${{ inputs.environment || 'insiders' }}"
+        echo "CONTAINER_APP_NAME=fiona-slack-${ENV_SUFFIX}" >> $GITHUB_ENV
+        echo "CONTAINER_MANAGED_IDENTITY_NAME=fiona-slack-${ENV_SUFFIX}-identity" >> $GITHUB_ENV
+
+    - name: Log in to Azure
+      uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get ACR login server
+      id: acr
+      run: |
+        ACR_NAME=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query "[?contains(name, 'fionacontainerregistry')] | [0].name" -o tsv)
+        LOGIN_SERVER=$(az acr show -n $ACR_NAME --query "loginServer" -o tsv)
+        echo "acr-name=${ACR_NAME}" >> $GITHUB_OUTPUT
+        echo "login-server=${LOGIN_SERVER}" >> $GITHUB_OUTPUT
+
+    - name: Login to ACR
+      run: az acr login --name ${{ steps.acr.outputs.acr-name }}
+
+    - name: Build and push Docker image
+      run: |
+        IMAGE="${{ steps.acr.outputs.login-server }}/${{ env.CONTAINER_APP_NAME }}:${{ steps.meta.outputs.image-tag }}"
+        docker build -t $IMAGE apps/fiona-slack/
+        docker push $IMAGE
+        echo "CONTAINER_IMAGE=${IMAGE}" >> $GITHUB_ENV
+
+    - name: Deploy via Bicep
+      run: |
+        az deployment group create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --template-file infra/azure/fiona-slack-container/main.bicep \
+          --parameters \
+            containerAppName=${{ env.CONTAINER_APP_NAME }} \
+            containerManagedIdentityName=${{ env.CONTAINER_MANAGED_IDENTITY_NAME }} \
+            containerEnvironmentName=${{ env.CONTAINER_ENV_NAME }} \
+            containerRegistryName=${{ steps.acr.outputs.acr-name }} \
+            containerImage=${{ env.CONTAINER_IMAGE }} \
+            buildVersion=${{ steps.meta.outputs.build-version }} \
+            slackBotToken="${{ secrets.SLACK_BOT_TOKEN }}" \
+            slackAppToken="${{ secrets.SLACK_APP_TOKEN }}" \
+            llmProvider="${{ vars.LLM_PROVIDER || 'perplexity' }}" \
+            openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
+            azureOpenaiEndpoint="${{ vars.AZURE_OPENAI_ENDPOINT }}" \
+            azureOpenaiApiKey="${{ secrets.AZURE_OPENAI_API_KEY }}" \
+            azureOpenaiDeployment="${{ vars.AZURE_OPENAI_DEPLOYMENT }}" \
+            azureProjectEndpoint="${{ vars.AZURE_PROJECT_ENDPOINT }}" \
+            azureAgentId="${{ vars.AZURE_AGENT_ID }}" \
+            perplexityApiKey="${{ secrets.PERPLEXITY_API_KEY }}" \
+            cosmosConnectionString="${{ secrets.COSMOS_CONNECTION_STRING }}" \
+            cosmosEndpoint="${{ vars.COSMOS_ENDPOINT }}" \
+            cosmosKey="${{ secrets.COSMOS_KEY }}" \
+            cosmosDatabase="${{ vars.COSMOS_DATABASE || 'chatbot' }}" \
+            cosmosContainer="${{ vars.COSMOS_CONTAINER || 'feedback' }}" \
+            deploymentType="${{ inputs.environment || 'insiders' }}" \
+            skipRoleAssignments=true
+
+    - name: Verify deployment
+      run: |
+        az containerapp show \
+          --name ${{ env.CONTAINER_APP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query "{name:name, image:properties.template.containers[0].image, replicas:properties.template.scale}" \
+          -o json
+
+    - name: Deployment summary
+      if: always()
+      run: |
+        echo "## Slack Container Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **App:** ${{ env.CONTAINER_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ env.CONTAINER_IMAGE }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build:** ${{ steps.meta.outputs.build-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment || 'insiders' }}" >> $GITHUB_STEP_SUMMARY

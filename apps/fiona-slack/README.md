@@ -68,3 +68,62 @@ npm run lint:fix      # Auto-fix lint issues
 npm test              # Run tests (Jest)
 npm run test:ci       # Tests with coverage and JUnit output
 ```
+
+## Slack CLI Setup
+
+The `.slack/` directory holds configuration for the [Slack CLI](https://tools.slack.dev/slack-cli/), which is used to run the app locally and manage it via CLI commands.
+
+### Files overview
+
+| File | Committed | Purpose |
+|------|-----------|---------|
+| `hooks.json` | ✅ Yes | CLI hooks: how to run and deploy the app |
+| `config.json` | ✅ Yes | Project-level settings (manifest source, project ID) |
+| `apps.json` | ❌ No (gitignored) | Your workspace/app mappings — generated locally or in CI |
+| `apps.dev.json` | ❌ No (gitignored) | Your personal dev workspace link |
+
+### Local development with the Slack CLI
+
+1. [Install the Slack CLI](https://tools.slack.dev/slack-cli/guides/installing-cli/)
+2. Authenticate:
+   ```sh
+   slack login
+   ```
+3. Create or link your own Slack app for development:
+   ```sh
+   # Create a new app in your workspace from the manifest:
+   slack app create
+
+   # Or link an existing app:
+   slack app link
+   ```
+   This creates `.slack/apps.dev.json` (gitignored) with your workspace binding.
+4. Start the app locally:
+   ```sh
+   slack run
+   ```
+
+### `apps.json` for production/CI
+
+`apps.json` maps Slack workspace IDs to app IDs for the deployment target.
+It is gitignored because it is environment-specific and should not be committed.
+
+- For local development, the Slack CLI creates `apps.json` automatically via `slack app link`.
+- For CI/CD pipelines, this file is generated at deploy time from environment secrets.
+  See the required GitHub Actions secrets in the [deployment workflow](../../.github/workflows/deploy-fiona-slack.yml).
+
+If you want to deploy your own instance of Fiona outside this repository's CI,
+create `.slack/apps.json` with your own workspace and app IDs:
+
+```json
+{
+  "apps": {
+    "YOUR_TEAM_ID": {
+      "app_id": "YOUR_APP_ID",
+      "team_domain": "your-workspace",
+      "team_id": "YOUR_TEAM_ID"
+    }
+  },
+  "default": "your-workspace"
+}
+```
