@@ -1,0 +1,14 @@
+node_modules
+.slack
+scripts
+.git
+.gitignore
+.env
+.env.*
+.env.sample
+*.log
+biome.json
+manifest.json
+LICENSE
+README.md
+.DS_Store
