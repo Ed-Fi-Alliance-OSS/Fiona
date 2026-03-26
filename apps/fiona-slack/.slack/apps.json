@@ -1,0 +1,16 @@
+{
+  "apps": {
+    "E0AJQEHGKHA": {
+      "app_id": "A0AJM04V7BM",
+      "enterprise_id": "E0AJQEHGKHA",
+      "team_domain": "fiona-sandbox",
+      "team_id": "E0AJQEHGKHA"
+    },
+    "T2WF4P1S9": {
+      "app_id": "A0AK3QS2318",
+      "team_domain": "ed-fi-alliance",
+      "team_id": "T2WF4P1S9"
+    }
+  },
+  "default": "fiona-sandbox"
+}

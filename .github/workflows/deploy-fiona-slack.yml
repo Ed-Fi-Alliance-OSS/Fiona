@@ -24,11 +24,6 @@ on:
         default: false
         type: boolean
 
-env:
-  # Pin Slack CLI to a known version. Update deliberately after review.
-  # TODO [AI-87]: Add checksum verification once Slack publishes release manifests.
-  SLACK_CLI_VERSION: "2.26.1"
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -50,34 +45,9 @@ jobs:
       working-directory: apps/fiona-slack
       run: npm ci
 
-    - name: Generate .slack/apps.json from secrets
-      working-directory: apps/fiona-slack
-      env:
-        SLACK_TEAM_ID: ${{ secrets.SLACK_TEAM_ID }}
-        SLACK_APP_ID: ${{ secrets.SLACK_APP_ID }}
-        SLACK_TEAM_DOMAIN: ${{ vars.SLACK_TEAM_DOMAIN }}
-      run: |
-        node -e "
-        const config = {
-          apps: {
-            [process.env.SLACK_TEAM_ID]: {
-              app_id: process.env.SLACK_APP_ID,
-              team_domain: process.env.SLACK_TEAM_DOMAIN,
-              team_id: process.env.SLACK_TEAM_ID
-            }
-          },
-          default: process.env.SLACK_TEAM_DOMAIN
-        };
-        require('fs').writeFileSync('.slack/apps.json', JSON.stringify(config, null, 2));
-        console.log('Generated .slack/apps.json for workspace:', process.env.SLACK_TEAM_DOMAIN);
-        "
-
     - name: Install Slack CLI
-      # TODO [AI-87/AI-88]: curl|bash is a supply-chain risk; replace with a
-      # verified installation method once Slack publishes release checksums or
-      # an official GitHub Action.
       run: |
-        curl -fsSL https://downloads.slack-edge.com/slack-cli/install.sh | SLACK_CLI_VERSION="${SLACK_CLI_VERSION}" bash
+        curl -fsSL https://downloads.slack-edge.com/slack-cli/install.sh | bash
         echo "$HOME/.slack/bin" >> $GITHUB_PATH
 
     - name: Deploy the app
