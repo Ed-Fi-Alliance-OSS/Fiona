@@ -26,6 +26,10 @@ language conversation.
 .
 └── .github/workflows/           # CI/CD pipelines
 └── apps/fiona-slack/            # Slack bot application (Node.js / Slack Bolt)
+    ├── manifest.json            # Slack app manifest (permissions, features, events)
+    ├── slack.json               # Slack CLI hooks (get-hooks, start)
+    ├── .env.sample              # Environment variable template
+    └── src/app.js               # Application entry point
 └── infra/azure/                 # Azure Bicep templates for deployment
     ├── shared.bicep             # Shared resources (Container Registry, Log Analytics)
     ├── fiona-slack-container/   # Container App definition
@@ -37,8 +41,25 @@ language conversation.
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 22+
-- A [Slack app](https://api.slack.com/apps) configured with Socket Mode
+- [Slack CLI](https://docs.slack.dev/tools/slack-cli/) installed and authenticated
+- A [Slack app](https://api.slack.com/apps) configured with Socket Mode (or use
+  `slack run` to create one automatically from the manifest)
 - An LLM provider API key (Perplexity, OpenAI, or Azure)
+
+### Slack App Configuration
+
+The [`apps/fiona-slack/manifest.json`](apps/fiona-slack/manifest.json) file is
+the single source of truth for the Slack app's permissions, features, and event
+subscriptions. It declares:
+
+- **Assistant side panel** — AI assistant panel with `assistant:write` scope and
+  `assistant_thread_started` / `assistant_thread_context_changed` events.
+- **@-mentions and DMs** — `app_mentions:read`, `im:history`, `channels:history`,
+  and `groups:history` scopes with matching event subscriptions.
+- **Interactive components** — Interactivity enabled for feedback buttons.
+- **Socket Mode** — No public URL or ingress required.
+
+Use `slack manifest validate` to verify the manifest before deploying.
 
 ### Local Development
 
@@ -56,13 +77,18 @@ language conversation.
    npm ci
    ```
 
-1. Start the bot locally via the Slack CLI:
+1. Start the bot locally via the Slack CLI (recommended):
 
    ```bash
    slack run
    ```
 
-   Or run directly with Node:
+   The CLI reads [`slack.json`](apps/fiona-slack/slack.json) for hook definitions
+   and [`manifest.json`](apps/fiona-slack/manifest.json) for app configuration.
+   On first run it will create (or link) a Slack app in your workspace.
+
+   Or run directly with Node (requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in
+   `.env`):
 
    ```bash
    npm start
