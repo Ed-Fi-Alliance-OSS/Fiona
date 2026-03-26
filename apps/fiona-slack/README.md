@@ -79,7 +79,6 @@ The `.slack/` directory holds configuration for the [Slack CLI](https://tools.sl
 |------|-----------|---------|
 | `hooks.json` | ✅ Yes | CLI hooks: how to run and deploy the app |
 | `config.json` | ✅ Yes | Project-level settings (manifest source, project ID) |
-| `apps.json.example` | ✅ Yes | Template showing the `apps.json` structure |
 | `apps.json` | ❌ No (gitignored) | Your workspace/app mappings — generated locally or in CI |
 | `apps.dev.json` | ❌ No (gitignored) | Your personal dev workspace link |
 
@@ -113,5 +112,18 @@ It is gitignored because it is environment-specific and should not be committed.
 - For CI/CD pipelines, this file is generated at deploy time from environment secrets.
   See the required GitHub Actions secrets in the [deployment workflow](../../.github/workflows/deploy-fiona-slack.yml).
 
-If you want to deploy your own instance of Fiona, copy `.slack/apps.json.example`
-to `.slack/apps.json` and replace the placeholder values with your workspace and app IDs.
+If you want to deploy your own instance of Fiona outside this repository's CI,
+create `.slack/apps.json` with your own workspace and app IDs:
+
+```json
+{
+  "apps": {
+    "YOUR_TEAM_ID": {
+      "app_id": "YOUR_APP_ID",
+      "team_domain": "your-workspace",
+      "team_id": "YOUR_TEAM_ID"
+    }
+  },
+  "default": "your-workspace"
+}
+```
