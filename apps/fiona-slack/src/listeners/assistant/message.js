@@ -1,9 +1,43 @@
-import { callLLM } from '../../agent/llm-caller.js';
+import { callLLM, CITATION_POLICY, MetadataLifecycleState } from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { feedbackBlock } from '../views/feedback_block.js';
+import { buildCitationBlocks } from '../views/citations_block.js';
+import { generateResponseId, shouldFinalize, markResponseFinalized } from '../../agent/utils/idempotent-finalize.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Wait for metadata to reach a finalization-ready state with timeout.
+ *
+ * @param {Object} metadata - Metadata envelope
+ * @param {number} [timeoutMs=2000] - Max wait time
+ * @returns {Promise<void>}
+ */
+async function waitForMetadataReady(metadata, timeoutMs = 2000) {
+  if (!metadata) return;
+
+  const startTime = Date.now();
+  const readyStates = [
+    MetadataLifecycleState.READY_TO_FINALIZE,
+    MetadataLifecycleState.DEGRADED_NO_METADATA,
+    MetadataLifecycleState.FINALIZED,
+  ];
+
+  while (true) {
+    if (readyStates.includes(metadata.finalize_state)) {
+      return;
+    }
+
+    if (Date.now() - startTime > timeoutMs) {
+      // Force degraded state on timeout
+      metadata.finalize_state = MetadataLifecycleState.DEGRADED_NO_METADATA;
+      return;
+    }
+
+    await sleep(50);
+  }
+}
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -177,8 +211,36 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       const prompts = await buildThreadHistory(client, channel, thread_ts, { currentText: text, logger });
 
-      await callLLM(streamer, prompts, logger);
-      await streamer.stop({ blocks: [feedbackBlock] });
+      const metadata = await callLLM(streamer, prompts, logger);
+
+      // Guard against duplicate finalization
+      const responseId = generateResponseId(channel, thread_ts);
+      if (!shouldFinalize(responseId)) {
+        return;
+      }
+
+      // Wait for metadata to be ready before finalizing
+      await waitForMetadataReady(metadata, 2000);
+
+      // Telemetry: log finalize_state and source count for observability.
+      if (metadata) {
+        logger.info(
+          `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`,
+        );
+      }
+
+      // Build citation blocks when rendering is enabled, metadata is ready, and sources exist.
+      const citationBlocks =
+        CITATION_POLICY.citation_rendering_enabled &&
+        metadata?.finalize_state === MetadataLifecycleState.READY_TO_FINALIZE &&
+        metadata.sources?.length > 0
+          ? buildCitationBlocks(metadata.sources, metadata.source_index_map, metadata.evidence_snippets || {}, {
+              includeEvidence: CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW,
+            })
+          : [];
+
+      await streamer.stop({ blocks: [...citationBlocks, feedbackBlock] });
+      markResponseFinalized(responseId);
     }
   } catch (e) {
     logger.error('Failed to handle a user message event:', e);

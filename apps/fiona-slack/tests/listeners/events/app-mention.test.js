@@ -3,6 +3,21 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue(undefined),
+  CITATION_POLICY: {
+    citation_rendering_enabled: true,
+    citation_metadata_collection_enabled: true,
+    FEATURE_FLAG_EVIDENCE_ROW: false,
+    MAX_SOURCES_DISPLAYED: 10,
+    METADATA_WAIT_TIMEOUT_MS: 2000,
+    TELEMETRY_ENABLED: true,
+  },
+  MetadataLifecycleState: {
+    STREAMING_TEXT: 'streaming_text',
+    COLLECTING_METADATA: 'collecting_metadata',
+    READY_TO_FINALIZE: 'ready_to_finalize',
+    FINALIZED: 'finalized',
+    DEGRADED_NO_METADATA: 'degraded_no_metadata',
+  },
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
@@ -16,10 +31,22 @@ jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
   ),
 }));
 
+jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
+  generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000001'),
+  shouldFinalize: jest.fn().mockReturnValue(true),
+  markResponseFinalized: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../../src/listeners/views/citations_block.js', () => ({
+  buildCitationBlocks: jest.fn().mockReturnValue([]),
+}));
+
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
 const { callLLM } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
+const { shouldFinalize } = await import('../../../src/agent/utils/idempotent-finalize.js');
+const { buildCitationBlocks } = await import('../../../src/listeners/views/citations_block.js');
 
 describe('appMentionCallback', () => {
   let mockSay;
@@ -30,9 +57,10 @@ describe('appMentionCallback', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    shouldFinalize.mockReturnValue(true);
 
     mockSay = jest.fn().mockResolvedValue(undefined);
-    mockLogger = { error: jest.fn() };
+    mockLogger = { error: jest.fn(), info: jest.fn() };
     mockStreamer = {
       append: jest.fn().mockResolvedValue(undefined),
       stop: jest.fn().mockResolvedValue(undefined),
@@ -185,5 +213,59 @@ describe('appMentionCallback', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  describe('citation blocks (strict-consistency citations)', () => {
+    it('includes citation blocks before feedbackBlock when metadata is READY_TO_FINALIZE with sources', async () => {
+      const citationSection = { type: 'section', text: { type: 'mrkdwn', text: '*Sources*' } };
+      callLLM.mockResolvedValueOnce({
+        metadata_contract_version: 'v1',
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
+        source_index_map: { 'https://docs.ed-fi.org': 1 },
+      });
+      buildCitationBlocks.mockReturnValueOnce([citationSection]);
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks[0]).toBe(citationSection);
+    });
+
+    it('omits citation blocks when metadata is DEGRADED_NO_METADATA', async () => {
+      callLLM.mockResolvedValueOnce({
+        metadata_contract_version: 'v1',
+        finalize_state: 'degraded_no_metadata',
+        sources: [],
+        source_index_map: {},
+      });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(buildCitationBlocks).not.toHaveBeenCalled();
+      expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips streamer.stop when shouldFinalize returns false', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockStreamer.stop).not.toHaveBeenCalled();
+    });
+
+    it('logs citation state and source count when metadata is present', async () => {
+      callLLM.mockResolvedValueOnce({
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://a.com' }],
+        source_index_map: { 'https://a.com': 1 },
+      });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
+    });
   });
 });
