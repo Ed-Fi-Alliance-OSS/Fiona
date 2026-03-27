@@ -24,6 +24,73 @@ function parseUrlHostname(url) {
   }
 }
 
+const TITLE_SEGMENT_STOPWORDS = new Set(['reference', 'references', 'docs', 'documentation']);
+const TOKEN_CASE_MAP = {
+  api: 'API',
+  ods: 'ODS',
+  edfi: 'Ed-Fi',
+  csv: 'CSV',
+  json: 'JSON',
+  sdk: 'SDK',
+};
+
+function formatToken(token) {
+  const normalized = token.toLowerCase();
+  if (TOKEN_CASE_MAP[normalized]) {
+    return TOKEN_CASE_MAP[normalized];
+  }
+
+  if (!normalized) {
+    return '';
+  }
+
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+}
+
+function segmentToTitle(segment) {
+  if (!segment) {
+    return '';
+  }
+
+  if (segment.toLowerCase() === 'ods-api') {
+    return 'ODS/API';
+  }
+
+  const tokenized = segment
+    .replaceAll('_', '-')
+    .split('-')
+    .map((token) => formatToken(token.trim()))
+    .filter(Boolean);
+
+  return tokenized.join(' ');
+}
+
+function buildTitleFromUrlPath(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .filter((segment) => !TITLE_SEGMENT_STOPWORDS.has(segment.toLowerCase()));
+
+    if (segments.length === 0) {
+      return '';
+    }
+
+    const tailSegments = segments.slice(-2);
+    const titled = tailSegments
+      .map((segment) => segmentToTitle(segment))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    return titled;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Normalize a source object into a stable structure.
  *
@@ -64,10 +131,11 @@ export function normalizeSource(source) {
   }
 
   const { hostname, domain } = parseUrlHostname(url);
+  const fallbackTitle = buildTitleFromUrlPath(url) || domain;
 
   return {
     url,
-    title: source.title?.trim() || domain,
+    title: source.title?.trim() || fallbackTitle,
     hostname,
     date: source.published_date || source.date || undefined,
     snippet: source.snippet || source.evidence || undefined,
