@@ -69,7 +69,7 @@ jobs:
       run: |
         az deployment group create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
-          --template-file infra/azure/fiona-slack-container/main.bicep \
+          --template-file infra/fiona-slack-container/main.bicep \
           --parameters \
             containerAppName=${{ env.CONTAINER_APP_NAME }} \
             containerManagedIdentityName=${{ env.CONTAINER_MANAGED_IDENTITY_NAME }} \
