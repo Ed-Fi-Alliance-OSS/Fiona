@@ -368,8 +368,9 @@ function buildIndexToUrlMap(sourceIndexMap = {}) {
   const indexToUrl = new Map();
 
   for (const [url, index] of Object.entries(sourceIndexMap)) {
-    if (Number.isInteger(index) && index > 0 && !indexToUrl.has(index)) {
-      indexToUrl.set(index, url);
+    const normalizedIndex = Number(index);
+    if (Number.isInteger(normalizedIndex) && normalizedIndex > 0 && !indexToUrl.has(normalizedIndex)) {
+      indexToUrl.set(normalizedIndex, url);
     }
   }
 
@@ -408,6 +409,7 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
  */
 function createCitationAwareAppender(streamer) {
   let tail = '';
+  let pending = '';
 
   return {
     async append(text) {
@@ -432,17 +434,30 @@ function createCitationAwareAppender(streamer) {
       }
 
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-      const linked = linkifyCitationMarkers(safeText, sourceIndexMap);
+      const hasMappings = Object.keys(sourceIndexMap).length > 0;
+
+      if (!hasMappings) {
+        pending += safeText;
+        return;
+      }
+
+      const bufferedText = `${pending}${safeText}`;
+      pending = '';
+      const linked = linkifyCitationMarkers(bufferedText, sourceIndexMap);
       await streamer.append({ markdown_text: linked });
     },
 
     async flush() {
       if (!tail) {
-        return;
+        if (!pending) {
+          return;
+        }
       }
 
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-      const linked = linkifyCitationMarkers(tail, sourceIndexMap);
+      const combined = `${pending}${tail}`;
+      const linked = linkifyCitationMarkers(combined, sourceIndexMap);
+      pending = '';
       tail = '';
       await streamer.append({ markdown_text: linked });
     },
