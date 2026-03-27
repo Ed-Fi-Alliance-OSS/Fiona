@@ -362,7 +362,7 @@ describe('message (assistant thread handler)', () => {
       expect(blocks[0]).toBe(citationSection);
     });
 
-    it('omits citation blocks when metadata is DEGRADED_NO_METADATA', async () => {
+    it('omits citation blocks when metadata is DEGRADED_NO_METADATA and no sources exist', async () => {
       callLLM.mockResolvedValueOnce({
         metadata_contract_version: 'v1',
         finalize_state: 'degraded_no_metadata',
@@ -381,6 +381,30 @@ describe('message (assistant thread handler)', () => {
 
       expect(buildCitationBlocks).not.toHaveBeenCalled();
       expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders citation blocks when metadata is DEGRADED_NO_METADATA but sources are present', async () => {
+      const citationSection = { type: 'section', text: { type: 'mrkdwn', text: '*Sources*' } };
+      callLLM.mockResolvedValueOnce({
+        metadata_contract_version: 'v1',
+        finalize_state: 'degraded_no_metadata',
+        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
+        source_index_map: { 'https://docs.ed-fi.org': 1 },
+      });
+      buildCitationBlocks.mockReturnValueOnce([citationSection]);
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks[0]).toBe(citationSection);
     });
 
     it('skips streamer.stop when shouldFinalize returns false', async () => {

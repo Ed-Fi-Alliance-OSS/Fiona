@@ -4,7 +4,7 @@
  * on retries or reconnections.
  */
 
-// In-memory tracking of finalized response IDs (thread_ts + channel)
+// In-memory tracking of finalized response IDs (thread_ts + channel + request_ts)
 // In a production system, this would be backed by persistent storage (Redis, DB)
 const finalizedResponses = new Set();
 
@@ -13,10 +13,12 @@ const finalizedResponses = new Set();
  *
  * @param {string} channel - Slack channel ID
  * @param {string} threadTs - Thread timestamp (or message timestamp)
+ * @param {string} [requestTs] - Unique inbound request/message timestamp
  * @returns {string} Unique response ID
  */
-export function generateResponseId(channel, threadTs) {
-  return `${channel}:${threadTs}`;
+export function generateResponseId(channel, threadTs, requestTs) {
+  const uniqueRequestToken = requestTs || threadTs;
+  return `${channel}:${threadTs}:${uniqueRequestToken}`;
 }
 
 /**
