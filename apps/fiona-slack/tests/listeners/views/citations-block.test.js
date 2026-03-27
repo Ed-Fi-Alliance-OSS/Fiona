@@ -47,6 +47,15 @@ describe('citations_block rendering', () => {
       expect(firstSourceRow.accessory.url).toBe('https://docs.ed-fi.org');
     });
 
+    it('resolves Open button URL when sourceIndexMap indices are strings', () => {
+      const sourceIndexMap = { 'https://docs.ed-fi.org': '1', 'https://example.com': '2' };
+      const blocks = buildSourcesBlocks(mockSources, sourceIndexMap);
+      const firstSourceRow = blocks[1];
+
+      expect(firstSourceRow.accessory).toBeDefined();
+      expect(firstSourceRow.accessory.url).toBe('https://docs.ed-fi.org');
+    });
+
     it('returns empty array when no sources', () => {
       const blocks = buildSourcesBlocks([]);
       expect(blocks.length).toBe(0);

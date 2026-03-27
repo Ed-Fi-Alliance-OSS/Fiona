@@ -55,8 +55,10 @@ function buildUrlPreview(url, maxLength = URL_PREVIEW_MAX_LENGTH) {
 }
 
 function getUrlFromIndex(sourceIndexMap = {}, index) {
+  const normalizedIndex = Number(index);
+
   for (const [url, mappedIndex] of Object.entries(sourceIndexMap)) {
-    if (mappedIndex === index) {
+    if (Number(mappedIndex) === normalizedIndex) {
       return url;
     }
   }
