@@ -3,32 +3,114 @@
  * Builds Sources blocks and optional Evidence blocks with verified source links.
  */
 
+const DEFAULT_OPEN_BUTTON_ENABLED = true;
+const URL_PREVIEW_MAX_LENGTH = 56;
+
+function escapeMrkdwn(text = '') {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function normalizeTitle(source = {}) {
+  if (typeof source.title === 'string' && source.title.trim()) {
+    return source.title.trim();
+  }
+
+  if (typeof source.hostname === 'string' && source.hostname.trim()) {
+    return source.hostname.trim();
+  }
+
+  try {
+    return new URL(source.url).hostname;
+  } catch {
+    return 'Source';
+  }
+}
+
+function buildUrlPreview(url, maxLength = URL_PREVIEW_MAX_LENGTH) {
+  if (!url || typeof url !== 'string') {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const path = parsed.pathname === '/' ? '' : parsed.pathname;
+    const preview = `${host}${path}`;
+
+    if (preview.length <= maxLength) {
+      return preview;
+    }
+
+    return `${preview.slice(0, Math.max(0, maxLength - 1))}…`;
+  } catch {
+    if (url.length <= maxLength) {
+      return url;
+    }
+
+    return `${url.slice(0, Math.max(0, maxLength - 1))}…`;
+  }
+}
+
+function getUrlFromIndex(sourceIndexMap = {}, index) {
+  for (const [url, mappedIndex] of Object.entries(sourceIndexMap)) {
+    if (mappedIndex === index) {
+      return url;
+    }
+  }
+
+  return undefined;
+}
+
 /**
- * Build a Slack Section Block for a single source with link.
+ * Build a Slack Section Block for a single source with rich, badge-like presentation.
  *
  * @typedef {Object} SourceBlockElement
  * @property {string} type - Block type ("section")
- * @property {Object} text - Text object with source title and link
+ * @property {Object} text - Text object with source title and URL preview
  */
 
 /**
- * Format a single source as a Slack text markdown line with link and index.
+ * Build a section block for a single source with a clickable citation index.
  *
  * @param {Object} source - Normalized source object
  * @param {number} index - Citation index (1-indexed)
- * @returns {string} Markdown text for Slack
+ * @param {Object} sourceIndexMap - URL -> index mapping
+ * @param {Object} [options]
+ * @param {boolean} [options.includeOpenButton=true] - Include "Open" button accessory
+ * @returns {Object} Slack section block
  */
-function formatSourceLine(source, index) {
+function buildSourceSection(source, index, sourceIndexMap = {}, { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {}) {
   const { url, title, date } = source;
+  const mappedUrl = getUrlFromIndex(sourceIndexMap, index) || url;
+  const safeTitle = escapeMrkdwn(normalizeTitle({ ...source, title }));
+  const safePreview = escapeMrkdwn(buildUrlPreview(mappedUrl));
+  const safeDate = date ? ` • ${escapeMrkdwn(date)}` : '';
 
-  // Build markdown link: [index. Title](URL) - Date
-  let line = `${index}. <${url}|${title}>`;
+  const block = {
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*[${index}]*  *${safeTitle}*\n${safePreview}${safeDate}`,
+    },
+  };
 
-  if (date) {
-    line += ` — ${date}`;
+  if (includeOpenButton) {
+    block.accessory = {
+      type: 'button',
+      text: {
+        type: 'plain_text',
+        text: 'Open',
+        emoji: true,
+      },
+      url: mappedUrl,
+      action_id: `open_citation_${index}`,
+    };
   }
 
-  return line;
+  return block;
 }
 
 /**
@@ -36,9 +118,11 @@ function formatSourceLine(source, index) {
  *
  * @param {Array<Object>} sources - Normalized sources
  * @param {Object} sourceIndexMap - URL -> index mapping
+ * @param {Object} [options]
+ * @param {boolean} [options.includeOpenButton=true] - Include Open button in source rows
  * @returns {Array<Object>} Slack block objects
  */
-export function buildSourcesBlocks(sources, sourceIndexMap = {}) {
+export function buildSourcesBlocks(sources, sourceIndexMap = {}, { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {}) {
   if (!sources || sources.length === 0) {
     return [];
   }
@@ -54,21 +138,10 @@ export function buildSourcesBlocks(sources, sourceIndexMap = {}) {
     },
   });
 
-  // Build source items
-  const sourceLines = sources.map((source, idx) => {
+  // Build one rich section row per source for better readability and interaction.
+  sources.forEach((source, idx) => {
     const index = idx + 1;
-    return formatSourceLine(source, index);
-  });
-
-  // Add all sources in a single context block for compactness
-  blocks.push({
-    type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text: sourceLines.join('\n'),
-      },
-    ],
+    blocks.push(buildSourceSection(source, index, sourceIndexMap, { includeOpenButton }));
   });
 
   // Divider after sources
@@ -201,4 +274,32 @@ export function validateCitationConsistency(answerText, sources) {
     missingIndices,
     citedIndices,
   };
+}
+
+/**
+ * Convert inline [n] citation markers into Slack links when source mapping is available.
+ *
+ * @param {string} text - Text containing [n] markers
+ * @param {Object} sourceIndexMap - URL -> index mapping
+ * @returns {string} Text with linked citation markers when mappings exist
+ */
+export function linkifyInlineCitationMarkers(text, sourceIndexMap = {}) {
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+
+  return text.replace(/\[(\d+)\]/g, (full, rawIndex) => {
+    const index = parseInt(rawIndex, 10);
+
+    if (index < 1) {
+      return full;
+    }
+
+    const url = getUrlFromIndex(sourceIndexMap, index);
+    if (!url) {
+      return full;
+    }
+
+    return `<${url}|[${index}]>`;
+  });
 }
