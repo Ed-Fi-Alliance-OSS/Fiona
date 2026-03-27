@@ -171,6 +171,25 @@ describe('message (assistant thread handler)', () => {
     expect(callLLM).not.toHaveBeenCalled();
   });
 
+  it('logs error and does not throw when introduction say() rejects', async () => {
+    mockMessage.text = '';
+    mockSay.mockRejectedValueOnce(new Error('Slack API error'));
+
+    await expect(
+      messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockLogger.error).toHaveBeenCalled();
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
   it('calls checkRateLimit with the user ID', async () => {
     await messageHandler({
       client: mockClient,

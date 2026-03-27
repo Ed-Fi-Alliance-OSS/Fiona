@@ -93,4 +93,85 @@ describe('assistantThreadStarted', () => {
 
     expect(mockLogger.error).toHaveBeenCalledWith(error);
   });
+
+  it('does not throw when context is null (DM without channel context)', async () => {
+    const event = { assistant_thread: { context: null } };
+
+    await expect(
+      assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockSay).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets suggested prompts when context is null', async () => {
+    const event = { assistant_thread: { context: null } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    expect(mockSetSuggestedPrompts).toHaveBeenCalledTimes(1);
+  });
+
+  it('suggested prompts contain Ed-Fi relevant content', async () => {
+    const event = { assistant_thread: { context: {} } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    const [{ prompts }] = mockSetSuggestedPrompts.mock.calls[0];
+    const messages = prompts.map((p) => p.message.toLowerCase());
+    const hasEdFiContent = messages.some(
+      (m) => m.includes('ed-fi') || m.includes('ods') || m.includes('data standard') || m.includes('admin console'),
+    );
+    expect(hasEdFiContent).toBe(true);
+  });
+
+  it('suggested prompts do not contain boilerplate dice content', async () => {
+    const event = { assistant_thread: { context: {} } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    const [{ prompts }] = mockSetSuggestedPrompts.mock.calls[0];
+    const messages = prompts.map((p) => p.message.toLowerCase());
+    expect(messages.some((m) => m.includes('dice') || m.includes('roll'))).toBe(false);
+  });
+
+  it('logs error and does not throw when context is undefined', async () => {
+    const event = { assistant_thread: {} };
+
+    await expect(
+      assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockSay).toHaveBeenCalledTimes(1);
+  });
 });

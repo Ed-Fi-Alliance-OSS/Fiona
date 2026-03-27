@@ -29,3 +29,24 @@ export function checkRateLimit(userId) {
   userTimestamps.set(userId, timestamps);
   return { allowed: true, retryAfterMs: 0 };
 }
+
+/**
+ * Purge all entries whose timestamps have entirely expired from the rate limiter map.
+ * This prevents unbounded memory growth in long-running deployments where many unique
+ * users have made requests but are no longer active.
+ */
+export function purgeExpiredEntries() {
+  const windowStart = Date.now() - WINDOW_MS;
+  for (const [userId, timestamps] of userTimestamps) {
+    if (!timestamps.some((t) => t > windowStart)) {
+      userTimestamps.delete(userId);
+    }
+  }
+}
+
+// Periodically purge expired entries to prevent the map from growing indefinitely.
+// The interval is intentionally unref'd so it does not keep the process alive.
+const _cleanupInterval = setInterval(purgeExpiredEntries, WINDOW_MS);
+if (typeof _cleanupInterval.unref === 'function') {
+  _cleanupInterval.unref();
+}

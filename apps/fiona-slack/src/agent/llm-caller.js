@@ -19,6 +19,46 @@ const AZURE_OPENAI_MODEL = AZURE_OPENAI_DEPLOYMENT || OPENAI_API_MODEL;
 const AZURE_PROJECT_ENDPOINT = process.env.AZURE_PROJECT_ENDPOINT;
 const AZURE_AGENT_ID = process.env.AZURE_AGENT_ID;
 
+/**
+ * Validate the AZURE_AGENT_ID environment variable format.
+ * Expected format: `name` or `name:version`
+ * - name: alphanumeric characters, hyphens, and underscores only
+ * - version: numeric or semver (e.g. `1`, `1.0`, `1.0.0`)
+ *
+ * @param {string} id - The value of the AZURE_AGENT_ID environment variable.
+ * @throws {Error} If the format is invalid.
+ */
+function validateAzureAgentId(id) {
+  if (!id || typeof id !== 'string' || id.trim() === '') {
+    throw new Error('AZURE_AGENT_ID must be a non-empty string.');
+  }
+  const parts = id.split(':');
+  if (parts.length > 2) {
+    throw new Error(
+      `AZURE_AGENT_ID has too many colon-separated segments: "${id}". Expected format: name or name:version.`,
+    );
+  }
+  const [name, version] = parts;
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+    throw new Error(
+      `AZURE_AGENT_ID name segment "${name}" contains invalid characters. Only alphanumeric characters, hyphens, and underscores are allowed.`,
+    );
+  }
+  if (version !== undefined && !/^\d+(\.\d+){0,2}$/.test(version)) {
+    throw new Error(
+      `AZURE_AGENT_ID version segment "${version}" is invalid. Expected a numeric or semver version (e.g. 1, 1.0, 1.0.0).`,
+    );
+  }
+}
+
+if (AZURE_AGENT_ID) {
+  try {
+    validateAzureAgentId(AZURE_AGENT_ID);
+  } catch (e) {
+    throw new Error(`[llm-caller] Invalid AZURE_AGENT_ID: ${e.message}`);
+  }
+}
+
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'sonar';
@@ -112,6 +152,27 @@ if (PERPLEXITY_API_KEY) {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+/**
+ * Return a safe, redacted summary of an Azure API error response body for logging.
+ * Strips tokens, credentials, and full endpoint URLs to prevent sensitive data
+ * from appearing in log files.
+ *
+ * @param {string} bodyAsText - Raw response body text from an Azure API error.
+ * @returns {string} A redacted string safe for logging.
+ */
+function redactAzureErrorBody(bodyAsText) {
+  try {
+    const parsed = JSON.parse(bodyAsText);
+    return JSON.stringify({
+      error: parsed?.error?.code ?? parsed?.error ?? 'unknown',
+      message: parsed?.error?.message ?? parsed?.message ?? '',
+    });
+  } catch {
+    // Not valid JSON – return a generic placeholder to avoid leaking raw content.
+    return '[non-JSON error body redacted]';
+  }
+}
+
 function safeParseJSON(text) {
   try {
     return JSON.parse(text);
@@ -242,7 +303,7 @@ async function callAzureAgent(streamer, prompts, logger) {
     );
   } catch (e) {
     if (e.response?.bodyAsText) {
-      logger.error('Error streaming response:', e.response.bodyAsText);
+      logger.error('Error streaming response:', redactAzureErrorBody(e.response.bodyAsText));
     } else {
       logger.error('Error streaming response:', e);
     }
@@ -259,31 +320,40 @@ async function callAzureAgent(streamer, prompts, logger) {
 
 // ─── OpenAI-compatible LLM Caller ────────────────────────────────────────
 /**
+ * Maximum number of sequential tool-call round trips allowed in a single
+ * conversation turn. Prevents unbounded recursion if a malfunctioning LLM
+ * keeps requesting tool calls without producing a final text response.
+ */
+const MAX_TOOL_CALL_DEPTH = 5;
+
+/**
  * Stream an LLM response using the OpenAI-compatible client.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer
  * @param {Array} prompts
  * @param {import("@slack/logger").Logger} logger
+ * @param {number} [currentDepth=0] - Current recursion depth for tool call resolution.
  */
-async function callOpenAICompatible(streamer, prompts, logger) {
+async function callOpenAICompatible(streamer, prompts, logger, currentDepth = 0) {
+  if (currentDepth >= MAX_TOOL_CALL_DEPTH) {
+    logger.warn(
+      `Max tool call depth of ${MAX_TOOL_CALL_DEPTH} reached after ${currentDepth} round trips. Stopping recursion.`,
+    );
+    await streamer.append({
+      markdown_text: 'The AI encountered too many tool invocations. Please try a simpler request.',
+    });
+    return;
+  }
+
   const toolCalls = [];
 
   let client = defaultClient;
   let model = LLM_PROVIDER === 'azure' ? AZURE_OPENAI_MODEL : OPENAI_API_MODEL;
 
-  // Keyword routing: use Perplexity if prompt contains "search" or starts with "sonar:"
-  const lastUserMessage = prompts.findLast((p) => p.role === 'user')?.content?.toLowerCase() || '';
-
+  // Provider selection is system-controlled via the LLM_PROVIDER environment variable.
   if (LLM_PROVIDER === 'perplexity' && perplexityClient) {
     client = perplexityClient;
     model = PERPLEXITY_API_MODEL;
-  } else if (perplexityClient && (lastUserMessage.includes('search') || lastUserMessage.startsWith('sonar:'))) {
-    client = perplexityClient;
-    model = PERPLEXITY_API_MODEL;
-    if (lastUserMessage.startsWith('sonar:')) {
-      const lastMsg = prompts.findLast((p) => p.role === 'user');
-      if (lastMsg) lastMsg.content = lastMsg.content.substring(6).trim();
-    }
   }
 
   const usingPerplexity = client === perplexityClient;
@@ -377,7 +447,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
       }
     }
 
-    await callOpenAICompatible(streamer, prompts, logger);
+    await callOpenAICompatible(streamer, prompts, logger, currentDepth + 1);
   }
 }
 
@@ -400,3 +470,5 @@ export async function callLLM(streamer, prompts, logger) {
     await callOpenAICompatible(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts], logger);
   }
 }
+
+export { validateAzureAgentId, redactAzureErrorBody };
