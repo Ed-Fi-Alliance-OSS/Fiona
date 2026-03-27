@@ -249,12 +249,22 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   // Collect raw sources
   const rawSources = [];
 
+  // Build URL -> title map from web search metadata when available.
+  const searchTitleByUrl = new Map();
+  if (Array.isArray(webSearch)) {
+    webSearch.forEach((result) => {
+      if (result?.url && result?.title) {
+        searchTitleByUrl.set(result.url, result.title);
+      }
+    });
+  }
+
   // Add citations as sources
   if (Array.isArray(citations)) {
-    citations.forEach((citation, idx) => {
+    citations.forEach((citation) => {
       rawSources.push({
         url: citation,
-        title: `Citation ${idx + 1}`,
+        title: searchTitleByUrl.get(citation),
       });
     });
   }
@@ -354,6 +364,91 @@ function promptsToChatMessages(prompts) {
     .filter(Boolean);
 }
 
+function buildIndexToUrlMap(sourceIndexMap = {}) {
+  const indexToUrl = new Map();
+
+  for (const [url, index] of Object.entries(sourceIndexMap)) {
+    if (Number.isInteger(index) && index > 0 && !indexToUrl.has(index)) {
+      indexToUrl.set(index, url);
+    }
+  }
+
+  return indexToUrl;
+}
+
+function linkifyCitationMarkers(text, sourceIndexMap = {}) {
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+
+  const indexToUrl = buildIndexToUrlMap(sourceIndexMap);
+
+  if (indexToUrl.size === 0) {
+    return text;
+  }
+
+  return text.replace(/\[(\d+)\]/g, (full, rawIndex) => {
+    const index = parseInt(rawIndex, 10);
+    const url = indexToUrl.get(index);
+
+    if (!url) {
+      return full;
+    }
+
+    return `<${url}|[${index}]>`;
+  });
+}
+
+/**
+ * Create an append helper that safely linkifies citation markers while handling chunk boundaries.
+ * This preserves streaming behavior and avoids breaking markers split across chunks.
+ *
+ * @param {import("@slack/web-api").ChatStreamer} streamer
+ * @returns {{ append: (text: string) => Promise<void>, flush: () => Promise<void> }}
+ */
+function createCitationAwareAppender(streamer) {
+  let tail = '';
+
+  return {
+    async append(text) {
+      if (!text) {
+        return;
+      }
+
+      const combined = `${tail}${text}`;
+      let safeLength = combined.length;
+
+      // Keep a potential partial marker (e.g. "[1" or "[") for the next chunk.
+      const partialMarker = combined.match(/\[(\d*)$/);
+      if (partialMarker) {
+        safeLength -= partialMarker[0].length;
+      }
+
+      const safeText = combined.slice(0, safeLength);
+      tail = combined.slice(safeLength);
+
+      if (!safeText) {
+        return;
+      }
+
+      const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
+      const linked = linkifyCitationMarkers(safeText, sourceIndexMap);
+      await streamer.append({ markdown_text: linked });
+    },
+
+    async flush() {
+      if (!tail) {
+        return;
+      }
+
+      const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
+      const linked = linkifyCitationMarkers(tail, sourceIndexMap);
+      tail = '';
+      await streamer.append({ markdown_text: linked });
+    },
+  };
+}
+
 /**
  * Call Perplexity chat API (streaming) and collect citations from the final chunk.
  * Perplexity returns `citations` as a top-level field on the last stream chunk.
@@ -382,10 +477,15 @@ async function callPerplexityChat(streamer, prompts) {
 
   // Collect citations from any chunk that carries them; last one wins.
   let citations = [];
+  const appender = createCitationAwareAppender(streamer);
 
   for await (const chunk of response) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
+
+      if (streamer?.__citation_metadata) {
+        aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+      }
     }
 
     const delta = chunk?.choices?.[0]?.delta;
@@ -408,9 +508,11 @@ async function callPerplexityChat(streamer, prompts) {
     }
 
     if (text) {
-      await streamer.append({ markdown_text: text });
+      await appender.append(text);
     }
   }
+
+  await appender.flush();
 
   return citations;
 }
@@ -467,12 +569,16 @@ async function callAzureAgent(streamer, prompts, logger) {
     throw e;
   }
 
+  const appender = createCitationAwareAppender(streamer);
+
   for await (const chunk of responseStream) {
     // For now we just process text deltas. Tool call chunks can be added later as needed by AI Foundry
     if (chunk.type === 'response.output_text.delta' && chunk.delta) {
-      await streamer.append({ markdown_text: chunk.delta });
+      await appender.append(chunk.delta);
     }
   }
+
+  await appender.flush();
 }
 
 // ─── OpenAI-compatible LLM Caller ────────────────────────────────────────
@@ -485,6 +591,7 @@ async function callAzureAgent(streamer, prompts, logger) {
  */
 async function callOpenAICompatible(streamer, prompts, logger) {
   const toolCalls = [];
+  const appender = createCitationAwareAppender(streamer);
 
   let client = defaultClient;
   let model = LLM_PROVIDER === 'azure' ? AZURE_OPENAI_MODEL : OPENAI_API_MODEL;
@@ -529,7 +636,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
 
   for await (const event of response) {
     if (event.type === 'response.output_text.delta' && event.delta) {
-      await streamer.append({ markdown_text: event.delta });
+      await appender.append(event.delta);
     }
 
     if (event.type === 'response.output_item.done' && event.item.type === 'function_call') {
@@ -549,6 +656,8 @@ async function callOpenAICompatible(streamer, prompts, logger) {
       });
     }
   }
+
+  await appender.flush();
 
   if (toolCalls.length > 0) {
     for (const call of toolCalls) {

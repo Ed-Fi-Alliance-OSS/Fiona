@@ -5,6 +5,7 @@ import {
   buildCitationBlocks,
   extractCitedIndices,
   validateCitationConsistency,
+  linkifyInlineCitationMarkers,
 } from '../../../src/listeners/views/citations_block.js';
 
 describe('citations_block rendering', () => {
@@ -14,22 +15,37 @@ describe('citations_block rendering', () => {
   ];
 
   describe('buildSourcesBlocks', () => {
-    it('builds Sources header and list blocks', () => {
+    it('builds Sources header and rich source rows', () => {
       const blocks = buildSourcesBlocks(mockSources);
 
       expect(blocks.length).toBeGreaterThan(0);
       expect(blocks[0].type).toBe('section');
       expect(blocks[0].text.text).toContain('Sources');
+
+      const firstSourceRow = blocks[1];
+      expect(firstSourceRow.type).toBe('section');
+      expect(firstSourceRow.text.text).toContain('*[1]*');
+      expect(firstSourceRow.text.text).toContain('*Ed-Fi Docs*');
+      expect(firstSourceRow.text.text).not.toContain('<https://docs.ed-fi.org|');
     });
 
-    it('includes source links in markdown', () => {
+    it('includes URL preview text in source row', () => {
       const sourceIndexMap = { 'https://docs.ed-fi.org': 1, 'https://example.com': 2 };
       const blocks = buildSourcesBlocks(mockSources, sourceIndexMap);
 
-      const contextBlock = blocks.find((b) => b.type === 'context');
-      expect(contextBlock).toBeDefined();
-      expect(contextBlock.elements[0].text).toContain('<https://docs.ed-fi.org');
-      expect(contextBlock.elements[0].text).toContain('Ed-Fi Docs');
+      const firstSourceRow = blocks[1];
+      expect(firstSourceRow.text.text).toContain('docs.ed-fi.org');
+      expect(firstSourceRow.text.text).toContain('2025-03-26');
+      expect(firstSourceRow.text.text).not.toContain('_docs.ed-fi.org');
+    });
+
+    it('adds an Open button accessory by default', () => {
+      const blocks = buildSourcesBlocks(mockSources);
+      const firstSourceRow = blocks[1];
+
+      expect(firstSourceRow.accessory).toBeDefined();
+      expect(firstSourceRow.accessory.type).toBe('button');
+      expect(firstSourceRow.accessory.url).toBe('https://docs.ed-fi.org');
     });
 
     it('returns empty array when no sources', () => {
@@ -45,6 +61,13 @@ describe('citations_block rendering', () => {
     it('includes divider after sources', () => {
       const blocks = buildSourcesBlocks(mockSources);
       expect(blocks.some((b) => b.type === 'divider')).toBe(true);
+    });
+
+    it('can disable Open button accessory', () => {
+      const blocks = buildSourcesBlocks(mockSources, {}, { includeOpenButton: false });
+      const firstSourceRow = blocks[1];
+
+      expect(firstSourceRow.accessory).toBeUndefined();
     });
   });
 
@@ -68,6 +91,8 @@ describe('citations_block rendering', () => {
 
       expect(blocks.length).toBeGreaterThan(0);
       expect(blocks[0].text.text).toContain('Evidence');
+      expect(blocks[1].elements[0].text).toContain('[1]');
+      expect(blocks[1].elements[0].text).not.toContain('<https://docs.ed-fi.org|[1]>');
     });
 
     it('truncates long evidence snippets', () => {
@@ -186,6 +211,34 @@ describe('citations_block rendering', () => {
 
       expect(result.isValid).toBe(true);
       expect(result.citedIndices.size).toBe(0);
+    });
+  });
+
+  describe('linkifyInlineCitationMarkers', () => {
+    it('converts valid [n] markers into clickable Slack links', () => {
+      const text = 'See [1] and [2] for details.';
+      const sourceIndexMap = {
+        'https://docs.ed-fi.org': 1,
+        'https://example.com/path': 2,
+      };
+
+      const linked = linkifyInlineCitationMarkers(text, sourceIndexMap);
+      expect(linked).toContain('<https://docs.ed-fi.org|[1]>');
+      expect(linked).toContain('<https://example.com/path|[2]>');
+    });
+
+    it('leaves unknown indices unchanged', () => {
+      const text = 'Known [1], unknown [3].';
+      const sourceIndexMap = { 'https://docs.ed-fi.org': 1 };
+
+      const linked = linkifyInlineCitationMarkers(text, sourceIndexMap);
+      expect(linked).toContain('<https://docs.ed-fi.org|[1]>');
+      expect(linked).toContain('[3]');
+    });
+
+    it('handles null and undefined text safely', () => {
+      expect(linkifyInlineCitationMarkers(null, {})).toBeNull();
+      expect(linkifyInlineCitationMarkers(undefined, {})).toBeUndefined();
     });
   });
 });
