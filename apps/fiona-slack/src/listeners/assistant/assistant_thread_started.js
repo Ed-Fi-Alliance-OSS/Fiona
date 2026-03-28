@@ -14,6 +14,10 @@
 export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
   const { context } = event.assistant_thread;
 
+  if (!context) {
+    logger.warn('assistantThreadStarted: no context available (DM or missing context)');
+  }
+
   try {
     /**
      * Since context is not sent along with individual user messages, it's necessary to keep
@@ -35,17 +39,25 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
      *
      * @see {@link https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts}
      */
-    if (!context.channel_id) {
+    if (!context?.channel_id) {
       await setSuggestedPrompts({
         title: 'Start with this suggested prompt:',
         prompts: [
           {
-            title: 'Prompt a task with thinking steps',
-            message: 'Wonder a few deep thoughts.',
+            title: 'Set up ODS/API',
+            message: 'How do I set up ODS/API?',
           },
           {
-            title: 'Roll dice for a random number',
-            message: 'Roll two 12-sided dice and three 6-sided dice for a pseudo-random score.',
+            title: 'Data Standard 6.0 updates',
+            message: "What's new in Data Standard 6.0?",
+          },
+          {
+            title: 'Configure Admin Console',
+            message: 'How do I configure Admin Console?',
+          },
+          {
+            title: 'Student entity required fields',
+            message: 'What are the required fields for Student entity?',
           },
         ],
       });

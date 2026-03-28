@@ -442,4 +442,59 @@ describe('message (assistant thread handler)', () => {
       expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
     });
   });
+
+  describe('intro say() error handling', () => {
+    it('resolves without throwing when say() rejects on empty text', async () => {
+      mockMessage.text = '';
+      mockSay.mockRejectedValueOnce(new Error('Slack API error'));
+
+      await expect(
+        messageHandler({
+          client: mockClient,
+          context: mockContext,
+          logger: mockLogger,
+          message: mockMessage,
+          say: mockSay,
+          setStatus: mockSetStatus,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('logs the error when intro say() rejects', async () => {
+      mockMessage.text = '';
+      const slackError = new Error('Slack API rejected');
+      mockSay.mockRejectedValueOnce(slackError);
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to handle'),
+        slackError,
+      );
+    });
+
+    it('sends intro and does not call callLLM when text is empty (regression)', async () => {
+      mockMessage.text = '';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+  });
 });

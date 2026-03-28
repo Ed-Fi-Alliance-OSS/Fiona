@@ -8,7 +8,7 @@ describe('assistantThreadStarted', () => {
   let mockSetSuggestedPrompts;
 
   beforeEach(() => {
-    mockLogger = { error: jest.fn() };
+    mockLogger = { error: jest.fn(), warn: jest.fn() };
     mockSay = jest.fn().mockResolvedValue(undefined);
     mockSaveThreadContext = jest.fn().mockResolvedValue(undefined);
     mockSetSuggestedPrompts = jest.fn().mockResolvedValue(undefined);
@@ -92,5 +92,78 @@ describe('assistantThreadStarted', () => {
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalledWith(error);
+  });
+
+  describe('null/undefined context guard', () => {
+    it('does not throw when context is null', async () => {
+      const event = { assistant_thread: { context: null } };
+
+      await expect(
+        assistantThreadStarted({
+          event,
+          logger: mockLogger,
+          say: mockSay,
+          setSuggestedPrompts: mockSetSuggestedPrompts,
+          saveThreadContext: mockSaveThreadContext,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('does not throw when context is undefined', async () => {
+      const event = { assistant_thread: { context: undefined } };
+
+      await expect(
+        assistantThreadStarted({
+          event,
+          logger: mockLogger,
+          say: mockSay,
+          setSuggestedPrompts: mockSetSuggestedPrompts,
+          saveThreadContext: mockSaveThreadContext,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('still calls say and saveThreadContext when context is null', async () => {
+      const event = { assistant_thread: { context: null } };
+
+      await assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSaveThreadContext).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows suggested prompts when context is null (DM fallback)', async () => {
+      const event = { assistant_thread: { context: null } };
+
+      await assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      });
+
+      expect(mockSetSuggestedPrompts).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs a warning when context is absent', async () => {
+      const event = { assistant_thread: { context: null } };
+
+      await assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      });
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('no context available'));
+    });
   });
 });

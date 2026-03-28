@@ -75,14 +75,14 @@ export const message = async ({ client, context, logger, message, say, setStatus
    * rather than silently ignoring the message or forwarding an empty prompt.
    */
   const text = ('text' in message ? message.text || '' : '').replace(/<[@#!][^>]+>/g, '').trim();
-  if (!text) {
-    await say(
-      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
-    );
-    return;
-  }
 
   try {
+    if (!text) {
+      await say(
+        "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+      );
+      return;
+    }
     const { channel, thread_ts } = message;
     const { userId, teamId } = context;
 
