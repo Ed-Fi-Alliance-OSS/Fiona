@@ -239,10 +239,7 @@ function transitionMetadataState(envelope, newState) {
  */
 export function finalizeMetadataEnvelope(metadata) {
   if (!metadata) return;
-  const finalizableStates = [
-    MetadataLifecycleState.READY_TO_FINALIZE,
-    MetadataLifecycleState.DEGRADED_NO_METADATA,
-  ];
+  const finalizableStates = [MetadataLifecycleState.READY_TO_FINALIZE, MetadataLifecycleState.DEGRADED_NO_METADATA];
   if (finalizableStates.includes(metadata.finalize_state)) {
     transitionMetadataState(metadata, MetadataLifecycleState.FINALIZED);
   }
