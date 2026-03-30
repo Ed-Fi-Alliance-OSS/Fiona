@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import {
   generateResponseId,
   isResponseFinalized,
@@ -79,6 +79,27 @@ describe('idempotent-finalize', () => {
       const id = generateResponseId('C123', 't456');
       expect(shouldFinalize(id)).toBe(true);
       expect(shouldFinalize(id)).toBe(true); // Still true, no state change
+    });
+
+    it('calls logger.warn when response is already finalized', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      const mockLogger = { warn: jest.fn() };
+      shouldFinalize(id, mockLogger);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining(id));
+    });
+
+    it('does not call logger.warn for a new (unfinalized) response', () => {
+      const id = generateResponseId('C123', 't456');
+      const mockLogger = { warn: jest.fn() };
+      shouldFinalize(id, mockLogger);
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    });
+
+    it('works without a logger (no error thrown)', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      expect(() => shouldFinalize(id)).not.toThrow();
     });
   });
 

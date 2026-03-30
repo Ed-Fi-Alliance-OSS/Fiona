@@ -231,6 +231,24 @@ function transitionMetadataState(envelope, newState) {
 }
 
 /**
+ * Transition a metadata envelope to the FINALIZED state.
+ * Should be called by handlers after `streamer.stop()` completes successfully.
+ * Silently skips the transition if the envelope is already FINALIZED or null.
+ *
+ * @param {MetadataEnvelope | null | undefined} metadata - Metadata envelope to finalize
+ */
+export function finalizeMetadataEnvelope(metadata) {
+  if (!metadata) return;
+  const finalizableStates = [
+    MetadataLifecycleState.READY_TO_FINALIZE,
+    MetadataLifecycleState.DEGRADED_NO_METADATA,
+  ];
+  if (finalizableStates.includes(metadata.finalize_state)) {
+    transitionMetadataState(metadata, MetadataLifecycleState.FINALIZED);
+  }
+}
+
+/**
  * Extract and aggregate citation metadata from Perplexity response.
  * Merges sources from search results using deterministic first-seen ordering.
  *

@@ -46,11 +46,12 @@ export function markResponseFinalized(responseId) {
  * Returns true if finalization should proceed, false if already finalized.
  *
  * @param {string} responseId - Response ID
+ * @param {import("@slack/logger").Logger} [logger] - Optional logger for warning on duplicate finalization
  * @returns {boolean} True if safe to finalize
  */
-export function shouldFinalize(responseId) {
+export function shouldFinalize(responseId, logger) {
   if (isResponseFinalized(responseId)) {
-    console.warn(`Response ${responseId} already finalized, skipping duplicate finalization`);
+    logger?.warn(`Response ${responseId} already finalized, skipping duplicate finalization`);
     return false;
   }
   return true;

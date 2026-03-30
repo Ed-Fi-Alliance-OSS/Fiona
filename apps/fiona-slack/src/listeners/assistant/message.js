@@ -1,4 +1,4 @@
-import { CITATION_POLICY, callLLM, MetadataLifecycleState } from '../../agent/llm-caller.js';
+import { CITATION_POLICY, callLLM, MetadataLifecycleState, finalizeMetadataEnvelope } from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, markResponseFinalized, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
@@ -218,7 +218,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       // Guard against duplicate finalization
       const responseId = generateResponseId(channel, thread_ts, message.ts);
-      if (!shouldFinalize(responseId)) {
+      if (!shouldFinalize(responseId, logger)) {
         return;
       }
 
@@ -245,6 +245,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           : [];
 
       await streamer.stop({ blocks: [...citationBlocks, feedbackBlock] });
+      finalizeMetadataEnvelope(metadata);
       markResponseFinalized(responseId);
     }
   } catch (e) {

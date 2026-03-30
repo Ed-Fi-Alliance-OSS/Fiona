@@ -32,7 +32,7 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
   incrementTotalResponseCount: jest.fn(),
 }));
 
-const { MetadataLifecycleState, CITATION_POLICY, METADATA_CONTRACT_VERSION } =
+const { MetadataLifecycleState, CITATION_POLICY, METADATA_CONTRACT_VERSION, finalizeMetadataEnvelope } =
   await import('../../src/agent/llm-caller.js');
 
 describe('MetadataLifecycleState', () => {
@@ -110,5 +110,40 @@ describe('Metadata envelope contract (v1)', () => {
     // STREAMING_TEXT can only go to COLLECTING_METADATA, READY_TO_FINALIZE, or DEGRADED_NO_METADATA.
     const directFinalizationFromStart = MetadataLifecycleState.STREAMING_TEXT === MetadataLifecycleState.FINALIZED;
     expect(directFinalizationFromStart).toBe(false);
+  });
+});
+
+describe('finalizeMetadataEnvelope', () => {
+  it('transitions READY_TO_FINALIZE -> FINALIZED', () => {
+    const envelope = { finalize_state: MetadataLifecycleState.READY_TO_FINALIZE };
+    finalizeMetadataEnvelope(envelope);
+    expect(envelope.finalize_state).toBe(MetadataLifecycleState.FINALIZED);
+  });
+
+  it('transitions DEGRADED_NO_METADATA -> FINALIZED', () => {
+    const envelope = { finalize_state: MetadataLifecycleState.DEGRADED_NO_METADATA };
+    finalizeMetadataEnvelope(envelope);
+    expect(envelope.finalize_state).toBe(MetadataLifecycleState.FINALIZED);
+  });
+
+  it('is a no-op when envelope is already FINALIZED', () => {
+    const envelope = { finalize_state: MetadataLifecycleState.FINALIZED };
+    expect(() => finalizeMetadataEnvelope(envelope)).not.toThrow();
+    expect(envelope.finalize_state).toBe(MetadataLifecycleState.FINALIZED);
+  });
+
+  it('is a no-op when envelope is null', () => {
+    expect(() => finalizeMetadataEnvelope(null)).not.toThrow();
+  });
+
+  it('is a no-op when envelope is undefined', () => {
+    expect(() => finalizeMetadataEnvelope(undefined)).not.toThrow();
+  });
+
+  it('does not transition from STREAMING_TEXT (intermediate state)', () => {
+    const envelope = { finalize_state: MetadataLifecycleState.STREAMING_TEXT };
+    finalizeMetadataEnvelope(envelope);
+    // STREAMING_TEXT is not a finalizable state; envelope should remain unchanged
+    expect(envelope.finalize_state).toBe(MetadataLifecycleState.STREAMING_TEXT);
   });
 });
