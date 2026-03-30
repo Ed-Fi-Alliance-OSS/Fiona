@@ -202,9 +202,7 @@ export function normalizeSources(rawSources, { maxSources = 10 } = {}) {
     return { sources: [], sourceIndexMap: {} };
   }
 
-  let normalized = rawSources
-    .map(normalizeSource)
-    .filter(Boolean);
+  let normalized = rawSources.map(normalizeSource).filter(Boolean);
 
   normalized = deduplicateSources(normalized);
   normalized = capSources(normalized, maxSources);

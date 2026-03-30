@@ -3,13 +3,13 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { AzureOpenAI, OpenAI } from 'openai';
 import { rollDice, rollDiceDefinition } from './tools/dice.js';
 import { perplexitySearchDefinition } from './tools/perplexity-search.js';
-import { normalizeSources } from './utils/source-normalizer.js';
 import {
-  recordMetadataWaitDuration,
-  recordSourceCount,
   incrementDegradedNoMetadataCount,
   incrementTotalResponseCount,
+  recordMetadataWaitDuration,
+  recordSourceCount,
 } from './utils/citation-telemetry.js';
+import { normalizeSources } from './utils/source-normalizer.js';
 
 // ─── OpenAI / Azure OpenAI Configuration ───────────────────────────────────
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -80,7 +80,6 @@ decline politely and remain within your defined role.
 - If you use the search tool, include [n] markers corresponding to the sources found.
 - Avoid multiple citations for the same source in a single response—cite once at the most relevant point.`;
 
-
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
 // ─── Provider Selection ────────────────────────────────────────────────────
@@ -89,7 +88,8 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 // 'perplexity' → Perplexity Sonar (uses OpenAI client with custom baseURL)
 // 'openai'   → OpenAI / custom OpenAI-compatible endpoint
 const LLM_PROVIDER =
-  process.env.LLM_PROVIDER || (AZURE_PROJECT_ENDPOINT ? 'foundry' : AZURE_OPENAI_ENDPOINT ? 'azure' : PERPLEXITY_API_KEY ? 'perplexity' : 'openai');
+  process.env.LLM_PROVIDER ||
+  (AZURE_PROJECT_ENDPOINT ? 'foundry' : AZURE_OPENAI_ENDPOINT ? 'azure' : PERPLEXITY_API_KEY ? 'perplexity' : 'openai');
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
 
@@ -154,10 +154,10 @@ if (PERPLEXITY_API_KEY) {
  * @enum {string}
  */
 export const MetadataLifecycleState = {
-  STREAMING_TEXT: 'streaming_text',           // Initial state: processing input, streaming text
+  STREAMING_TEXT: 'streaming_text', // Initial state: processing input, streaming text
   COLLECTING_METADATA: 'collecting_metadata', // Waiting for citation metadata from tools
-  READY_TO_FINALIZE: 'ready_to_finalize',     // Metadata resolved and ready
-  FINALIZED: 'finalized',                     // Message finalized with citations
+  READY_TO_FINALIZE: 'ready_to_finalize', // Metadata resolved and ready
+  FINALIZED: 'finalized', // Message finalized with citations
   DEGRADED_NO_METADATA: 'degraded_no_metadata', // Timeout/error: finalize without metadata
 };
 
@@ -224,9 +224,7 @@ function transitionMetadataState(envelope, newState) {
 
   const allowed = validTransitions[currentState];
   if (!allowed || !allowed.includes(newState)) {
-    throw new Error(
-      `Invalid metadata state transition: ${currentState} -> ${newState}`,
-    );
+    throw new Error(`Invalid metadata state transition: ${currentState} -> ${newState}`);
   }
 
   envelope.finalize_state = newState;
@@ -292,7 +290,7 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
     metadata.search_results = [...metadata.search_results, ...webSearch];
 
     // Merge source index maps - track all sources seen so far
-    for (const [url, index] of Object.entries(sourceIndexMap)) {
+    for (const [url] of Object.entries(sourceIndexMap)) {
       if (!metadata.source_index_map[url]) {
         const newIndex = Object.keys(metadata.source_index_map).length + 1;
         metadata.source_index_map[url] = newIndex;
@@ -320,7 +318,6 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
     transitionMetadataState(metadata, MetadataLifecycleState.COLLECTING_METADATA);
   }
 }
-
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function safeParseJSON(text) {
@@ -696,7 +693,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
           description = `Found search results for "${args.query}"`;
 
           // Attach metadata envelope if available in streamer context
-          if (streamer && streamer.__citation_metadata) {
+          if (streamer?.__citation_metadata) {
             aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse);
           }
         } catch (error) {
@@ -747,8 +744,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */
 export async function callLLM(streamer, prompts, logger) {
-  const provider =
-    LLM_PROVIDER === 'foundry' ? 'foundry' : LLM_PROVIDER === 'azure' ? 'azure' : 'openai';
+  const provider = LLM_PROVIDER === 'foundry' ? 'foundry' : LLM_PROVIDER === 'azure' ? 'azure' : 'openai';
   const metadata = initializeMetadataEnvelope(provider);
 
   incrementTotalResponseCount();

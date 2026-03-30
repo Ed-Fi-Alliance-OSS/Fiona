@@ -4,11 +4,11 @@
  */
 
 const telemetryMetrics = {
-  metadataWaitDurations: [],    // Array of wait times in ms
-  sourceCounts: [],              // Array of source counts per response
-  degradedNoMetadataRate: 0,     // Count of degraded responses
-  totalResponses: 0,             // Total responses processed
-  metadataCollectionErrors: 0,   // Count of metadata collection failures
+  metadataWaitDurations: [], // Array of wait times in ms
+  sourceCounts: [], // Array of source counts per response
+  degradedNoMetadataRate: 0, // Count of degraded responses
+  totalResponses: 0, // Total responses processed
+  metadataCollectionErrors: 0, // Count of metadata collection failures
 };
 
 /**
