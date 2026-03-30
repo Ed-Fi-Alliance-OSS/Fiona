@@ -123,9 +123,12 @@ export function normalizeSource(source) {
     return null;
   }
 
-  // Reject malformed URLs
+  // Reject malformed URLs and non-http/https schemes (e.g. javascript:, data:, vbscript:)
   try {
-    new URL(url);
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
   } catch {
     return null;
   }
@@ -181,7 +184,7 @@ export function capSources(sources, maxSources = 10) {
  * @returns {Object} Map of URL -> index
  */
 export function buildSourceIndexMap(sources) {
-  const map = {};
+  const map = Object.create(null);
   sources.forEach((source, idx) => {
     map[source.url] = idx + 1; // 1-indexed
   });

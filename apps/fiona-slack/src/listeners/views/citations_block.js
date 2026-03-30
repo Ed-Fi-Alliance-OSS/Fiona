@@ -148,10 +148,7 @@ export function buildSourcesBlocks(
   // Build one rich section row per source for better readability and interaction.
   sources.forEach((source, idx) => {
     const mappedIndex =
-      source &&
-      source.url &&
-      sourceIndexMap &&
-      Object.prototype.hasOwnProperty.call(sourceIndexMap, source.url)
+      source?.url && sourceIndexMap && Object.hasOwn(sourceIndexMap, source.url)
         ? sourceIndexMap[source.url]
         : undefined;
     const index = mappedIndex != null ? mappedIndex : idx + 1;
@@ -194,9 +191,8 @@ export function buildEvidenceBlock(evidenceMap = {}, sourceIndexMap = {}, { enab
   for (const [url, snippet] of Object.entries(evidenceMap)) {
     const index = sourceIndexMap[url];
     if (index && typeof snippet === 'string' && snippet) {
-      const escapedSnippet = escapeMrkdwn(snippet);
-      const truncatedSnippet =
-        escapedSnippet.length > 100 ? `${escapedSnippet.substring(0, 100)}…` : escapedSnippet;
+      const escapedSnippet = escapeMrkdwn(snippet).replaceAll('_', '\\_');
+      const truncatedSnippet = escapedSnippet.length > 100 ? `${escapedSnippet.substring(0, 100)}…` : escapedSnippet;
       snippets.push(`[${index}] _${truncatedSnippet}_`);
     }
   }
@@ -314,6 +310,16 @@ export function linkifyInlineCitationMarkers(text, sourceIndexMap = {}) {
 
     const url = getUrlFromIndex(sourceIndexMap, index);
     if (!url) {
+      return full;
+    }
+
+    // Only linkify http/https URLs to prevent javascript: or data: injection in mrkdwn
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return full;
+      }
+    } catch {
       return full;
     }
 

@@ -32,7 +32,7 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
   incrementTotalResponseCount: jest.fn(),
 }));
 
-const { MetadataLifecycleState, CITATION_POLICY, METADATA_CONTRACT_VERSION, finalizeMetadataEnvelope } =
+const { MetadataLifecycleState, CITATION_POLICY, METADATA_CONTRACT_VERSION, finalizeMetadataEnvelope, handleMetadataTimeout } =
   await import('../../src/agent/llm-caller.js');
 
 describe('MetadataLifecycleState', () => {
@@ -145,5 +145,47 @@ describe('finalizeMetadataEnvelope', () => {
     finalizeMetadataEnvelope(envelope);
     // STREAMING_TEXT is not a finalizable state; envelope should remain unchanged
     expect(envelope.finalize_state).toBe(MetadataLifecycleState.STREAMING_TEXT);
+  });
+});
+
+describe('handleMetadataTimeout', () => {
+  it('transitions STREAMING_TEXT to READY_TO_FINALIZE when sources exist', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.STREAMING_TEXT, sources: [{ url: 'https://example.com' }] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.READY_TO_FINALIZE);
+  });
+
+  it('transitions STREAMING_TEXT to DEGRADED_NO_METADATA when no sources', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.STREAMING_TEXT, sources: [] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.DEGRADED_NO_METADATA);
+  });
+
+  it('transitions COLLECTING_METADATA to READY_TO_FINALIZE when sources exist', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.COLLECTING_METADATA, sources: [{ url: 'https://example.com' }] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.READY_TO_FINALIZE);
+  });
+
+  it('does not mutate state when already FINALIZED', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.FINALIZED, sources: [] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.FINALIZED);
+  });
+
+  it('does not mutate state when already READY_TO_FINALIZE', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.READY_TO_FINALIZE, sources: [] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.READY_TO_FINALIZE);
+  });
+
+  it('does not mutate state when already DEGRADED_NO_METADATA', () => {
+    const metadata = { finalize_state: MetadataLifecycleState.DEGRADED_NO_METADATA, sources: [{ url: 'https://example.com' }] };
+    handleMetadataTimeout(metadata);
+    expect(metadata.finalize_state).toBe(MetadataLifecycleState.DEGRADED_NO_METADATA);
+  });
+
+  it('is a no-op for null', () => {
+    expect(() => handleMetadataTimeout(null)).not.toThrow();
   });
 });

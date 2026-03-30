@@ -67,6 +67,24 @@ describe('normalizeSource', () => {
     const result = normalizeSource({ url: '  https://example.com  ' });
     expect(result.url).toBe('https://example.com');
   });
+
+  it('returns null for javascript: URI', () => {
+    expect(normalizeSource({ url: 'javascript:alert(1)' })).toBeNull();
+  });
+
+  it('returns null for data: URI', () => {
+    expect(normalizeSource({ url: 'data:text/html,<h1>hi</h1>' })).toBeNull();
+  });
+
+  it('returns null for vbscript: URI', () => {
+    expect(normalizeSource({ url: 'vbscript:msgbox(1)' })).toBeNull();
+  });
+
+  it('accepts http: URLs', () => {
+    const result = normalizeSource({ url: 'http://example.com/page' });
+    expect(result).not.toBeNull();
+    expect(result.url).toBe('http://example.com/page');
+  });
 });
 
 describe('deduplicateSources', () => {
@@ -134,6 +152,12 @@ describe('buildSourceIndexMap', () => {
 
   it('returns an empty object for empty list', () => {
     expect(buildSourceIndexMap([])).toEqual({});
+  });
+
+  it('returns a null-prototype object to prevent prototype pollution', () => {
+    const sources = [{ url: 'https://a.com', title: 'A' }];
+    const map = buildSourceIndexMap(sources);
+    expect(Object.getPrototypeOf(map)).toBeNull();
   });
 });
 

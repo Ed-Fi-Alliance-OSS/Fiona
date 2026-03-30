@@ -1,4 +1,10 @@
-import { CITATION_POLICY, callLLM, finalizeMetadataEnvelope, MetadataLifecycleState } from '../../agent/llm-caller.js';
+import {
+  CITATION_POLICY,
+  callLLM,
+  finalizeMetadataEnvelope,
+  handleMetadataTimeout,
+  MetadataLifecycleState,
+} from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, markResponseFinalized, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
@@ -30,11 +36,8 @@ async function waitForMetadataReady(metadata, timeoutMs = 2000) {
     }
 
     if (Date.now() - startTime > timeoutMs) {
-      // On timeout, preserve strict consistency while allowing known sources to render.
-      metadata.finalize_state =
-        metadata.sources?.length > 0
-          ? MetadataLifecycleState.READY_TO_FINALIZE
-          : MetadataLifecycleState.DEGRADED_NO_METADATA;
+      // On timeout, transition via state machine to preserve strict consistency.
+      handleMetadataTimeout(metadata);
       return;
     }
 
