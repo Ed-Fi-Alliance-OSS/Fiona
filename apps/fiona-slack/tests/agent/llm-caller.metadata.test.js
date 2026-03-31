@@ -56,10 +56,6 @@ describe('METADATA_CONTRACT_VERSION', () => {
 });
 
 describe('CITATION_POLICY', () => {
-  it('defines citation_metadata_collection_enabled flag', () => {
-    expect(typeof CITATION_POLICY.citation_metadata_collection_enabled).toBe('boolean');
-  });
-
   it('defines citation_rendering_enabled flag', () => {
     expect(typeof CITATION_POLICY.citation_rendering_enabled).toBe('boolean');
   });
@@ -76,6 +72,11 @@ describe('CITATION_POLICY', () => {
 
   it('defines FEATURE_FLAG_EVIDENCE_ROW as boolean', () => {
     expect(typeof CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW).toBe('boolean');
+  });
+
+  it('does not expose unused citation_metadata_collection_enabled or TELEMETRY_ENABLED flags', () => {
+    expect(CITATION_POLICY).not.toHaveProperty('citation_metadata_collection_enabled');
+    expect(CITATION_POLICY).not.toHaveProperty('TELEMETRY_ENABLED');
   });
 });
 

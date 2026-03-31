@@ -7,11 +7,9 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   handleMetadataTimeout: jest.fn(),
   CITATION_POLICY: {
     citation_rendering_enabled: true,
-    citation_metadata_collection_enabled: true,
     FEATURE_FLAG_EVIDENCE_ROW: false,
     MAX_SOURCES_DISPLAYED: 10,
     METADATA_WAIT_TIMEOUT_MS: 2000,
-    TELEMETRY_ENABLED: true,
   },
   MetadataLifecycleState: {
     STREAMING_TEXT: 'streaming_text',
