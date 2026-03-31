@@ -184,4 +184,28 @@ describe('citation-telemetry', () => {
       expect(summary.degradedNoMetadataRate).toBe(100);
     });
   });
+
+  describe('max duration computation', () => {
+    it('computes maxMetadataWaitDurationMs correctly for large arrays without spread crash', () => {
+      // Verify correctness with many entries — implementation must use reduce, not spread
+      for (let i = 1; i <= 500; i++) {
+        recordMetadataWaitDuration(i);
+      }
+      const summary = getTelemetrySummary();
+      expect(summary.maxMetadataWaitDurationMs).toBe(500);
+    });
+  });
+
+  describe('array size cap', () => {
+    it('caps sample arrays to prevent unbounded memory growth', () => {
+      const OVER_CAP = 1200;
+      for (let i = 0; i < OVER_CAP; i++) {
+        recordMetadataWaitDuration(i);
+        recordSourceCount(1);
+      }
+      const summary = getTelemetrySummary();
+      expect(summary.metadataWaitSampleCount).toBeLessThanOrEqual(1000);
+      expect(summary.sourceCountSampleCount).toBeLessThanOrEqual(1000);
+    });
+  });
 });

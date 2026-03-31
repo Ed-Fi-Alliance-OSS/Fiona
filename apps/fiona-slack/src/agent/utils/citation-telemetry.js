@@ -3,9 +3,11 @@
  * Tracks metadata wait duration, source count, and degraded_no_metadata rate.
  */
 
+const TELEMETRY_ARRAY_CAP = 1000;
+
 const telemetryMetrics = {
-  metadataWaitDurations: [], // Array of wait times in ms
-  sourceCounts: [], // Array of source counts per response
+  metadataWaitDurations: [], // Array of wait times in ms (capped at TELEMETRY_ARRAY_CAP)
+  sourceCounts: [], // Array of source counts per response (capped at TELEMETRY_ARRAY_CAP)
   degradedNoMetadataRate: 0, // Count of degraded responses
   totalResponses: 0, // Total responses processed
   metadataCollectionErrors: 0, // Count of metadata collection failures
@@ -18,6 +20,9 @@ const telemetryMetrics = {
  */
 export function recordMetadataWaitDuration(durationMs) {
   if (typeof durationMs === 'number' && durationMs >= 0) {
+    if (telemetryMetrics.metadataWaitDurations.length >= TELEMETRY_ARRAY_CAP) {
+      telemetryMetrics.metadataWaitDurations.shift();
+    }
     telemetryMetrics.metadataWaitDurations.push(durationMs);
   }
 }
@@ -29,6 +34,9 @@ export function recordMetadataWaitDuration(durationMs) {
  */
 export function recordSourceCount(count) {
   if (typeof count === 'number' && count >= 0) {
+    if (telemetryMetrics.sourceCounts.length >= TELEMETRY_ARRAY_CAP) {
+      telemetryMetrics.sourceCounts.shift();
+    }
     telemetryMetrics.sourceCounts.push(count);
   }
 }
@@ -76,13 +84,17 @@ export function getTelemetrySummary() {
       ? (telemetryMetrics.degradedNoMetadataRate / telemetryMetrics.totalResponses) * 100
       : 0;
 
+  const maxWaitDuration = telemetryMetrics.metadataWaitDurations.reduce((a, b) => Math.max(a, b), 0);
+
   return {
     avgMetadataWaitDurationMs: Math.round(avgWaitDuration * 100) / 100,
-    maxMetadataWaitDurationMs: Math.max(...telemetryMetrics.metadataWaitDurations, 0),
+    maxMetadataWaitDurationMs: maxWaitDuration,
     avgSourceCount: Math.round(avgSourceCount * 100) / 100,
     degradedNoMetadataRate: Math.round(degradedRate * 100) / 100,
     totalResponses: telemetryMetrics.totalResponses,
     metadataCollectionErrors: telemetryMetrics.metadataCollectionErrors,
+    metadataWaitSampleCount: telemetryMetrics.metadataWaitDurations.length,
+    sourceCountSampleCount: telemetryMetrics.sourceCounts.length,
   };
 }
 

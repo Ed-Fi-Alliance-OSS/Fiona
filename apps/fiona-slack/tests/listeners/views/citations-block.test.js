@@ -115,6 +115,17 @@ describe('citations_block rendering', () => {
       const contextBlock = blocks.find((b) => b.type === 'context');
       expect(contextBlock.elements[0].text).not.toContain('x'.repeat(120));
     });
+
+    it('escapes underscores in evidence snippets to prevent broken italic mrkdwn', () => {
+      const evidenceMap = { 'https://example.com': 'foo_bar_baz snippet' };
+      const sourceIndexMap = { 'https://example.com': 1 };
+      const blocks = buildEvidenceBlock(evidenceMap, sourceIndexMap, { enabled: true });
+      const text = blocks[1].elements[0].text;
+      // Underscores inside italic wrapper must be escaped
+      expect(text).toContain('\\_');
+      // Should not produce broken italic context like _foo_bar_
+      expect(text).not.toMatch(/_foo_/);
+    });
   });
 
   describe('buildCitationBlocks', () => {
@@ -247,6 +258,22 @@ describe('citations_block rendering', () => {
     it('handles null and undefined text safely', () => {
       expect(linkifyInlineCitationMarkers(null, {})).toBeNull();
       expect(linkifyInlineCitationMarkers(undefined, {})).toBeUndefined();
+    });
+
+    it('does not linkify javascript: URLs in source index map', () => {
+      const text = 'See [1] here.';
+      const sourceIndexMap = { 'javascript:alert(1)': 1 };
+      const result = linkifyInlineCitationMarkers(text, sourceIndexMap);
+      expect(result).toBe('See [1] here.');
+      expect(result).not.toContain('<javascript:');
+    });
+
+    it('does not linkify data: URLs in source index map', () => {
+      const text = 'See [1] here.';
+      const sourceIndexMap = { 'data:text/html,<h1>hi</h1>': 1 };
+      const result = linkifyInlineCitationMarkers(text, sourceIndexMap);
+      expect(result).toBe('See [1] here.');
+      expect(result).not.toContain('<data:');
     });
   });
 });

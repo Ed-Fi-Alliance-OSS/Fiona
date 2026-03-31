@@ -189,7 +189,7 @@ function initializeMetadataEnvelope(provider) {
     finalize_state: MetadataLifecycleState.STREAMING_TEXT,
     provider,
     sources: [],
-    source_index_map: {},
+    source_index_map: Object.create(null),
     search_results: [],
     related_questions: [],
     evidence_snippets: {},
@@ -228,6 +228,24 @@ function transitionMetadataState(envelope, newState) {
   }
 
   envelope.finalize_state = newState;
+}
+
+/**
+ * Handle metadata collection timeout by transitioning to the appropriate finalization state.
+ * Uses the state machine validator rather than direct assignment to prevent race overwrite.
+ * No-ops when already in a ready or finalized state.
+ *
+ * @param {MetadataEnvelope | null | undefined} metadata - Metadata envelope
+ */
+export function handleMetadataTimeout(metadata) {
+  if (!metadata) return;
+  const transitionableStates = [MetadataLifecycleState.STREAMING_TEXT, MetadataLifecycleState.COLLECTING_METADATA];
+  if (!transitionableStates.includes(metadata.finalize_state)) return;
+  const target =
+    metadata.sources?.length > 0
+      ? MetadataLifecycleState.READY_TO_FINALIZE
+      : MetadataLifecycleState.DEGRADED_NO_METADATA;
+  transitionMetadataState(metadata, target);
 }
 
 /**
@@ -298,7 +316,9 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 
   if (rawSources.length > 0) {
     // Normalize and deduplicate with deterministic first-seen ordering
-    const { sources, sourceIndexMap } = normalizeSources(rawSources, { maxSources: 10 });
+    const { sources, sourceIndexMap } = normalizeSources(rawSources, {
+      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
+    });
 
     // Aggregate into metadata envelope
     metadata.sources = [...metadata.sources];
@@ -322,7 +342,7 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 
     // Build final sources list respecting cap policy
     const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources, {
-      maxSources: 10,
+      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
     });
     metadata.sources = finalSources;
     metadata.source_index_map = finalIndexMap;

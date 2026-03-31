@@ -4,6 +4,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue(undefined),
   finalizeMetadataEnvelope: jest.fn(),
+  handleMetadataTimeout: jest.fn(),
   CITATION_POLICY: {
     citation_rendering_enabled: true,
     citation_metadata_collection_enabled: true,
