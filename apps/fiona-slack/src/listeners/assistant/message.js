@@ -30,8 +30,11 @@ async function waitForMetadataReady(metadata, timeoutMs = 2000) {
     }
 
     if (Date.now() - startTime > timeoutMs) {
-      // Force degraded state on timeout
-      metadata.finalize_state = MetadataLifecycleState.DEGRADED_NO_METADATA;
+      // On timeout, preserve strict consistency while allowing known sources to render.
+      metadata.finalize_state =
+        metadata.sources?.length > 0
+          ? MetadataLifecycleState.READY_TO_FINALIZE
+          : MetadataLifecycleState.DEGRADED_NO_METADATA;
       return;
     }
 
@@ -214,13 +217,13 @@ export const message = async ({ client, context, logger, message, say, setStatus
       const metadata = await callLLM(streamer, prompts, logger);
 
       // Guard against duplicate finalization
-      const responseId = generateResponseId(channel, thread_ts);
+      const responseId = generateResponseId(channel, thread_ts, message.ts);
       if (!shouldFinalize(responseId)) {
         return;
       }
 
       // Wait for metadata to be ready before finalizing
-      await waitForMetadataReady(metadata, 2000);
+      await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
 
       // Telemetry: log finalize_state and source count for observability.
       if (metadata) {
@@ -230,9 +233,15 @@ export const message = async ({ client, context, logger, message, say, setStatus
       }
 
       // Build citation blocks when rendering is enabled, metadata is ready, and sources exist.
+      const isRenderableState = [
+        MetadataLifecycleState.READY_TO_FINALIZE,
+        MetadataLifecycleState.DEGRADED_NO_METADATA,
+        MetadataLifecycleState.FINALIZED,
+      ].includes(metadata?.finalize_state);
+
       const citationBlocks =
         CITATION_POLICY.citation_rendering_enabled &&
-        metadata?.finalize_state === MetadataLifecycleState.READY_TO_FINALIZE &&
+        isRenderableState &&
         metadata.sources?.length > 0
           ? buildCitationBlocks(metadata.sources, metadata.source_index_map, metadata.evidence_snippets || {}, {
               includeEvidence: CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW,

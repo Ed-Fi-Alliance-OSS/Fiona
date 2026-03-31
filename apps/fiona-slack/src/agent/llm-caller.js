@@ -89,7 +89,7 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 // 'perplexity' → Perplexity Sonar (uses OpenAI client with custom baseURL)
 // 'openai'   → OpenAI / custom OpenAI-compatible endpoint
 const LLM_PROVIDER =
-  process.env.LLM_PROVIDER || (AZURE_PROJECT_ENDPOINT ? 'foundry' : AZURE_OPENAI_ENDPOINT ? 'azure' : 'openai');
+  process.env.LLM_PROVIDER || (AZURE_PROJECT_ENDPOINT ? 'foundry' : AZURE_OPENAI_ENDPOINT ? 'azure' : PERPLEXITY_API_KEY ? 'perplexity' : 'openai');
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
 
