@@ -24,8 +24,7 @@ describe('citations_block rendering', () => {
 
       const firstSourceRow = blocks[1];
       expect(firstSourceRow.type).toBe('section');
-      expect(firstSourceRow.text.text).toContain('*[1]*');
-      expect(firstSourceRow.text.text).toContain('*Ed-Fi Docs*');
+      expect(firstSourceRow.text.text).toContain('[1] Ed-Fi Docs');
       expect(firstSourceRow.text.text).not.toContain('<https://docs.ed-fi.org|');
     });
 
@@ -35,8 +34,8 @@ describe('citations_block rendering', () => {
 
       const firstSourceRow = blocks[1];
       expect(firstSourceRow.text.text).toContain('docs.ed-fi.org');
-      expect(firstSourceRow.text.text).toContain('2025-03-26');
-      expect(firstSourceRow.text.text).not.toContain('_docs.ed-fi.org');
+      expect(firstSourceRow.text.text).not.toContain('2025-03-26');
+      expect(firstSourceRow.text.text).not.toContain('_');
     });
 
     it('adds an Open button accessory by default', () => {

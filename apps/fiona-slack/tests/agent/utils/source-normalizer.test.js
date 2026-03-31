@@ -23,8 +23,13 @@ describe('normalizeSource', () => {
     expect(result.hostname).toBe('docs.ed-fi.org');
   });
 
-  it('falls back to domain as title when title is absent', () => {
-    const result = normalizeSource({ url: 'https://example.com/page' });
+  it('falls back to path-derived title when title is absent', () => {
+    const result = normalizeSource({ url: 'https://example.com/reference/ods-api/platform-dev-guide/' });
+    expect(result.title).toBe('ODS/API Platform Dev Guide');
+  });
+
+  it('falls back to domain when path is not informative', () => {
+    const result = normalizeSource({ url: 'https://example.com/' });
     expect(result.title).toBe('example.com');
   });
 

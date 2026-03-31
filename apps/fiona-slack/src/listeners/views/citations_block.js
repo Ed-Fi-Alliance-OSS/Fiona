@@ -36,9 +36,9 @@ function buildUrlPreview(url, maxLength = URL_PREVIEW_MAX_LENGTH) {
 
   try {
     const parsed = new URL(url);
-    const host = parsed.hostname;
-    const path = parsed.pathname === '/' ? '' : parsed.pathname;
-    const preview = `${host}${path}`;
+    const rawPath = parsed.pathname || '/';
+    const normalizedPath = rawPath === '/' ? parsed.hostname : rawPath.replace(/^\//, '');
+    const preview = normalizedPath || parsed.hostname;
 
     if (preview.length <= maxLength) {
       return preview;
@@ -83,17 +83,16 @@ function getUrlFromIndex(sourceIndexMap = {}, index) {
  * @returns {Object} Slack section block
  */
 function buildSourceSection(source, index, sourceIndexMap = {}, { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {}) {
-  const { url, title, date } = source;
+  const { url, title } = source;
   const mappedUrl = getUrlFromIndex(sourceIndexMap, index) || url;
   const safeTitle = escapeMrkdwn(normalizeTitle({ ...source, title }));
   const safePreview = escapeMrkdwn(buildUrlPreview(mappedUrl));
-  const safeDate = date ? ` • ${escapeMrkdwn(date)}` : '';
 
   const block = {
     type: 'section',
     text: {
       type: 'mrkdwn',
-      text: `*[${index}]*  *${safeTitle}*\n${safePreview}${safeDate}`,
+      text: `[${index}] ${safeTitle}\n${safePreview}`,
     },
   };
 
