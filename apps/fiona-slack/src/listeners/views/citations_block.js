@@ -147,7 +147,14 @@ export function buildSourcesBlocks(
 
   // Build one rich section row per source for better readability and interaction.
   sources.forEach((source, idx) => {
-    const index = idx + 1;
+    const mappedIndex =
+      source &&
+      source.url &&
+      sourceIndexMap &&
+      Object.prototype.hasOwnProperty.call(sourceIndexMap, source.url)
+        ? sourceIndexMap[source.url]
+        : undefined;
+    const index = mappedIndex != null ? mappedIndex : idx + 1;
     blocks.push(buildSourceSection(source, index, sourceIndexMap, { includeOpenButton }));
   });
 
@@ -186,8 +193,11 @@ export function buildEvidenceBlock(evidenceMap = {}, sourceIndexMap = {}, { enab
   const snippets = [];
   for (const [url, snippet] of Object.entries(evidenceMap)) {
     const index = sourceIndexMap[url];
-    if (index && snippet) {
-      snippets.push(`[${index}] _${snippet.substring(0, 100)}${snippet.length > 100 ? '…' : ''}_`);
+    if (index && typeof snippet === 'string' && snippet) {
+      const escapedSnippet = escapeMrkdwn(snippet);
+      const truncatedSnippet =
+        escapedSnippet.length > 100 ? `${escapedSnippet.substring(0, 100)}…` : escapedSnippet;
+      snippets.push(`[${index}] _${truncatedSnippet}_`);
     }
   }
 

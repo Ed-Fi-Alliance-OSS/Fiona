@@ -118,7 +118,7 @@ export function normalizeSource(source) {
   }
 
   // URL is required and must be valid
-  const url = source.url?.trim();
+  const url = typeof source.url === 'string' ? source.url.trim() : '';
   if (!url) {
     return null;
   }
