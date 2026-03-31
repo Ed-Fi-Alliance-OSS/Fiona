@@ -4,6 +4,7 @@ import {
   isResponseFinalized,
   markResponseFinalized,
   shouldFinalize,
+  rollbackFinalization,
   clearFinalizedResponses,
   getFinalizedResponseCount,
 } from '../../../src/agent/utils/idempotent-finalize.js';
@@ -75,10 +76,16 @@ describe('idempotent-finalize', () => {
       expect(shouldFinalize(id)).toBe(false);
     });
 
-    it('is idempotent check and does not modify state', () => {
+    it('atomically claims the response ID so a second call returns false', () => {
       const id = generateResponseId('C123', 't456');
-      expect(shouldFinalize(id)).toBe(true);
-      expect(shouldFinalize(id)).toBe(true); // Still true, no state change
+      expect(shouldFinalize(id)).toBe(true);  // claims the slot
+      expect(shouldFinalize(id)).toBe(false); // slot already claimed
+    });
+
+    it('marks the response as finalized when it returns true', () => {
+      const id = generateResponseId('C123', 't456');
+      shouldFinalize(id);
+      expect(isResponseFinalized(id)).toBe(true);
     });
 
     it('calls logger.warn when response is already finalized', () => {
@@ -162,17 +169,43 @@ describe('idempotent-finalize', () => {
     });
   });
 
+  describe('rollbackFinalization', () => {
+    it('removes a previously claimed response ID, allowing a future shouldFinalize to succeed', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(shouldFinalize(id)).toBe(true); // claims the slot
+      rollbackFinalization(id);
+      expect(shouldFinalize(id)).toBe(true); // slot released - can claim again
+    });
+
+    it('is safe to call on an ID that was never claimed (no-op)', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(() => rollbackFinalization(id)).not.toThrow();
+      expect(isResponseFinalized(id)).toBe(false);
+    });
+
+    it('only removes the specified ID, leaving others intact', () => {
+      const id1 = generateResponseId('C123', 't456');
+      const id2 = generateResponseId('C999', 't789');
+      shouldFinalize(id1);
+      shouldFinalize(id2);
+
+      rollbackFinalization(id1);
+
+      expect(isResponseFinalized(id1)).toBe(false);
+      expect(isResponseFinalized(id2)).toBe(true);
+    });
+  });
+
   describe('Duplicate finalization prevention', () => {
     it('prevents duplicate streamer.stop() calls for same response', () => {
       const channel = 'C123';
       const threadTs = 't456';
       const id = generateResponseId(channel, threadTs);
 
-      // First call succeeds
+      // First call atomically claims the slot
       expect(shouldFinalize(id)).toBe(true);
-      markResponseFinalized(id);
 
-      // Second call for same response fails
+      // Second call for same response is rejected (no markResponseFinalized needed)
       expect(shouldFinalize(id)).toBe(false);
     });
 

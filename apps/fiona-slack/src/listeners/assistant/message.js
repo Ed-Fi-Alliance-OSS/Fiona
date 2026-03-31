@@ -7,7 +7,7 @@ import {
 } from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
-import { generateResponseId, markResponseFinalized, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
+import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { buildCitationBlocks } from '../views/citations_block.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
@@ -84,6 +84,10 @@ export const message = async ({ client, context, logger, message, say, setStatus
     );
     return;
   }
+
+  // Track the claimed finalization slot so the catch block can roll it back on failure,
+  // allowing a future delivery attempt to retry.
+  let responseId = null;
 
   try {
     const { channel, thread_ts } = message;
@@ -220,7 +224,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       const metadata = await callLLM(streamer, prompts, logger);
 
       // Guard against duplicate finalization
-      const responseId = generateResponseId(channel, thread_ts, message.ts);
+      responseId = generateResponseId(channel, thread_ts, message.ts);
       if (!shouldFinalize(responseId, logger)) {
         return;
       }
@@ -249,9 +253,10 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       await streamer.stop({ blocks: [...citationBlocks, feedbackBlock] });
       finalizeMetadataEnvelope(metadata);
-      markResponseFinalized(responseId);
     }
   } catch (e) {
+    // Roll back the claimed finalization slot so a future delivery attempt can retry.
+    if (responseId) rollbackFinalization(responseId);
     logger.error('Failed to handle a user message event:', e);
     await say(':warning: Something went wrong! Please try again later.');
   }
