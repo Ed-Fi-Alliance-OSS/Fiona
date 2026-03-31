@@ -42,19 +42,38 @@ export function markResponseFinalized(responseId) {
 }
 
 /**
- * Guard function to prevent duplicate finalization.
- * Returns true if finalization should proceed, false if already finalized.
+ * Atomically claim the finalization slot for a response.
+ * Returns `true` and immediately marks the response as in-progress on the first call,
+ * preventing any concurrent handler from claiming the same slot.
+ * Returns `false` (and logs a warning) if another handler has already claimed this response.
+ *
+ * Because Node.js is single-threaded, the Set check + Set add are executed atomically
+ * within the current microtask, eliminating the race window that existed when the guard
+ * and the mark were separate operations.
  *
  * @param {string} responseId - Response ID
  * @param {import("@slack/logger").Logger} [logger] - Optional logger for warning on duplicate finalization
- * @returns {boolean} True if safe to finalize
+ * @returns {boolean} True if this handler should proceed with finalization
  */
 export function shouldFinalize(responseId, logger) {
-  if (isResponseFinalized(responseId)) {
+  if (finalizedResponses.has(responseId)) {
     logger?.warn(`Response ${responseId} already finalized, skipping duplicate finalization`);
     return false;
   }
+  // Atomically claim the slot before any async work begins
+  finalizedResponses.add(responseId);
   return true;
+}
+
+/**
+ * Roll back a previously claimed finalization slot, allowing a future delivery
+ * attempt to retry. Should be called in error-handling paths after `shouldFinalize`
+ * returned `true` but the subsequent operation (e.g. `streamer.stop()`) failed.
+ *
+ * @param {string} responseId - Response ID to release
+ */
+export function rollbackFinalization(responseId) {
+  finalizedResponses.delete(responseId);
 }
 
 /**

@@ -36,7 +36,7 @@ jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
   generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000000'),
   shouldFinalize: jest.fn().mockReturnValue(true),
-  markResponseFinalized: jest.fn(),
+  rollbackFinalization: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../../src/listeners/views/citations_block.js', () => ({
@@ -47,7 +47,7 @@ const { message: messageHandler } = await import('../../../src/listeners/assista
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
-const { shouldFinalize } = await import('../../../src/agent/utils/idempotent-finalize.js');
+const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
 const { buildCitationBlocks } = await import('../../../src/listeners/views/citations_block.js');
 
 describe('message (assistant thread handler)', () => {
@@ -475,6 +475,38 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(shouldFinalize).toHaveBeenCalledWith(expect.any(String), mockLogger);
+    });
+
+    it('rolls back finalization when streamer.stop throws', async () => {
+      shouldFinalize.mockReturnValueOnce(true);
+      mockStreamer.stop.mockRejectedValueOnce(new Error('stop failed'));
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000000');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('does not roll back when shouldFinalize returns false (no slot was claimed)', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(rollbackFinalization).not.toHaveBeenCalled();
     });
   });
 });

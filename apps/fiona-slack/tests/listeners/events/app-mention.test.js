@@ -36,7 +36,7 @@ jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
   generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000001'),
   shouldFinalize: jest.fn().mockReturnValue(true),
-  markResponseFinalized: jest.fn(),
+  rollbackFinalization: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../../src/listeners/views/citations_block.js', () => ({
@@ -47,7 +47,7 @@ const { appMentionCallback } = await import('../../../src/listeners/events/app_m
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
-const { shouldFinalize } = await import('../../../src/agent/utils/idempotent-finalize.js');
+const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
 const { buildCitationBlocks } = await import('../../../src/listeners/views/citations_block.js');
 
 describe('appMentionCallback', () => {
@@ -304,6 +304,24 @@ describe('appMentionCallback', () => {
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(shouldFinalize).toHaveBeenCalledWith(expect.any(String), mockLogger);
+    });
+
+    it('rolls back finalization when streamer.stop throws', async () => {
+      shouldFinalize.mockReturnValueOnce(true);
+      mockStreamer.stop.mockRejectedValueOnce(new Error('stop failed'));
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('does not roll back when shouldFinalize returns false (no slot was claimed)', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(rollbackFinalization).not.toHaveBeenCalled();
     });
   });
 });
