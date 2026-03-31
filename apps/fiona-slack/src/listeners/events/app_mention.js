@@ -1,4 +1,4 @@
-import { CITATION_POLICY, callLLM, MetadataLifecycleState } from '../../agent/llm-caller.js';
+import { CITATION_POLICY, callLLM, MetadataLifecycleState, finalizeMetadataEnvelope } from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, markResponseFinalized, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
@@ -105,7 +105,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
     // Guard against duplicate finalization
     const responseId = generateResponseId(channel, thread_ts, event.ts);
-    if (!shouldFinalize(responseId)) {
+    if (!shouldFinalize(responseId, logger)) {
       return;
     }
 
@@ -132,6 +132,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         : [];
 
     await streamer.stop({ blocks: [...citationBlocks, feedbackBlock] });
+    finalizeMetadataEnvelope(metadata);
     markResponseFinalized(responseId);
   } catch (e) {
     logger.error('Failed to handle a user message event:', e);

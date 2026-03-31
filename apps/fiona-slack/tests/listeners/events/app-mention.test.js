@@ -3,6 +3,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue(undefined),
+  finalizeMetadataEnvelope: jest.fn(),
   CITATION_POLICY: {
     citation_rendering_enabled: true,
     citation_metadata_collection_enabled: true,
@@ -42,7 +43,7 @@ jest.unstable_mockModule('../../../src/listeners/views/citations_block.js', () =
 }));
 
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
-const { callLLM } = await import('../../../src/agent/llm-caller.js');
+const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
 const { shouldFinalize } = await import('../../../src/agent/utils/idempotent-finalize.js');
@@ -283,6 +284,25 @@ describe('appMentionCallback', () => {
 
       expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
       expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
+    });
+
+    it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
+      const metadata = {
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
+        source_index_map: { 'https://docs.ed-fi.org': 1 },
+      };
+      callLLM.mockResolvedValueOnce(metadata);
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(finalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
+    });
+
+    it('passes logger to shouldFinalize', async () => {
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(shouldFinalize).toHaveBeenCalledWith(expect.any(String), mockLogger);
     });
   });
 });
