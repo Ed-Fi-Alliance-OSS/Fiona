@@ -207,6 +207,7 @@ function initializeMetadataEnvelope(provider) {
     related_questions: [],
     evidence_snippets: {},
     tool_trace: [],
+    referenced_citation_indices: new Set(),
   };
 }
 
@@ -283,7 +284,7 @@ export function finalizeMetadataEnvelope(metadata) {
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
  */
-function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
+export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (!perplexityResponse) return;
 
   // Perplexity returns citations in the response
@@ -293,30 +294,12 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   // Collect raw sources
   const rawSources = [];
 
-  // Build URL -> title map from web search metadata when available.
-  const searchTitleByUrl = new Map();
+  // Add cited web search results first so their richer data (snippet, date) wins
+  // deduplication over the bare citation URL entries added below.
+  const citedUrls = new Set(Array.isArray(citations) ? citations : []);
   if (Array.isArray(webSearch)) {
     webSearch.forEach((result) => {
-      if (result?.url && result?.title) {
-        searchTitleByUrl.set(result.url, result.title);
-      }
-    });
-  }
-
-  // Add citations as sources
-  if (Array.isArray(citations)) {
-    citations.forEach((citation) => {
-      rawSources.push({
-        url: citation,
-        title: searchTitleByUrl.get(citation),
-      });
-    });
-  }
-
-  // Add web search results
-  if (Array.isArray(webSearch)) {
-    webSearch.forEach((result) => {
-      if (result.url) {
+      if (result.url && citedUrls.has(result.url)) {
         let derivedTitle = result.title;
         if (!derivedTitle) {
           try {
@@ -332,6 +315,13 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
           snippet: result.snippet || result.content,
         });
       }
+    });
+  }
+
+  // Add citations as fallback sources for any URL not already covered by webSearch
+  if (Array.isArray(citations)) {
+    citations.forEach((citation) => {
+      rawSources.push({ url: citation });
     });
   }
 
@@ -485,6 +475,12 @@ function createCitationAwareAppender(streamer) {
         return;
       }
 
+      if (streamer?.__citation_metadata) {
+        for (const [, n] of safeText.matchAll(/\[(\d+)\]/g)) {
+          streamer.__citation_metadata.referenced_citation_indices.add(parseInt(n, 10));
+        }
+      }
+
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
       const hasMappings = Object.keys(sourceIndexMap).length > 0;
 
@@ -504,6 +500,12 @@ function createCitationAwareAppender(streamer) {
     async flush() {
       if (!tail) {
         return;
+      }
+
+      if (streamer?.__citation_metadata) {
+        for (const [, n] of tail.matchAll(/\[(\d+)\]/g)) {
+          streamer.__citation_metadata.referenced_citation_indices.add(parseInt(n, 10));
+        }
       }
 
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};

@@ -131,9 +131,13 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       MetadataLifecycleState.FINALIZED,
     ].includes(metadata?.finalize_state);
 
+    const referencedIndices = metadata?.referenced_citation_indices ?? new Set();
+    const referencedSources =
+      metadata?.sources?.filter((s) => referencedIndices.has(metadata.source_index_map[s.url])) ?? [];
+
     const citationBlocks =
-      CITATION_POLICY.citation_rendering_enabled && isRenderableState && metadata.sources?.length > 0
-        ? buildCitationBlocks(metadata.sources, metadata.source_index_map, metadata.evidence_snippets || {}, {
+      CITATION_POLICY.citation_rendering_enabled && isRenderableState && referencedSources.length > 0
+        ? buildCitationBlocks(referencedSources, metadata.source_index_map, metadata.evidence_snippets || {}, {
             includeEvidence: CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW,
           })
         : [];

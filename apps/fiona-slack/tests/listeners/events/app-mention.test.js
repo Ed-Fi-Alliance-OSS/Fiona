@@ -223,6 +223,7 @@ describe('appMentionCallback', () => {
         finalize_state: 'ready_to_finalize',
         sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
         source_index_map: { 'https://docs.ed-fi.org': 1 },
+        referenced_citation_indices: new Set([1]),
       });
       buildCitationBlocks.mockReturnValueOnce([citationSection]);
 
@@ -254,6 +255,7 @@ describe('appMentionCallback', () => {
         finalize_state: 'degraded_no_metadata',
         sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
         source_index_map: { 'https://docs.ed-fi.org': 1 },
+        referenced_citation_indices: new Set([1]),
       });
       buildCitationBlocks.mockReturnValueOnce([citationSection]);
 
@@ -262,6 +264,52 @@ describe('appMentionCallback', () => {
       expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
       const { blocks } = mockStreamer.stop.mock.calls[0][0];
       expect(blocks[0]).toBe(citationSection);
+    });
+
+    it('filters sources to only those referenced inline when fewer than total are cited', async () => {
+      const citationSection = { type: 'section', text: { type: 'mrkdwn', text: '*Sources*' } };
+      const sources = [
+        { url: 'https://a.example.com', title: 'A' },
+        { url: 'https://b.example.com', title: 'B' },
+        { url: 'https://c.example.com', title: 'C' },
+        { url: 'https://d.example.com', title: 'D' },
+        { url: 'https://e.example.com', title: 'E' },
+      ];
+      callLLM.mockResolvedValueOnce({
+        metadata_contract_version: 'v1',
+        finalize_state: 'ready_to_finalize',
+        sources,
+        source_index_map: {
+          'https://a.example.com': 1,
+          'https://b.example.com': 2,
+          'https://c.example.com': 3,
+          'https://d.example.com': 4,
+          'https://e.example.com': 5,
+        },
+        referenced_citation_indices: new Set([1, 4]),
+      });
+      buildCitationBlocks.mockReturnValueOnce([citationSection]);
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
+      const [passedSources] = buildCitationBlocks.mock.calls[0];
+      expect(passedSources).toHaveLength(2);
+      expect(passedSources.map((s) => s.url)).toEqual(['https://a.example.com', 'https://d.example.com']);
+    });
+
+    it('omits citation blocks when sources exist but none are referenced inline', async () => {
+      callLLM.mockResolvedValueOnce({
+        metadata_contract_version: 'v1',
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
+        source_index_map: { 'https://docs.ed-fi.org': 1 },
+        referenced_citation_indices: new Set(),
+      });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(buildCitationBlocks).not.toHaveBeenCalled();
     });
 
     it('skips streamer.stop when shouldFinalize returns false', async () => {

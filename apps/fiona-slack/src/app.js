@@ -35,3 +35,21 @@ registerListeners(app);
     process.exit(1);
   }
 })();
+
+async function shutdown(signal) {
+  app.logger.info(`Received ${signal}, shutting down...`);
+  const forceExit = setTimeout(() => {
+    app.logger.warn('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 5000);
+  forceExit.unref();
+  try {
+    await app.stop();
+  } catch (error) {
+    app.logger.error('Error during shutdown', error);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

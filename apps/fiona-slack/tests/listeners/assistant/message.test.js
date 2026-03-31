@@ -345,6 +345,7 @@ describe('message (assistant thread handler)', () => {
         finalize_state: 'ready_to_finalize',
         sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
         source_index_map: { 'https://docs.ed-fi.org': 1 },
+        referenced_citation_indices: new Set([1]),
       });
       buildCitationBlocks.mockReturnValueOnce([citationSection]);
 
@@ -390,6 +391,7 @@ describe('message (assistant thread handler)', () => {
         finalize_state: 'degraded_no_metadata',
         sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
         source_index_map: { 'https://docs.ed-fi.org': 1 },
+        referenced_citation_indices: new Set([1]),
       });
       buildCitationBlocks.mockReturnValueOnce([citationSection]);
 
