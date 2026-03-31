@@ -7,10 +7,7 @@ const DEFAULT_OPEN_BUTTON_ENABLED = true;
 const URL_PREVIEW_MAX_LENGTH = 56;
 
 function escapeMrkdwn(text = '') {
-  return String(text)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+  return String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function normalizeTitle(source = {}) {
@@ -84,7 +81,12 @@ function getUrlFromIndex(sourceIndexMap = {}, index) {
  * @param {boolean} [options.includeOpenButton=true] - Include "Open" button accessory
  * @returns {Object} Slack section block
  */
-function buildSourceSection(source, index, sourceIndexMap = {}, { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {}) {
+function buildSourceSection(
+  source,
+  index,
+  sourceIndexMap = {},
+  { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {},
+) {
   const { url, title } = source;
   const mappedUrl = getUrlFromIndex(sourceIndexMap, index) || url;
   const safeTitle = escapeMrkdwn(normalizeTitle({ ...source, title }));
@@ -123,7 +125,11 @@ function buildSourceSection(source, index, sourceIndexMap = {}, { includeOpenBut
  * @param {boolean} [options.includeOpenButton=true] - Include Open button in source rows
  * @returns {Array<Object>} Slack block objects
  */
-export function buildSourcesBlocks(sources, sourceIndexMap = {}, { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {}) {
+export function buildSourcesBlocks(
+  sources,
+  sourceIndexMap = {},
+  { includeOpenButton = DEFAULT_OPEN_BUTTON_ENABLED } = {},
+) {
   if (!sources || sources.length === 0) {
     return [];
   }

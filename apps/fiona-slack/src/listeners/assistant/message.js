@@ -1,9 +1,9 @@
-import { callLLM, CITATION_POLICY, MetadataLifecycleState } from '../../agent/llm-caller.js';
+import { CITATION_POLICY, callLLM, MetadataLifecycleState } from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
-import { feedbackBlock } from '../views/feedback_block.js';
+import { generateResponseId, markResponseFinalized, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { buildCitationBlocks } from '../views/citations_block.js';
-import { generateResponseId, shouldFinalize, markResponseFinalized } from '../../agent/utils/idempotent-finalize.js';
+import { feedbackBlock } from '../views/feedback_block.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -227,9 +227,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       // Telemetry: log finalize_state and source count for observability.
       if (metadata) {
-        logger.info(
-          `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`,
-        );
+        logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
       }
 
       // Build citation blocks when rendering is enabled, metadata is ready, and sources exist.
@@ -240,9 +238,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       ].includes(metadata?.finalize_state);
 
       const citationBlocks =
-        CITATION_POLICY.citation_rendering_enabled &&
-        isRenderableState &&
-        metadata.sources?.length > 0
+        CITATION_POLICY.citation_rendering_enabled && isRenderableState && metadata.sources?.length > 0
           ? buildCitationBlocks(metadata.sources, metadata.source_index_map, metadata.evidence_snippets || {}, {
               includeEvidence: CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW,
             })
