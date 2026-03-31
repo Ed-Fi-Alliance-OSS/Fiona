@@ -36,22 +36,35 @@ const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
 
-export const CITATION_POLICY = {
-  MAX_SOURCES_DISPLAYED: parseInt(process.env.CITATION_MAX_SOURCES || '10', 10),
-  METADATA_WAIT_TIMEOUT_MS: parseInt(process.env.CITATION_METADATA_TIMEOUT_MS || '2000', 10),
+/**
+ * Safely parse an environment variable into a positive integer.
+ * Falls back to `defaultValue` when the value is missing, non-numeric, NaN,
+ * or not a positive integer (e.g. CITATION_MAX_SOURCES=abc → 10).
+ *
+ * @param {string | undefined} rawValue
+ * @param {number} defaultValue
+ * @returns {number}
+ */
+function parsePositiveIntEnv(rawValue, defaultValue) {
+  const parsedInt = Number.parseInt(rawValue ?? '', 10);
+  if (!Number.isFinite(parsedInt) || parsedInt <= 0) {
+    return defaultValue;
+  }
+  return parsedInt;
+}
 
-  // Feature flags: enable/disable citation collection and rendering
-  // Default: ON in non-prod, OFF in prod (controlled by environment)
-  citation_metadata_collection_enabled:
-    process.env.CITATION_METADATA_ENABLED !== 'false' && process.env.NODE_ENV !== 'production',
+export const CITATION_POLICY = {
+  MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
+  METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
+
+  // Feature flags: enable/disable citation rendering.
+  // Default: ON in non-prod, OFF in prod (controlled by environment).
+  // Set CITATION_RENDERING_ENABLED=false or NODE_ENV=production to disable.
   citation_rendering_enabled:
     process.env.CITATION_RENDERING_ENABLED !== 'false' && process.env.NODE_ENV !== 'production',
 
-  // Evidence row: optional detailed snippets
+  // Evidence row: optional detailed snippets (off by default)
   FEATURE_FLAG_EVIDENCE_ROW: process.env.CITATION_INCLUDE_EVIDENCE === 'true',
-
-  // Telemetry: log metrics periodically
-  TELEMETRY_ENABLED: process.env.CITATION_TELEMETRY !== 'false',
 };
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
@@ -304,9 +317,17 @@ function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (Array.isArray(webSearch)) {
     webSearch.forEach((result) => {
       if (result.url) {
+        let derivedTitle = result.title;
+        if (!derivedTitle) {
+          try {
+            derivedTitle = new URL(result.url).hostname;
+          } catch {
+            // If URL parsing fails, leave derivedTitle undefined; normalizeSource will discard
+          }
+        }
         rawSources.push({
           url: result.url,
-          title: result.title || new URL(result.url).hostname,
+          title: derivedTitle,
           date: result.date || result.published_date,
           snippet: result.snippet || result.content,
         });
@@ -441,7 +462,6 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
  */
 function createCitationAwareAppender(streamer) {
   let tail = '';
-  let pending = '';
 
   return {
     async append(text) {
@@ -468,28 +488,26 @@ function createCitationAwareAppender(streamer) {
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
       const hasMappings = Object.keys(sourceIndexMap).length > 0;
 
+      // If no citation mappings are available yet, stream as-is so we don't
+      // accumulate an unbounded buffer or delay incremental output.
+      // The [n] markers will remain as literal text, but the citation blocks
+      // appended by the handler after streamer.stop() will contain linked sources.
       if (!hasMappings) {
-        pending += safeText;
+        await streamer.append({ markdown_text: safeText });
         return;
       }
 
-      const bufferedText = `${pending}${safeText}`;
-      pending = '';
-      const linked = linkifyCitationMarkers(bufferedText, sourceIndexMap);
+      const linked = linkifyCitationMarkers(safeText, sourceIndexMap);
       await streamer.append({ markdown_text: linked });
     },
 
     async flush() {
       if (!tail) {
-        if (!pending) {
-          return;
-        }
+        return;
       }
 
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-      const combined = `${pending}${tail}`;
-      const linked = linkifyCitationMarkers(combined, sourceIndexMap);
-      pending = '';
+      const linked = linkifyCitationMarkers(tail, sourceIndexMap);
       tail = '';
       await streamer.append({ markdown_text: linked });
     },
@@ -779,7 +797,8 @@ async function callOpenAICompatible(streamer, prompts, logger) {
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */
 export async function callLLM(streamer, prompts, logger) {
-  const provider = LLM_PROVIDER === 'foundry' ? 'foundry' : LLM_PROVIDER === 'azure' ? 'azure' : 'openai';
+  const knownProviders = new Set(['foundry', 'azure', 'openai', 'perplexity']);
+  const provider = knownProviders.has(LLM_PROVIDER) ? LLM_PROVIDER : 'openai';
   const metadata = initializeMetadataEnvelope(provider);
 
   incrementTotalResponseCount();
