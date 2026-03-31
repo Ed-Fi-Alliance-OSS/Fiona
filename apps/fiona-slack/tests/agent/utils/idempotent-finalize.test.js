@@ -15,26 +15,37 @@ describe('idempotent-finalize', () => {
   });
 
   describe('generateResponseId', () => {
-    it('generates unique ID from channel and thread_ts', () => {
+    it('generates unique ID from channel, thread_ts, and request_ts', () => {
+      const id = generateResponseId('C123', 't456', 'req001');
+      expect(id).toBe('C123:t456:req001');
+    });
+
+    it('falls back to thread_ts as request token when requestTs is omitted', () => {
       const id = generateResponseId('C123', 't456');
-      expect(id).toBe('C123:t456');
+      expect(id).toBe('C123:t456:t456');
     });
 
     it('creates consistent IDs for same inputs', () => {
-      const id1 = generateResponseId('C123', 't456');
-      const id2 = generateResponseId('C123', 't456');
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't456', 'req001');
       expect(id1).toBe(id2);
     });
 
     it('creates different IDs for different channels', () => {
-      const id1 = generateResponseId('C123', 't456');
-      const id2 = generateResponseId('C999', 't456');
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C999', 't456', 'req001');
       expect(id1).not.toBe(id2);
     });
 
     it('creates different IDs for different threads', () => {
-      const id1 = generateResponseId('C123', 't456');
-      const id2 = generateResponseId('C123', 't999');
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't999', 'req001');
+      expect(id1).not.toBe(id2);
+    });
+
+    it('creates different IDs for different request timestamps', () => {
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't456', 'req002');
       expect(id1).not.toBe(id2);
     });
   });
