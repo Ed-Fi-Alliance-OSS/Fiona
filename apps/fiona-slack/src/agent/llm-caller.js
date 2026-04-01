@@ -207,7 +207,6 @@ function initializeMetadataEnvelope(provider) {
     related_questions: [],
     evidence_snippets: {},
     tool_trace: [],
-    referenced_citation_indices: new Set(),
   };
 }
 
@@ -441,12 +440,6 @@ function createCitationAwareAppender(streamer) {
         return;
       }
 
-      if (streamer?.__citation_metadata) {
-        for (const [, n] of safeText.matchAll(/\[(\d+)\]/g)) {
-          streamer.__citation_metadata.referenced_citation_indices.add(parseInt(n, 10));
-        }
-      }
-
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
       const hasMappings = Object.keys(sourceIndexMap).length > 0;
 
@@ -466,12 +459,6 @@ function createCitationAwareAppender(streamer) {
     async flush() {
       if (!tail) {
         return;
-      }
-
-      if (streamer?.__citation_metadata) {
-        for (const [, n] of tail.matchAll(/\[(\d+)\]/g)) {
-          streamer.__citation_metadata.referenced_citation_indices.add(parseInt(n, 10));
-        }
       }
 
       const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
@@ -647,7 +634,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
   const usingPerplexity = client === perplexityClient;
 
   if (usingPerplexity) {
-    const citations = await callPerplexityChat(streamer, prompts, logger);
+    const citations = await callPerplexityChat(streamer, prompts);
     if (streamer?.__citation_metadata && citations.length > 0) {
       aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
     }
