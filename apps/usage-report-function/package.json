@@ -1,0 +1,36 @@
+{
+  "name": "fiona-usage-report-function",
+  "version": "1.0.0",
+  "description": "Weekly usage report function for Fiona-Slack analytics",
+  "type": "module",
+  "main": "WeeklyReportTrigger/index.js",
+  "scripts": {
+    "build": "npm run lint",
+    "start": "func start",
+    "lint": "npx @biomejs/biome check WeeklyReportTrigger/",
+    "lint:fix": "npx @biomejs/biome check --write WeeklyReportTrigger/",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "author": "Ed-Fi Alliance, LLC",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ed-Fi-Alliance-OSS/Fiona"
+  },
+  "bugs": {
+    "url": "https://github.com/Ed-Fi-Alliance-OSS/Fiona/issues"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.1.0",
+    "@azure/identity": "^4.0.0",
+    "@azure/keyvault-secrets": "^4.8.0",
+    "@azure/functions": "^4.0.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^2.0.0"
+  }
+}
