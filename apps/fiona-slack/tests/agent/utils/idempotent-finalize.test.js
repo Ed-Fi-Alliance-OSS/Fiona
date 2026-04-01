@@ -1,0 +1,239 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import {
+  generateResponseId,
+  isResponseFinalized,
+  markResponseFinalized,
+  shouldFinalize,
+  rollbackFinalization,
+  clearFinalizedResponses,
+  getFinalizedResponseCount,
+} from '../../../src/agent/utils/idempotent-finalize.js';
+
+describe('idempotent-finalize', () => {
+  beforeEach(() => {
+    // Clear state before each test
+    clearFinalizedResponses();
+  });
+
+  describe('generateResponseId', () => {
+    it('generates unique ID from channel, thread_ts, and request_ts', () => {
+      const id = generateResponseId('C123', 't456', 'req001');
+      expect(id).toBe('C123:t456:req001');
+    });
+
+    it('falls back to thread_ts as request token when requestTs is omitted', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(id).toBe('C123:t456:t456');
+    });
+
+    it('creates consistent IDs for same inputs', () => {
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't456', 'req001');
+      expect(id1).toBe(id2);
+    });
+
+    it('creates different IDs for different channels', () => {
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C999', 't456', 'req001');
+      expect(id1).not.toBe(id2);
+    });
+
+    it('creates different IDs for different threads', () => {
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't999', 'req001');
+      expect(id1).not.toBe(id2);
+    });
+
+    it('creates different IDs for different request timestamps', () => {
+      const id1 = generateResponseId('C123', 't456', 'req001');
+      const id2 = generateResponseId('C123', 't456', 'req002');
+      expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('isResponseFinalized', () => {
+    it('returns false for unfinal response', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(isResponseFinalized(id)).toBe(false);
+    });
+
+    it('returns true after marking finalized', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      expect(isResponseFinalized(id)).toBe(true);
+    });
+  });
+
+  describe('shouldFinalize', () => {
+    it('allows finalization for new response', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(shouldFinalize(id)).toBe(true);
+    });
+
+    it('prevents finalization of already-finalized response', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      expect(shouldFinalize(id)).toBe(false);
+    });
+
+    it('atomically claims the response ID so a second call returns false', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(shouldFinalize(id)).toBe(true);  // claims the slot
+      expect(shouldFinalize(id)).toBe(false); // slot already claimed
+    });
+
+    it('marks the response as finalized when it returns true', () => {
+      const id = generateResponseId('C123', 't456');
+      shouldFinalize(id);
+      expect(isResponseFinalized(id)).toBe(true);
+    });
+
+    it('calls logger.warn when response is already finalized', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      const mockLogger = { warn: jest.fn() };
+      shouldFinalize(id, mockLogger);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining(id));
+    });
+
+    it('does not call logger.warn for a new (unfinalized) response', () => {
+      const id = generateResponseId('C123', 't456');
+      const mockLogger = { warn: jest.fn() };
+      shouldFinalize(id, mockLogger);
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    });
+
+    it('works without a logger (no error thrown)', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      expect(() => shouldFinalize(id)).not.toThrow();
+    });
+  });
+
+  describe('markResponseFinalized', () => {
+    it('marks response as finalized', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      expect(isResponseFinalized(id)).toBe(true);
+    });
+
+    it('allows marking multiple responses', () => {
+      const id1 = generateResponseId('C123', 't456');
+      const id2 = generateResponseId('C999', 't789');
+
+      markResponseFinalized(id1);
+      markResponseFinalized(id2);
+
+      expect(isResponseFinalized(id1)).toBe(true);
+      expect(isResponseFinalized(id2)).toBe(true);
+    });
+
+    it('is idempotent - marking twice is safe', () => {
+      const id = generateResponseId('C123', 't456');
+      markResponseFinalized(id);
+      markResponseFinalized(id); // Mark again
+      expect(isResponseFinalized(id)).toBe(true);
+    });
+  });
+
+  describe('getFinalizedResponseCount', () => {
+    it('returns 0 when no responses finalized', () => {
+      expect(getFinalizedResponseCount()).toBe(0);
+    });
+
+    it('returns count of finalized responses', () => {
+      markResponseFinalized(generateResponseId('C1', 't1'));
+      markResponseFinalized(generateResponseId('C2', 't2'));
+      expect(getFinalizedResponseCount()).toBe(2);
+    });
+  });
+
+  describe('clearFinalizedResponses', () => {
+    it('clears all finalized responses', () => {
+      markResponseFinalized(generateResponseId('C1', 't1'));
+      markResponseFinalized(generateResponseId('C2', 't2'));
+
+      clearFinalizedResponses();
+
+      expect(getFinalizedResponseCount()).toBe(0);
+    });
+
+    it('allows responses to be finalized again after clear', () => {
+      const id = generateResponseId('C1', 't1');
+
+      markResponseFinalized(id);
+      expect(shouldFinalize(id)).toBe(false);
+
+      clearFinalizedResponses();
+      expect(shouldFinalize(id)).toBe(true);
+    });
+  });
+
+  describe('rollbackFinalization', () => {
+    it('removes a previously claimed response ID, allowing a future shouldFinalize to succeed', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(shouldFinalize(id)).toBe(true); // claims the slot
+      rollbackFinalization(id);
+      expect(shouldFinalize(id)).toBe(true); // slot released - can claim again
+    });
+
+    it('is safe to call on an ID that was never claimed (no-op)', () => {
+      const id = generateResponseId('C123', 't456');
+      expect(() => rollbackFinalization(id)).not.toThrow();
+      expect(isResponseFinalized(id)).toBe(false);
+    });
+
+    it('only removes the specified ID, leaving others intact', () => {
+      const id1 = generateResponseId('C123', 't456');
+      const id2 = generateResponseId('C999', 't789');
+      shouldFinalize(id1);
+      shouldFinalize(id2);
+
+      rollbackFinalization(id1);
+
+      expect(isResponseFinalized(id1)).toBe(false);
+      expect(isResponseFinalized(id2)).toBe(true);
+    });
+  });
+
+  describe('Duplicate finalization prevention', () => {
+    it('prevents duplicate streamer.stop() calls for same response', () => {
+      const channel = 'C123';
+      const threadTs = 't456';
+      const id = generateResponseId(channel, threadTs);
+
+      // First call atomically claims the slot
+      expect(shouldFinalize(id)).toBe(true);
+
+      // Second call for same response is rejected (no markResponseFinalized needed)
+      expect(shouldFinalize(id)).toBe(false);
+    });
+
+    it('allows finalization for different threads', () => {
+      const channel = 'C123';
+      const id1 = generateResponseId(channel, 't456');
+      const id2 = generateResponseId(channel, 't999');
+
+      markResponseFinalized(id1);
+
+      // Different thread can still finalize
+      expect(shouldFinalize(id2)).toBe(true);
+    });
+
+    it('allows finalization for different channels', () => {
+      const thread = 't456';
+      const id1 = generateResponseId('C123', thread);
+      const id2 = generateResponseId('C999', thread);
+
+      markResponseFinalized(id1);
+
+      // Different channel can still finalize
+      expect(shouldFinalize(id2)).toBe(true);
+    });
+  });
+});

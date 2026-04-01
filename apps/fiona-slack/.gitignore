@@ -4,3 +4,4 @@
 !.env.sample
 /coverage
 /junit.xml
+/.claude/settings.local.json

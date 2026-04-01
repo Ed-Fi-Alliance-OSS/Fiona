@@ -1,7 +1,53 @@
-import { callLLM } from '../../agent/llm-caller.js';
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
+import {
+  CITATION_POLICY,
+  callLLM,
+  finalizeMetadataEnvelope,
+  handleMetadataTimeout,
+  MetadataLifecycleState,
+} from '../../agent/llm-caller.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
+import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { feedbackBlock } from '../views/feedback_block.js';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Wait for metadata to reach a finalization-ready state with timeout.
+ *
+ * @param {Object} metadata - Metadata envelope
+ * @param {number} [timeoutMs=2000] - Max wait time
+ * @returns {Promise<void>}
+ */
+async function waitForMetadataReady(metadata, timeoutMs = 2000) {
+  if (!metadata) return;
+
+  const startTime = Date.now();
+  const readyStates = [
+    MetadataLifecycleState.READY_TO_FINALIZE,
+    MetadataLifecycleState.DEGRADED_NO_METADATA,
+    MetadataLifecycleState.FINALIZED,
+  ];
+
+  while (true) {
+    if (readyStates.includes(metadata.finalize_state)) {
+      return;
+    }
+
+    if (Date.now() - startTime > timeoutMs) {
+      // On timeout, transition via state machine to preserve strict consistency.
+      handleMetadataTimeout(metadata);
+      return;
+    }
+
+    await sleep(50);
+  }
+}
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation
@@ -16,6 +62,10 @@ import { feedbackBlock } from '../views/feedback_block.js';
  * @see {@link https://docs.slack.dev/reference/events/app_mention/}
  */
 export const appMentionCallback = async ({ event, client, logger, say }) => {
+  // Track the claimed finalization slot so the catch block can roll it back on failure,
+  // allowing a future delivery attempt to retry.
+  let responseId = null;
+
   try {
     const { channel, team, user } = event;
     const thread_ts = event.thread_ts || event.ts;
@@ -62,10 +112,27 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
     const prompts = await buildThreadHistory(client, channel, thread_ts, { currentText: text, logger });
 
-    await callLLM(streamer, prompts, logger);
+    const metadata = await callLLM(streamer, prompts, logger);
+
+    // Guard against duplicate finalization
+    responseId = generateResponseId(channel, thread_ts, event.ts);
+    if (!shouldFinalize(responseId, logger)) {
+      return;
+    }
+
+    // Wait for metadata to be ready before finalizing
+    await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
+
+    // Telemetry: log finalize_state and source count for observability.
+    if (metadata) {
+      logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+    }
 
     await streamer.stop({ blocks: [feedbackBlock] });
+    finalizeMetadataEnvelope(metadata);
   } catch (e) {
+    // Roll back the claimed finalization slot so a future delivery attempt can retry.
+    if (responseId) rollbackFinalization(responseId);
     logger.error('Failed to handle a user message event:', e);
     await say(':warning: Something went wrong! Please try again later.');
   }
