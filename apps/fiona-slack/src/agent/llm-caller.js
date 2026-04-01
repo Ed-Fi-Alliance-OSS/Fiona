@@ -1,6 +1,5 @@
 import { AIProjectClient } from '@azure/ai-projects';
 import { DefaultAzureCredential } from '@azure/identity';
-import { Console } from 'console';
 import { AzureOpenAI, OpenAI } from 'openai';
 import { rollDice, rollDiceDefinition } from './tools/dice.js';
 import { perplexitySearchDefinition } from './tools/perplexity-search.js';
@@ -406,7 +405,7 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
       return full;
     }
 
-    return `<${url}|[${index}]>`;
+    return `[[${index}]](${url})`;
   });
 }
 
