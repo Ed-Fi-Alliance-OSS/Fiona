@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
 import {
   CITATION_POLICY,
   callLLM,
@@ -8,7 +13,6 @@ import {
 import { checkRateLimit } from '../../agent/rate-limiter.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { buildCitationBlocks } from '../views/citations_block.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -124,21 +128,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
     }
 
-    // Build citation blocks when rendering is enabled, metadata is ready, and sources exist.
-    const isRenderableState = [
-      MetadataLifecycleState.READY_TO_FINALIZE,
-      MetadataLifecycleState.DEGRADED_NO_METADATA,
-      MetadataLifecycleState.FINALIZED,
-    ].includes(metadata?.finalize_state);
-
-    const citationBlocks =
-      CITATION_POLICY.citation_rendering_enabled && isRenderableState && metadata.sources?.length > 0
-        ? buildCitationBlocks(metadata.sources, metadata.source_index_map, metadata.evidence_snippets || {}, {
-            includeEvidence: CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW,
-          })
-        : [];
-
-    await streamer.stop({ blocks: [...citationBlocks, feedbackBlock] });
+    await streamer.stop({ blocks: [feedbackBlock] });
     finalizeMetadataEnvelope(metadata);
   } catch (e) {
     // Roll back the claimed finalization slot so a future delivery attempt can retry.

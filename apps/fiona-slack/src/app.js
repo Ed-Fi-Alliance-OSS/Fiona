@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
 import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
 import { registerListeners } from './listeners/index.js';
@@ -35,3 +40,21 @@ registerListeners(app);
     process.exit(1);
   }
 })();
+
+async function shutdown(signal) {
+  app.logger.info(`Received ${signal}, shutting down...`);
+  const forceExit = setTimeout(() => {
+    app.logger.warn('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 5000);
+  forceExit.unref();
+  try {
+    await app.stop();
+  } catch (error) {
+    app.logger.error('Error during shutdown', error);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

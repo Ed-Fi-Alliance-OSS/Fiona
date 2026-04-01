@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
@@ -37,16 +42,12 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: jest.fn(),
 }));
 
-jest.unstable_mockModule('../../../src/listeners/views/citations_block.js', () => ({
-  buildCitationBlocks: jest.fn().mockReturnValue([]),
-}));
 
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
 const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
-const { buildCitationBlocks } = await import('../../../src/listeners/views/citations_block.js');
 
 describe('message (assistant thread handler)', () => {
   let mockSay;
@@ -337,77 +338,7 @@ describe('message (assistant thread handler)', () => {
     });
   });
 
-  describe('citation blocks (strict-consistency citations)', () => {
-    it('includes citation blocks before feedbackBlock when metadata is READY_TO_FINALIZE with sources', async () => {
-      const citationSection = { type: 'section', text: { type: 'mrkdwn', text: '*Sources*' } };
-      callLLM.mockResolvedValueOnce({
-        metadata_contract_version: 'v1',
-        finalize_state: 'ready_to_finalize',
-        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
-        source_index_map: { 'https://docs.ed-fi.org': 1 },
-      });
-      buildCitationBlocks.mockReturnValueOnce([citationSection]);
-
-      await messageHandler({
-        client: mockClient,
-        context: mockContext,
-        logger: mockLogger,
-        message: mockMessage,
-        say: mockSay,
-        setStatus: mockSetStatus,
-      });
-
-      expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
-      const { blocks } = mockStreamer.stop.mock.calls[0][0];
-      expect(blocks[0]).toBe(citationSection);
-    });
-
-    it('omits citation blocks when metadata is DEGRADED_NO_METADATA and no sources exist', async () => {
-      callLLM.mockResolvedValueOnce({
-        metadata_contract_version: 'v1',
-        finalize_state: 'degraded_no_metadata',
-        sources: [],
-        source_index_map: {},
-      });
-
-      await messageHandler({
-        client: mockClient,
-        context: mockContext,
-        logger: mockLogger,
-        message: mockMessage,
-        say: mockSay,
-        setStatus: mockSetStatus,
-      });
-
-      expect(buildCitationBlocks).not.toHaveBeenCalled();
-      expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
-    });
-
-    it('renders citation blocks when metadata is DEGRADED_NO_METADATA but sources are present', async () => {
-      const citationSection = { type: 'section', text: { type: 'mrkdwn', text: '*Sources*' } };
-      callLLM.mockResolvedValueOnce({
-        metadata_contract_version: 'v1',
-        finalize_state: 'degraded_no_metadata',
-        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
-        source_index_map: { 'https://docs.ed-fi.org': 1 },
-      });
-      buildCitationBlocks.mockReturnValueOnce([citationSection]);
-
-      await messageHandler({
-        client: mockClient,
-        context: mockContext,
-        logger: mockLogger,
-        message: mockMessage,
-        say: mockSay,
-        setStatus: mockSetStatus,
-      });
-
-      expect(buildCitationBlocks).toHaveBeenCalledTimes(1);
-      const { blocks } = mockStreamer.stop.mock.calls[0][0];
-      expect(blocks[0]).toBe(citationSection);
-    });
-
-    it('skips streamer.stop when shouldFinalize returns false', async () => {
+  it('skips streamer.stop when shouldFinalize returns false', async () => {
       shouldFinalize.mockReturnValueOnce(false);
 
       await messageHandler({
@@ -506,5 +437,4 @@ describe('message (assistant thread handler)', () => {
 
       expect(rollbackFinalization).not.toHaveBeenCalled();
     });
-  });
 });

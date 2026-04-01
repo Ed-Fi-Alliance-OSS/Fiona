@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
 import { AIProjectClient } from '@azure/ai-projects';
 import { DefaultAzureCredential } from '@azure/identity';
 import { AzureOpenAI, OpenAI } from 'openai';
@@ -278,72 +283,23 @@ export function finalizeMetadataEnvelope(metadata) {
 
 /**
  * Extract and aggregate citation metadata from Perplexity response.
- * Merges sources from search results using deterministic first-seen ordering.
+ * Sonar model returns a flat citations array (URLs only); titles are derived from URLs.
  *
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
  */
-function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
+export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (!perplexityResponse) return;
 
-  // Perplexity returns citations in the response
   const citations = perplexityResponse.citations || [];
-  const webSearch = perplexityResponse.web_search_results || [];
 
-  // Collect raw sources
-  const rawSources = [];
-
-  // Build URL -> title map from web search metadata when available.
-  const searchTitleByUrl = new Map();
-  if (Array.isArray(webSearch)) {
-    webSearch.forEach((result) => {
-      if (result?.url && result?.title) {
-        searchTitleByUrl.set(result.url, result.title);
-      }
-    });
-  }
-
-  // Add citations as sources
-  if (Array.isArray(citations)) {
-    citations.forEach((citation) => {
-      rawSources.push({
-        url: citation,
-        title: searchTitleByUrl.get(citation),
-      });
-    });
-  }
-
-  // Add web search results
-  if (Array.isArray(webSearch)) {
-    webSearch.forEach((result) => {
-      if (result.url) {
-        let derivedTitle = result.title;
-        if (!derivedTitle) {
-          try {
-            derivedTitle = new URL(result.url).hostname;
-          } catch {
-            // If URL parsing fails, leave derivedTitle undefined; normalizeSource will discard
-          }
-        }
-        rawSources.push({
-          url: result.url,
-          title: derivedTitle,
-          date: result.date || result.published_date,
-          snippet: result.snippet || result.content,
-        });
-      }
-    });
-  }
+  const rawSources = Array.isArray(citations) ? citations.map((url) => ({ url })) : [];
 
   if (rawSources.length > 0) {
     // Normalize and deduplicate with deterministic first-seen ordering
     const { sources, sourceIndexMap } = normalizeSources(rawSources, {
       maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
     });
-
-    // Aggregate into metadata envelope
-    metadata.sources = [...metadata.sources];
-    metadata.search_results = [...metadata.search_results, ...webSearch];
 
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
@@ -449,7 +405,7 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
       return full;
     }
 
-    return `<${url}|[${index}]>`;
+    return `[[${index}]](${url})`;
   });
 }
 
@@ -540,7 +496,7 @@ async function callPerplexityChat(streamer, prompts) {
     stream: true,
   });
 
-  // Collect citations from any chunk that carries them; last one wins.
+  // Collect citations from chunks; last one wins.
   let citations = [];
   const appender = createCitationAwareAppender(streamer);
 
@@ -548,7 +504,7 @@ async function callPerplexityChat(streamer, prompts) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
 
-      if (streamer?.__citation_metadata) {
+      if (citations.length > 0 && streamer?.__citation_metadata) {
         aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
       }
     }
@@ -578,6 +534,11 @@ async function callPerplexityChat(streamer, prompts) {
   }
 
   await appender.flush();
+
+  // Read the final chunk's citations one last time in case they were updated after the last text delta
+  if (streamer?.__citation_metadata && citations.length > 0) {
+    aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  }
 
   return citations;
 }
@@ -679,10 +640,8 @@ async function callOpenAICompatible(streamer, prompts, logger) {
   const usingPerplexity = client === perplexityClient;
 
   if (usingPerplexity) {
-    const citations = await callPerplexityChat(streamer, prompts);
-    if (streamer?.__citation_metadata && citations.length > 0) {
-      aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
-    }
+    await callPerplexityChat(streamer, prompts);
+
     return;
   }
 
