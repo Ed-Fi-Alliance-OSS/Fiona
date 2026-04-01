@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
 import { registerListeners } from './listeners/index.js';
+import { validateStartupConfig } from './agent/startup-validator.js';
 
 const LOG_LEVEL_MAP = {
   debug: LogLevel.DEBUG,
@@ -84,6 +85,7 @@ registerListeners(app);
 // Start the Bolt app
 (async () => {
   try {
+    validateStartupConfig();
     await app.start();
     app.logger.info('⚡️ Bolt app is running!');
   } catch (error) {
