@@ -301,10 +301,6 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
       maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
     });
 
-    // Aggregate into metadata envelope
-    metadata.sources = [...metadata.sources];
-    metadata.search_results = [...metadata.search_results];
-
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
       if (!metadata.source_index_map[url]) {
@@ -507,10 +503,10 @@ async function callPerplexityChat(streamer, prompts) {
   for await (const chunk of response) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
-    }
 
-    if (citations.length > 0 && streamer?.__citation_metadata) {
-      aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+      if (citations.length > 0 && streamer?.__citation_metadata) {
+        aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+      }
     }
 
     const delta = chunk?.choices?.[0]?.delta;
@@ -538,6 +534,11 @@ async function callPerplexityChat(streamer, prompts) {
   }
 
   await appender.flush();
+
+  // Read the final chunk's citations one last time in case they were updated after the last text delta
+  if (streamer?.__citation_metadata && citations.length > 0) {
+    aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  }
 
   return citations;
 }
@@ -639,10 +640,8 @@ async function callOpenAICompatible(streamer, prompts, logger) {
   const usingPerplexity = client === perplexityClient;
 
   if (usingPerplexity) {
-    const citations = await callPerplexityChat(streamer, prompts);
-    if (streamer?.__citation_metadata && citations.length > 0) {
-      aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
-    }
+    await callPerplexityChat(streamer, prompts);
+
     return;
   }
 
@@ -707,7 +706,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
 
           // Attach metadata envelope if available in streamer context
           if (streamer?.__citation_metadata) {
-            aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse, logger);
+            aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse);
           }
         } catch (error) {
           result = { error: `Perplexity search failed: ${error.message}` };
