@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { recordInteraction } from '../../agent/interaction-store.js';
 import {
   CITATION_POLICY,
   callLLM,
@@ -91,14 +92,34 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
   // Track the claimed finalization slot so the catch block can roll it back on failure,
   // allowing a future delivery attempt to retry.
+  const { channel, thread_ts } = message;
+  const { userId, teamId } = context;
+  const messageTs = message.ts;
+
   let responseId = null;
+  let status = 'success';
+  let errorType = null;
+  let isRateLimited = false;
+  let interactionRecorded = false;
 
   try {
-    const { channel, thread_ts } = message;
-    const { userId, teamId } = context;
-
     const { allowed, retryAfterMs } = checkRateLimit(userId);
     if (!allowed) {
+      isRateLimited = true;
+      await recordInteraction({
+        userId,
+        teamId,
+        channelId: channel,
+        threadTs: thread_ts,
+        messageTs,
+        interactionType: 'assistant_message',
+        status: 'error',
+        errorType: 'rate_limited',
+        rateLimited: true,
+        logger,
+      });
+      interactionRecorded = true;
+
       const minutes = Math.ceil(retryAfterMs / 60000);
       await say(
         `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
@@ -247,7 +268,41 @@ export const message = async ({ client, context, logger, message, say, setStatus
   } catch (e) {
     // Roll back the claimed finalization slot so a future delivery attempt can retry.
     if (responseId) rollbackFinalization(responseId);
+
+    status = 'error';
+
+    if (e.code === 'COSMOS_ERROR') {
+      errorType = 'cosmos_error';
+    } else if (e.name === 'TimeoutError') {
+      errorType = 'timeout';
+    } else if (e.code?.includes('429') || e.message?.includes('rate_limit')) {
+      errorType = 'llm_rate_limited';
+    } else if (e.code?.includes('openai') || e.name?.includes('APIError')) {
+      errorType = 'llm_error';
+    } else {
+      errorType = 'unknown';
+    }
+
     logger.error('Failed to handle a user message event:', e);
     await say(':warning: Something went wrong! Please try again later.');
+  } finally {
+    if (!interactionRecorded) {
+      try {
+        await recordInteraction({
+          userId,
+          teamId,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          interactionType: 'assistant_message',
+          status,
+          errorType: status === 'error' ? errorType : null,
+          rateLimited: isRateLimited,
+          logger,
+        });
+      } catch (cosmosError) {
+        logger.warn?.(`Failed to record interaction: ${cosmosError.message}`);
+      }
+    }
   }
 };
