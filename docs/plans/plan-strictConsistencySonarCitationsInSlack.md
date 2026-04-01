@@ -1,10 +1,3 @@
-/*
- * SPDX-License-Identifier: Apache-2.0
- * Licensed to the Ed-Fi Alliance under one or more agreements.
- * The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
- * See the LICENSE and NOTICES files in the project root for more information.
- */
-
 ## Plan: Strict-Consistency Sonar Citations in Slack
 
 Implement citation support with strict consistency: do not finalize a Slack message until citation metadata is resolved (or an explicit timeout policy is reached), so footnotes and source blocks always correspond to the exact answer shown. Use a versioned metadata contract, deterministic source indexing, and idempotent finalize behavior.
