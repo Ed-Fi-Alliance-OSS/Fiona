@@ -1,0 +1,91 @@
+name: Deploy Usage Report Function
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/usage-report-function/**'
+      - '.github/workflows/deploy-usage-report-function.yml'
+  workflow_dispatch:
+
+env:
+  AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
+  AZURE_RESOURCE_GROUP: ${{ var.AZURE_RESOURCE_GROUP }}
+  NODE_VERSION: '22.x'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: apps/usage-report-function/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/usage-report-function
+        run: npm ci
+
+      - name: Run tests
+        working-directory: apps/usage-report-function
+        run: npm test
+
+      - name: Build
+        working-directory: apps/usage-report-function
+        run: npm run build
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: apps/usage-report-function/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/usage-report-function
+        run: npm ci
+
+      - name: Azure Login
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Package function app
+        run: |
+          cd apps/usage-report-function
+          rm -f function-app.zip
+          zip -r ../../function-app.zip . -x "node_modules/*" ".git/*" "test/*" "coverage/*"
+
+      - name: Deploy to Azure
+        run: |
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --src-path function-app.zip
+
+      - name: Set app settings
+        run: |
+          az functionapp config appsettings set \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --settings \
+              REPORT_SCHEDULE='0 9 * * 1' \
+              COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
+              COSMOS_DATABASE='fiona' \
+              COSMOS_INTERACTIONS_CONTAINER='interactions' \
+              COSMOS_FEEDBACK_CONTAINER='feedback' \
+              DEPLOYMENT_TYPE='production' \
+              KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
+              SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
