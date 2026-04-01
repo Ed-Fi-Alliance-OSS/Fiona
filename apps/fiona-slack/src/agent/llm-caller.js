@@ -1,5 +1,6 @@
 import { AIProjectClient } from '@azure/ai-projects';
 import { DefaultAzureCredential } from '@azure/identity';
+import { Console } from 'console';
 import { AzureOpenAI, OpenAI } from 'openai';
 import { rollDice, rollDiceDefinition } from './tools/dice.js';
 import { perplexitySearchDefinition } from './tools/perplexity-search.js';
@@ -279,7 +280,7 @@ export function finalizeMetadataEnvelope(metadata) {
 
 /**
  * Extract and aggregate citation metadata from Perplexity response.
- * Merges sources from search results using deterministic first-seen ordering.
+ * Sonar model returns a flat citations array (URLs only); titles are derived from URLs.
  *
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
@@ -287,43 +288,9 @@ export function finalizeMetadataEnvelope(metadata) {
 export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (!perplexityResponse) return;
 
-  // Perplexity returns citations in the response
   const citations = perplexityResponse.citations || [];
-  const webSearch = perplexityResponse.web_search_results || [];
 
-  // Collect raw sources
-  const rawSources = [];
-
-  // Add cited web search results first so their richer data (snippet, date) wins
-  // deduplication over the bare citation URL entries added below.
-  const citedUrls = new Set(Array.isArray(citations) ? citations : []);
-  if (Array.isArray(webSearch)) {
-    webSearch.forEach((result) => {
-      if (result.url && citedUrls.has(result.url)) {
-        let derivedTitle = result.title;
-        if (!derivedTitle) {
-          try {
-            derivedTitle = new URL(result.url).hostname;
-          } catch {
-            // If URL parsing fails, leave derivedTitle undefined; normalizeSource will discard
-          }
-        }
-        rawSources.push({
-          url: result.url,
-          title: derivedTitle,
-          date: result.date || result.published_date,
-          snippet: result.snippet || result.content,
-        });
-      }
-    });
-  }
-
-  // Add citations as fallback sources for any URL not already covered by webSearch
-  if (Array.isArray(citations)) {
-    citations.forEach((citation) => {
-      rawSources.push({ url: citation });
-    });
-  }
+  const rawSources = Array.isArray(citations) ? citations.map((url) => ({ url })) : [];
 
   if (rawSources.length > 0) {
     // Normalize and deduplicate with deterministic first-seen ordering
@@ -333,7 +300,7 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 
     // Aggregate into metadata envelope
     metadata.sources = [...metadata.sources];
-    metadata.search_results = [...metadata.search_results, ...webSearch];
+    metadata.search_results = [...metadata.search_results];
 
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
@@ -542,17 +509,17 @@ async function callPerplexityChat(streamer, prompts) {
     stream: true,
   });
 
-  // Collect citations from any chunk that carries them; last one wins.
+  // Collect citations from chunks; last one wins.
   let citations = [];
   const appender = createCitationAwareAppender(streamer);
 
   for await (const chunk of response) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
+    }
 
-      if (streamer?.__citation_metadata) {
-        aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
-      }
+    if (citations.length > 0 && streamer?.__citation_metadata) {
+      aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
     }
 
     const delta = chunk?.choices?.[0]?.delta;
@@ -681,7 +648,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
   const usingPerplexity = client === perplexityClient;
 
   if (usingPerplexity) {
-    const citations = await callPerplexityChat(streamer, prompts);
+    const citations = await callPerplexityChat(streamer, prompts, logger);
     if (streamer?.__citation_metadata && citations.length > 0) {
       aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
     }
@@ -749,7 +716,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
 
           // Attach metadata envelope if available in streamer context
           if (streamer?.__citation_metadata) {
-            aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse);
+            aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse, logger);
           }
         } catch (error) {
           result = { error: `Perplexity search failed: ${error.message}` };
