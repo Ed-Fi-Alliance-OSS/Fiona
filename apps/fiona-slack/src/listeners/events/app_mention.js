@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { recordInteraction } from '../../agent/interaction-store.js';
 import {
   CITATION_POLICY,
   callLLM,
@@ -64,14 +65,34 @@ async function waitForMetadataReady(metadata, timeoutMs = 2000) {
 export const appMentionCallback = async ({ event, client, logger, say }) => {
   // Track the claimed finalization slot so the catch block can roll it back on failure,
   // allowing a future delivery attempt to retry.
+  const { channel, team, user } = event;
+  const thread_ts = event.thread_ts || event.ts;
+  const messageTs = event.ts;
+
   let responseId = null;
+  let status = 'success';
+  let errorType = null;
+  let isRateLimited = false;
+  let interactionRecorded = false;
 
   try {
-    const { channel, team, user } = event;
-    const thread_ts = event.thread_ts || event.ts;
-
     const { allowed, retryAfterMs } = checkRateLimit(user);
     if (!allowed) {
+      isRateLimited = true;
+      await recordInteraction({
+        userId: user,
+        teamId: team,
+        channelId: channel,
+        threadTs: thread_ts,
+        messageTs,
+        interactionType: 'app_mention',
+        status: 'error',
+        errorType: 'rate_limited',
+        rateLimited: true,
+        logger,
+      });
+      interactionRecorded = true;
+
       const minutes = Math.ceil(retryAfterMs / 60000);
       await say(
         `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
@@ -82,8 +103,9 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
     const text = (event.text || '').replace(/<[@#!][^>]+>/g, '').trim();
 
-    // Respond with a helpful introduction when there is no message text
+    // Respond with a helpful introduction when there is no message text (silently discard, don't record)
     if (!text) {
+      interactionRecorded = true;
       await say(
         "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
       );
@@ -133,7 +155,41 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
   } catch (e) {
     // Roll back the claimed finalization slot so a future delivery attempt can retry.
     if (responseId) rollbackFinalization(responseId);
+
+    status = 'error';
+
+    if (e.code === 'COSMOS_ERROR') {
+      errorType = 'cosmos_error';
+    } else if (e.name === 'TimeoutError') {
+      errorType = 'timeout';
+    } else if (e.code?.includes('429') || e.message?.includes('rate_limit')) {
+      errorType = 'llm_rate_limited';
+    } else if (e.code?.includes('openai') || e.name?.includes('APIError')) {
+      errorType = 'llm_error';
+    } else {
+      errorType = 'unknown';
+    }
+
     logger.error('Failed to handle a user message event:', e);
     await say(':warning: Something went wrong! Please try again later.');
+  } finally {
+    if (!interactionRecorded) {
+      try {
+        await recordInteraction({
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          interactionType: 'app_mention',
+          status,
+          errorType: status === 'error' ? errorType : null,
+          rateLimited: isRateLimited,
+          logger,
+        });
+      } catch (cosmosError) {
+        logger.warn?.(`Failed to record interaction: ${cosmosError.message}`);
+      }
+    }
   }
 };

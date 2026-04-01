@@ -6,6 +6,10 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
+jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
+  recordInteraction: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue(undefined),
   finalizeMetadataEnvelope: jest.fn(),
