@@ -39,6 +39,7 @@ const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
+export const MAX_RECURSION_DEPTH = 10;
 
 /**
  * Safely parse an environment variable into a positive integer.
@@ -614,7 +615,10 @@ async function callAzureAgent(streamer, prompts, logger) {
  * @param {Array} prompts
  * @param {import("@slack/logger").Logger} logger
  */
-async function callOpenAICompatible(streamer, prompts, logger) {
+async function callOpenAICompatible(streamer, prompts, logger, depth = 0) {
+  if (depth >= MAX_RECURSION_DEPTH) {
+    throw new Error(`Maximum recursion depth (${MAX_RECURSION_DEPTH}) exceeded in callOpenAICompatible`);
+  }
   const toolCalls = [];
   const appender = createCitationAwareAppender(streamer);
 
@@ -719,7 +723,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
       }
     }
 
-    await callOpenAICompatible(streamer, prompts, logger);
+    await callOpenAICompatible(streamer, prompts, logger, depth + 1);
   }
 }
 
