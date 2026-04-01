@@ -17,7 +17,7 @@
  * @see {@link https://docs.slack.dev/reference/events/assistant_thread_started}
  */
 export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
-  const { context } = event.assistant_thread;
+  const { context = {} } = event.assistant_thread ?? {};
 
   try {
     /**
