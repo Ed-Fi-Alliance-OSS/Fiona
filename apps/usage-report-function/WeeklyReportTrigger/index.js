@@ -3,7 +3,6 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import 'dotenv/config';
 import { CosmosClient } from '@azure/cosmos';
 import { app } from '@azure/functions';
 import { DefaultAzureCredential } from '@azure/identity';
@@ -98,6 +97,11 @@ app.timer('WeeklyReportTrigger', {
 
       const message = formatWeeklyReport(kpis);
       logger(`Report formatted: ${message.substring(0, 100)}...`);
+
+      if (process.env.SLACK_DRY_RUN === 'true') {
+        logger('Dry-run mode — skipping Slack post. Full report:\n' + message);
+        return;
+      }
 
       // Post to Slack via webhook
       const webhookUrl = await getSlackWebhookUrl(SLACK_WEBHOOK_SECRET_NAME, {
