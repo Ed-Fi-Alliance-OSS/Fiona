@@ -94,6 +94,16 @@ describe('formatWeeklyReport', () => {
       endDate: '2026-04-05',
     };
     const message = formatWeeklyReport(crossMonthKpis);
-    expect(message).toContain('Mar 30–5, 2026');
+    expect(message).toContain('Mar 30–Apr 5, 2026');
+  });
+
+  it('handles year boundary correctly when start and end years differ', () => {
+    const crossYearKpis = {
+      ...baseKpis,
+      startDate: '2025-12-29',
+      endDate: '2026-01-04',
+    };
+    const message = formatWeeklyReport(crossYearKpis);
+    expect(message).toContain('Dec 29–Jan 4, 2026');
   });
 });
