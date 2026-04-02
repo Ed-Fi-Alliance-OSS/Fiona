@@ -169,6 +169,17 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
             { path: '/status', order: 'ascending' }
             { path: '/timestamp', order: 'descending' }
           ]
+          // Analytics queries filter on timestamp + status + rateLimited together
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/status', order: 'ascending' }
+            { path: '/rateLimited', order: 'ascending' }
+          ]
+          // getRateLimitedCount filters on timestamp + rateLimited without status
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/rateLimited', order: 'ascending' }
+          ]
         ]
       }
       // No TTL interaction records are retained indefinitely for long-term trend analysis
@@ -176,6 +187,38 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
     options: {
       // Empty: throughput defined at database level unless serverless.
     }
+  }
+}
+
+// Feedback Container for storing per-interaction user feedback
+resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (cosmosAccountName != '') {
+  name: cosmosContainer
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: cosmosContainer
+      partitionKey: {
+        paths: [ '/deploymentType' ]
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+        ]
+        // getFeedbackBreakdown groups by value within a timestamp window
+        compositeIndexes: [
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/value', order: 'ascending' }
+          ]
+        ]
+      }
+    }
+    options: {}
   }
 }
 
