@@ -116,34 +116,40 @@ export async function getAvgInteractionsPerUser(container, deploymentType, oneWe
 /**
  * Returns the percentage of successful interactions that received feedback.
  *
- * Queries the interactions container only. The feedbackContainer parameter
- * is accepted for API symmetry and future refactoring.
+ * Queries the interactions and feedback containers separately, then computes
+ * the response rate in application code.
  */
 export async function getFeedbackResponseRate(
   interactionsContainer,
-  _feedbackContainer,
+  feedbackContainer,
   deploymentType,
   oneWeekAgoISO,
 ) {
-  return runScalarQuery(
+  const successCount = await runScalarQuery(
     interactionsContainer,
-    `SELECT VALUE
-       CASE
-         WHEN successCount = 0 THEN 0
-         ELSE (feedbackCount / successCount) * 100
-       END
-     FROM (
-       SELECT
-         (SELECT VALUE COUNT(1) FROM feedback f
-          WHERE f.deploymentType = @deploymentType
-            AND f.timestamp > @oneWeekAgoISO) AS feedbackCount,
-         (SELECT VALUE COUNT(1) FROM interactions i
-          WHERE i.deploymentType = @deploymentType
-            AND i.timestamp > @oneWeekAgoISO
-            AND i.status = 'success'
-            AND i.rateLimited = false) AS successCount
-     )`,
+    `SELECT VALUE COUNT(1)
+     FROM interactions i
+     WHERE i.deploymentType = @deploymentType
+       AND i.timestamp > @oneWeekAgoISO
+       AND i.status = 'success'
+       AND i.rateLimited = false`,
     deploymentType,
     oneWeekAgoISO,
   );
+
+  const feedbackCount = await runScalarQuery(
+    feedbackContainer,
+    `SELECT VALUE COUNT(1)
+     FROM feedback f
+     WHERE f.deploymentType = @deploymentType
+       AND f.timestamp > @oneWeekAgoISO`,
+    deploymentType,
+    oneWeekAgoISO,
+  );
+
+  if (!successCount) {
+    return 0;
+  }
+
+  return (feedbackCount / successCount) * 100;
 }
