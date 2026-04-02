@@ -93,7 +93,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
   // Track the claimed finalization slot so the catch block can roll it back on failure,
   // allowing a future delivery attempt to retry.
   const { channel, thread_ts } = message;
-  const { userId, teamId } = context;
+  const { userId, teamId } = context || { userId: 'unknown_user', teamId: 'unknown_team' };
   const messageTs = message.ts;
 
   let responseId = null;
