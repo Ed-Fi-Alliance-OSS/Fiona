@@ -79,7 +79,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     const { allowed, retryAfterMs } = checkRateLimit(user);
     if (!allowed) {
       isRateLimited = true;
-      await recordInteraction({
+      recordInteraction({
         userId: user,
         teamId: team,
         channelId: channel,
@@ -90,7 +90,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         errorType: 'rate_limited',
         rateLimited: true,
         logger,
-      });
+      }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
       interactionRecorded = true;
 
       const minutes = Math.ceil(retryAfterMs / 60000);

@@ -243,7 +243,7 @@ describe('message (assistant thread handler)', () => {
     expect(msg).toContain('request limit');
     expect(callLLM).not.toHaveBeenCalled();
 
-    // recordInteraction must be called before say()
+    // recordInteraction is fired before say() but not awaited — say() is not blocked on the Cosmos write
     expect(recordInteraction.mock.invocationCallOrder[0]).toBeLessThan(mockSay.mock.invocationCallOrder[0]);
   });
 
