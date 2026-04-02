@@ -117,7 +117,7 @@ describe('checkRateLimit', () => {
 
     // Set fake time to epoch 0 so this entry's timestamp is far enough in the
     // past that only it gets swept, while real-clock entries from other tests
-    // (timestamped ~2024) remain untouched.
+    // (timestamped near the real clock time) remain untouched.
     jest.useFakeTimers();
     jest.setSystemTime(new Date(0));
 
