@@ -106,7 +106,7 @@ app.timer('WeeklyReportTrigger', {
       });
       logger('Retrieved webhook URL from Key Vault, posting to Slack...');
 
-      await axios.post(webhookUrl, { text: message });
+      await axios.post(webhookUrl, { text: message }, { maxRedirects: 0 });
 
       logger('Weekly report posted successfully');
     } catch (error) {

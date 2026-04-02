@@ -257,7 +257,7 @@ describe('WeeklyReportTrigger', () => {
       await handler({}, context);
       expect(mockAxiosPost).toHaveBeenCalledWith('https://hooks.slack.com/test', {
         text: 'Fiona Usage Report text',
-      });
+      }, { maxRedirects: 0 });
     });
 
     it('catches errors and logs them without rethrowing', async () => {
