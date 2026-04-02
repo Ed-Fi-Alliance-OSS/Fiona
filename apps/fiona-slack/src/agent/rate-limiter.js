@@ -10,6 +10,25 @@ const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
 const userTimestamps = new Map();
 
 /**
+ * Removes all Map entries whose timestamps have all fallen outside the current
+ * window. Called both by the periodic sweep timer and exposed via __testing so
+ * unit tests can trigger it synchronously.
+ */
+function sweepExpiredEntries() {
+  const windowStart = Date.now() - WINDOW_MS;
+  for (const [userId, timestamps] of userTimestamps) {
+    if (timestamps.every((t) => t <= windowStart)) {
+      userTimestamps.delete(userId);
+    }
+  }
+}
+
+// Periodically remove entries for users who never call checkRateLimit again.
+// unref() lets Node.js exit even if this timer is still pending.
+const sweepTimer = setInterval(sweepExpiredEntries, WINDOW_MS);
+if (sweepTimer.unref) sweepTimer.unref();
+
+/**
  * Returns the number of user entries currently in the rate-limit Map.
  * Internal helper, exposed only via the __testing object for test inspection.
  * @returns {number}
@@ -18,7 +37,8 @@ function getUserTimestampsSize() {
   return userTimestamps.size;
 }
 
-export const __testing = { getUserTimestampsSize };
+export const __testing = { getUserTimestampsSize, sweepExpiredEntries };
+
 /**
  * Check whether a user is within their rate limit.
  *
@@ -40,7 +60,7 @@ export function checkRateLimit(userId) {
   }
 
   if (timestamps.length >= MAX_REQUESTS) {
-    if (timestamps.length > 0) userTimestamps.set(userId, timestamps);
+    userTimestamps.set(userId, timestamps);
     const retryAfterMs = timestamps[0] - windowStart;
     return { allowed: false, retryAfterMs };
   }
