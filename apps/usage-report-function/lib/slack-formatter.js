@@ -10,8 +10,10 @@ function formatWeekLabel(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
   const month = MONTH_NAMES[start.getUTCMonth()];
-  const year = start.getUTCFullYear();
-  return `${month} ${start.getUTCDate()}–${end.getUTCDate()}, ${year}`;
+  const startYear = start.getUTCFullYear();
+  const endYear = end.getUTCFullYear();
+  const yearLabel = startYear === endYear ? startYear : endYear;
+  return `${month} ${start.getUTCDate()}–${end.getUTCDate()}, ${yearLabel}`;
 }
 
 /**
