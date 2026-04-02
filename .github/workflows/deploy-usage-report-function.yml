@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
 name: Deploy Usage Report Function
 
 on:
@@ -12,32 +17,12 @@ on:
 env:
   AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
   AZURE_RESOURCE_GROUP: ${{ var.AZURE_RESOURCE_GROUP }}
-  NODE_VERSION: '22.x'
+
+permissions: read-all
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: apps/usage-report-function/package-lock.json
-
-      - name: Install dependencies
-        working-directory: apps/usage-report-function
-        run: npm ci
-
-      - name: Run tests
-        working-directory: apps/usage-report-function
-        run: npm test
-
-      - name: Build
-        working-directory: apps/usage-report-function
-        run: npm run build
+    uses: ./.github/workflows/on-pullrequest-usage-report.yml
 
   deploy:
     needs: build-and-test
