@@ -6,6 +6,7 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
+    "slack:unsafe": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 slack run",
     "lint": "npx @biomejs/biome check src/",
     "lint:fix": "npx @biomejs/biome check --write src/",
     "test": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js",
@@ -32,6 +33,7 @@
     "@azure/cosmos": "^4.9.1",
     "@azure/identity": "^4.13.0",
     "@slack/bolt": "^4.6.0",
+    "cross-env": "^10.1.0",
     "dotenv": "~17.3.1",
     "openai": "^6.25.0"
   },
