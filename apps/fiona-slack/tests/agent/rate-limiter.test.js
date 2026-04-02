@@ -85,6 +85,32 @@ describe('checkRateLimit', () => {
     expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
   });
 
+  it('re-calling checkRateLimit after window expiry prunes stale timestamps for that user', () => {
+    const userId = uniqueUserId();
+    const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
+
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
+
+    try {
+      const sizeBefore = getUserTimestampsSize();
+
+      checkRateLimit(userId);
+      expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
+
+      // Move past the window and call again to force the filter/delete path.
+      jest.setSystemTime(new Date(windowMs + 1));
+      const result = checkRateLimit(userId);
+
+      expect(result.allowed).toBe(true);
+      expect(result.retryAfterMs).toBe(0);
+      // Size stays bounded instead of growing with repeated calls over expired windows.
+      expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('sweepExpiredEntries removes entries whose timestamps have all expired', () => {
     const userId = uniqueUserId();
     const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
