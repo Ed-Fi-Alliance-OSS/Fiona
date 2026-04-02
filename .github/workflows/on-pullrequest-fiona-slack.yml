@@ -107,6 +107,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: apps/fiona-slack/package-lock.json
 
       - name: Install dependencies (ci)
         run: npm ci
