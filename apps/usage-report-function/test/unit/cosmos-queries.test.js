@@ -170,7 +170,10 @@ describe('cosmos-queries', () => {
   describe('getFeedbackResponseRate', () => {
     it('returns feedback response rate percentage', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: jest.fn().mockResolvedValue({ resources: [9.8] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [500] }),
+      });
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [49] }),
       });
       const result = await getFeedbackResponseRate(
         mockInteractionsContainer,
