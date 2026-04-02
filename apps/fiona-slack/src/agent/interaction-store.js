@@ -53,7 +53,7 @@ export async function getContainer(logger) {
  * @param {string} [interaction.teamId] - Slack team/workspace ID
  * @param {string} interaction.channelId - Slack channel ID
  * @param {string} interaction.threadTs - Slack thread timestamp (session identifier)
- * @param {string} [interaction.messageTs] - Timestamp of the user's message
+ * @param {string} interaction.messageTs - Timestamp of the user's message
  * @param {string} interaction.interactionType - 'app_mention' or 'assistant_message'
  * @param {string} interaction.status - 'success' or 'error'
  * @param {string|null} [interaction.errorType] - Error category if status is 'error'
@@ -74,6 +74,21 @@ export async function recordInteraction({
 }) {
   const c = await getContainer(logger);
   if (!c) return;
+
+  // Guard against missing required fields that would cause Cosmos DB to reject the document
+  if (!userId || !channelId || !threadTs || !messageTs || !interactionType || !status) {
+    logger?.warn?.(
+      `Missing required fields for recording interaction: ${JSON.stringify({
+        userId,
+        channelId,
+        threadTs,
+        messageTs,
+        interactionType,
+        status,
+      })}`,
+    );
+    return;
+  }
 
   const doc = {
     id: `${userId}_${threadTs}_${messageTs}`,
