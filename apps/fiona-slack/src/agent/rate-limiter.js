@@ -6,6 +6,13 @@
 const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS ?? '20', 10);
 const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
 
+if (Number.isNaN(MAX_REQUESTS) || MAX_REQUESTS <= 0) {
+  throw new Error(`RATE_LIMIT_MAX_REQUESTS must be a positive number, got: ${process.env.RATE_LIMIT_MAX_REQUESTS}`);
+}
+if (Number.isNaN(WINDOW_MS) || WINDOW_MS <= 0) {
+  throw new Error(`RATE_LIMIT_WINDOW_MS must be a positive number, got: ${process.env.RATE_LIMIT_WINDOW_MS}`);
+}
+
 /** @type {Map<string, number[]>} */
 const userTimestamps = new Map();
 
@@ -46,10 +53,6 @@ export const __testing = { getUserTimestampsSize, sweepExpiredEntries };
  * @returns {{ allowed: boolean, retryAfterMs: number }}
  */
 export function checkRateLimit(userId) {
-  if (MAX_REQUESTS === 0) {
-    return { allowed: true, retryAfterMs: 0 };
-  }
-
   const now = Date.now();
   const windowStart = now - WINDOW_MS;
   const timestamps = (userTimestamps.get(userId) ?? []).filter((t) => t > windowStart);
