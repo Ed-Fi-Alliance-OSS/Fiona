@@ -32,7 +32,6 @@ jobs:
       run:
         working-directory: apps/fiona-slack
     permissions:
-      contents: read
       checks: write
       pull-requests: write
     steps:
