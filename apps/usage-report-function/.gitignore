@@ -1,3 +1,6 @@
+# Override root-level gitignore that excludes lib/ (a Python artifact convention)
+!lib/
+
 node_modules
 dist
 build
