@@ -87,7 +87,7 @@ param cosmosDatabase string = 'chatbot'
 param cosmosContainer string = 'feedback'
 
 @description('Cosmos DB account name (required for provisioning the interactions container)')
-param cosmosAccountName string = ''
+param cosmosAccountName string
 
 @description('Cosmos DB container name for interaction/usage analytics storage')
 param interactionsContainerName string = 'interactions'
