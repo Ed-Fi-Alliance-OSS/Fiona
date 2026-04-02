@@ -105,6 +105,74 @@ for real-time web search.
 > **Known issue (AI-49):** This keyword routing operates on untrusted user input
 > and should be reviewed for potential abuse.
 
+#### 2.2.4 Citations (AI-58)
+
+When Perplexity is used as the primary provider or invoked via the
+`perplexity_search` tool, the API returns a list of source URLs alongside the
+generated text. Fiona processes these to produce inline hyperlinks in the
+streamed response.
+
+**How it works:**
+
+1. The system prompt instructs the LLM to place numeric citation markers
+   (`[1]`, `[2]`, …) at the end of factual claims grounded in external sources.
+2. As Perplexity streams its response, citation URLs are collected, normalized,
+   deduplicated, and assigned stable 1-based indices.
+3. Each `[n]` marker in the streamed text is replaced in real time with a Slack
+   mrkdwn hyperlink: `[[n]](url)`.
+
+No separate "Sources" block is appended to the message; citations appear only
+as inline links within the answer text.
+
+**Metadata lifecycle (strict consistency):**
+
+To ensure citation indices in the text always correspond to real source URLs,
+`callLLM` maintains a metadata envelope that advances through a state machine
+before the stream is finalized:
+
+| State                  | Meaning                                             |
+| ---------------------- | --------------------------------------------------- |
+| `streaming_text`       | Initial state; LLM is generating text               |
+| `collecting_metadata`  | Citation URLs are being aggregated from Perplexity  |
+| `ready_to_finalize`    | Metadata resolved; ready to close the stream        |
+| `finalized`            | Stream closed; envelope is immutable                |
+| `degraded_no_metadata` | Timeout expired before metadata arrived; no links   |
+
+If the metadata does not arrive within `CITATION_METADATA_TIMEOUT_MS`
+(default: 2 000 ms), the envelope transitions to `degraded_no_metadata` and
+the response is finalized with plain `[n]` markers left as-is.
+
+**Source normalization:**
+
+- Only `http://` and `https://` URLs are accepted (blocks `javascript:`,
+  `data:`, `vbscript:`).
+- Duplicate URLs are dropped; first-seen ordering is preserved.
+- Titles are derived from the URL path when no explicit title is provided.
+- The source list is capped at `CITATION_MAX_SOURCES` (default: 10).
+
+**Security hardening:**
+
+- The `source_index_map` is created with `Object.create(null)` to prevent
+  prototype pollution from external URL keys.
+- mrkdwn special characters (including underscores) in evidence snippets are
+  escaped before rendering.
+
+**Citation policy env vars** (see also §7):
+
+| Variable                       | Default | Purpose                                         |
+| ------------------------------ | ------- | ----------------------------------------------- |
+| `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
+| `CITATION_MAX_SOURCES`         | `10`    | Maximum sources normalised per response         |
+| `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
+| `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
+
+**Telemetry:** `citation-telemetry.js` records per-response metadata wait
+durations and source counts (bounded arrays, capped at 1 000 entries) for
+future observability dashboards.
+
+> **Known issue (AI-93):** The `finalizedResponses` Set used for idempotency
+> has no eviction strategy; it grows unbounded over time.
+
 ### 2.3 Tools
 
 The LLM can invoke tools during a conversation. Tool calls are displayed to the
@@ -339,13 +407,17 @@ loading message:
 src/
 ├── app.js                          # Entry point: Bolt init, listener registration, start
 ├── agent/
-│   ├── llm-caller.js              # Multi-provider LLM routing & streaming
+│   ├── llm-caller.js              # Multi-provider LLM routing, streaming, citation metadata
 │   ├── rate-limiter.js            # Per-user sliding-window rate limiter
 │   ├── feedback-store.js          # Cosmos DB feedback persistence
 │   ├── interaction-store.js       # Cosmos DB interaction analytics persistence
-│   └── tools/
-│       ├── dice.js                # roll_dice tool implementation
-│       └── perplexity-search.js   # perplexity_search tool definition
+│   ├── tools/
+│   │   ├── dice.js                # roll_dice tool implementation
+│   │   └── perplexity-search.js   # perplexity_search tool definition
+│   └── utils/
+│       ├── citation-telemetry.js  # Bounded telemetry arrays for metadata wait & source counts
+│       ├── idempotent-finalize.js # Response-ID guard preventing duplicate finalization
+│       └── source-normalizer.js   # URL validation, deduplication, title derivation, index map
 └── listeners/
     ├── index.js                   # Registers all listener categories
     ├── events/
@@ -419,6 +491,7 @@ documentation. Key groups:
 | Azure OpenAI  | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
 | Azure Foundry | `AZURE_PROJECT_ENDPOINT`, `AZURE_AGENT_ID`                                                             |
 | Perplexity    | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`                               |
+| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
