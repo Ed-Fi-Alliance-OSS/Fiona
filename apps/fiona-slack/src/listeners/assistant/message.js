@@ -106,7 +106,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
     const { allowed, retryAfterMs } = checkRateLimit(userId);
     if (!allowed) {
       isRateLimited = true;
-      await recordInteraction({
+      recordInteraction({
         userId,
         teamId,
         channelId: channel,
@@ -117,7 +117,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
         errorType: 'rate_limited',
         rateLimited: true,
         logger,
-      });
+      }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
       interactionRecorded = true;
 
       const minutes = Math.ceil(retryAfterMs / 60000);

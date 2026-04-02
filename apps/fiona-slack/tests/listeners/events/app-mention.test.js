@@ -52,6 +52,7 @@ const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/l
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
 const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
+const { recordInteraction } = await import('../../../src/agent/interaction-store.js');
 
 describe('appMentionCallback', () => {
   let mockSay;
@@ -101,6 +102,15 @@ describe('appMentionCallback', () => {
     const [msg] = mockSay.mock.calls[0];
     expect(msg).toContain('request limit');
     expect(callLLM).not.toHaveBeenCalled();
+
+    expect(recordInteraction).toHaveBeenCalledTimes(1);
+    expect(recordInteraction).toHaveBeenCalledWith(expect.objectContaining({
+      rateLimited: true,
+      status: 'error',
+      errorType: 'rate_limited',
+    }));
+    // recordInteraction is fired before say() but not awaited — say() is not blocked on the Cosmos write
+    expect(recordInteraction.mock.invocationCallOrder[0]).toBeLessThan(mockSay.mock.invocationCallOrder[0]);
   });
 
   it('calls callLLM when user is within rate limit', async () => {
