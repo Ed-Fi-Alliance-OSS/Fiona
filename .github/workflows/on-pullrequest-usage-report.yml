@@ -37,11 +37,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Lint code
+        run: npm run lint
 
-      - name: Build
-        run: npm run build
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Report test results
+        uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+        if: always()
+        with:
+          name: Jest Tests - usage-report-function
+          path: apps/usage-report-function/junit.xml
+          reporter: jest-junit
+          fail-on-error: false
+
+      - name: Report code coverage
+        if: always()
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "## Code Coverage - usage-report-function" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage report not available (tests may have failed before coverage was collected)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          echo "## Code Coverage - usage-report-function" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            const t = data.total;
+            console.log('| Statements | ' + t.statements.pct + '% |');
+            console.log('| Branches | ' + t.branches.pct + '% |');
+            console.log('| Functions | ' + t.functions.pct + '% |');
+            console.log('| Lines | ' + t.lines.pct + '% |');
+          " >> $GITHUB_STEP_SUMMARY
 
   code_analysis:
     name: Code Analysis (CodeQL & Dependency Review)
