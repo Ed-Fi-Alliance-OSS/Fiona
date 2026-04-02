@@ -67,7 +67,7 @@ az functionapp config appsettings set \
   --resource-group fiona-rg \
   --name usage-report-function \
   --settings \
-    REPORT_SCHEDULE='0 9 * * 1' \
+    REPORT_SCHEDULE='0 9 * * 1 15' \
     COSMOS_ENDPOINT='https://fiona.documents.azure.com:443/' \
     COSMOS_DATABASE='fiona' \
     COSMOS_INTERACTIONS_CONTAINER='interactions' \
