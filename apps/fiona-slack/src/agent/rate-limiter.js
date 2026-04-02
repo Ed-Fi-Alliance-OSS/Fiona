@@ -6,10 +6,10 @@
 const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS ?? '20', 10);
 const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
 
-if (Number.isNaN(MAX_REQUESTS) || MAX_REQUESTS <= 0) {
-  throw new Error(`RATE_LIMIT_MAX_REQUESTS must be a positive number, got: ${process.env.RATE_LIMIT_MAX_REQUESTS}`);
+if (Number.isNaN(MAX_REQUESTS) || MAX_REQUESTS < 0) {
+  throw new Error(`RATE_LIMIT_MAX_REQUESTS must be a non-negative number, got: ${process.env.RATE_LIMIT_MAX_REQUESTS}`);
 }
-if (Number.isNaN(WINDOW_MS) || WINDOW_MS <= 0) {
+if (MAX_REQUESTS > 0 && (Number.isNaN(WINDOW_MS) || WINDOW_MS <= 0)) {
   throw new Error(`RATE_LIMIT_WINDOW_MS must be a positive number, got: ${process.env.RATE_LIMIT_WINDOW_MS}`);
 }
 
@@ -31,9 +31,10 @@ function sweepExpiredEntries() {
 }
 
 // Periodically remove entries for users who never call checkRateLimit again.
+// Only active when rate limiting is enabled (MAX_REQUESTS === 0 means disabled).
 // unref() lets Node.js exit even if this timer is still pending.
-const sweepTimer = setInterval(sweepExpiredEntries, WINDOW_MS);
-if (sweepTimer.unref) sweepTimer.unref();
+const sweepTimer = MAX_REQUESTS > 0 ? setInterval(sweepExpiredEntries, WINDOW_MS) : null;
+if (sweepTimer?.unref) sweepTimer.unref();
 
 /**
  * Returns the number of user entries currently in the rate-limit Map.
@@ -53,6 +54,10 @@ export const __testing = { getUserTimestampsSize, sweepExpiredEntries };
  * @returns {{ allowed: boolean, retryAfterMs: number }}
  */
 export function checkRateLimit(userId) {
+  if (MAX_REQUESTS === 0) {
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
   const now = Date.now();
   const windowStart = now - WINDOW_MS;
   const timestamps = (userTimestamps.get(userId) ?? []).filter((t) => t > windowStart);
