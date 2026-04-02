@@ -38,9 +38,9 @@ The weekly report will surface:
 
 ### Data Model
 
-**Container name:** `interactions` (configurable via `COSMOS_INTERACTIONS_CONTAINER` env var)
-**Partition key:** `/deploymentType` (single partition; optimized for reporting queries that filter by environment)
-**TTL:** None (unlimited retention; all interaction records are retained indefinitely for long-term trend analysis)
+- **Container name:** `interactions` (configurable via `COSMOS_INTERACTIONS_CONTAINER` env var)
+- **Partition key:** MultiHash on [`/deploymentType`, `/userId`] (optimized for reporting queries that filter by environment and for distributing data across users)
+- **TTL:** None (unlimited retention; all interaction records are retained indefinitely for long-term trend analysis)
 
 #### Document Schema
 
@@ -114,7 +114,7 @@ Create a new module mirroring the pattern of `feedback-store.js`:
 - Lazy-initializes Cosmos DB connection (supports connection string, endpoint+key, or endpoint+Managed Identity)
 - Exports `recordInteraction(payload, logger)` function
 - Upserts document with explicit `id` for idempotency
-- **Upsert call must specify partitionKey:** `await c.items.upsert(doc, { partitionKey: [doc.deploymentType] });`
+- **Upsert call must specify partitionKey:** `await c.items.upsert(doc, { partitionKey: [doc.deploymentType, doc.userId] });`
 - Silently no-ops if Cosmos is not configured (local development)
 
 #### Code Changes in Event Handlers
