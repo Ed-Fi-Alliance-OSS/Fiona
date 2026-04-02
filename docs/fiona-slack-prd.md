@@ -170,7 +170,66 @@ Cosmos DB supports three authentication methods (in priority order):
 If Cosmos DB is not configured, feedback is acknowledged to the user but not
 persisted.
 
-### 2.6 Loading / Status Messages
+### 2.6 Interaction Analytics
+
+Every `app_mention` and assistant thread `message` event is recorded to an Azure
+Cosmos DB `interactions` container for long-term engagement analysis.
+
+**Recording behavior:**
+
+- Rate-limited requests are recorded immediately (before the user-facing message)
+  so they appear in error metrics.
+- All other interactions are recorded in a `finally` block, capturing both
+  successes and errors with categorized error types.
+- If Cosmos DB is not configured, recording is silently skipped (no-op).
+- The record ID is `{userId}_{threadTs}_{messageTs}`, providing idempotency on
+  Slack event redelivery.
+
+**Interaction document schema:**
+
+| Field             | Description                                                            |
+| ----------------- | ---------------------------------------------------------------------- |
+| `id`              | `{userId}_{threadTs}_{messageTs}` — composite key for idempotency      |
+| `userId`          | Slack user ID (opaque token, no PII)                                   |
+| `teamId`          | Slack team/workspace ID                                                |
+| `channelId`       | Slack channel ID                                                       |
+| `threadTs`        | Thread timestamp; doubles as session identifier                        |
+| `messageTs`       | Timestamp of the user's message                                        |
+| `interactionType` | `app_mention` or `assistant_message`                                   |
+| `status`          | `success` or `error`                                                   |
+| `errorType`       | `rate_limited`, `llm_error`, `llm_rate_limited`, `cosmos_error`, `timeout`, `unknown` — only set when `status = error` |
+| `rateLimited`     | `true` if the rate limiter blocked this request                        |
+| `deploymentType`  | `local`, `insiders`, or `production`                                   |
+| `timestamp`       | ISO 8601 timestamp                                                     |
+
+> [!NOTE]
+> Message content is deliberately excluded from interaction records. Only
+> metadata is stored, preserving user privacy.
+
+### 2.7 Weekly Usage Report
+
+A separate Azure Function (`apps/usage-report-function`) runs on a configurable
+cron schedule (default: 9 AM UTC every Monday) and posts an engagement summary
+to a Slack channel via incoming webhook.
+
+**KPIs reported:**
+
+| Metric                  | Description                                              |
+| ----------------------- | -------------------------------------------------------- |
+| Distinct users          | Count of unique users with successful interactions       |
+| Sessions                | Count of distinct thread timestamps (proxy for sessions) |
+| Total interactions      | All interactions (success + error) in the window         |
+| Error count & rate      | Absolute count and percentage of errored interactions    |
+| Rate-limited hits       | Count of rate-limiter blocks                             |
+| Good / bad feedback     | Feedback button click counts                             |
+| Feedback ratio          | `good / (good + bad) * 100`                              |
+| Avg interactions / user | Mean interactions per active user                        |
+| Feedback response rate  | Percentage of successful interactions that were rated    |
+
+The lookback window defaults to the past 7 days. The webhook URL is retrieved
+from Azure Key Vault at runtime using Managed Identity.
+
+### 2.8 Loading / Status Messages
 
 While processing, Fiona sets a "thinking..." status with a randomly selected
 loading message:
@@ -196,6 +255,7 @@ loading message:
 | **Testing**               | Comprehensive unit test coverage                                        | Jest with 100% coverage target; all listeners, tools, and agent modules covered              |
 | **CI/CD**                 | Automated build and deploy                                              | GitHub Actions → Docker build → ACR push → Azure Container Apps via Bicep                    |
 | **Observability**         | Configurable log verbosity                                              | `LOG_LEVEL` env var (debug, info, warn, error)                                               |
+| **Observability**         | Usage analytics and weekly engagement reporting                         | Every interaction recorded to Cosmos DB `interactions` container; weekly summary posted to Slack via Azure Function |
 | **Thread context**        | Send thread context with each message to enable context-aware responses | Listeners retrieve channel history and include recent messages in LLM prompt                 |
 
 ### 3.2 Suggested (Not Yet Implemented)
@@ -222,11 +282,12 @@ loading message:
 | Runtime    | Node.js 22 (Alpine for containers)                             |
 | Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                        |
 | LLM SDKs   | `openai` 6.x, `@azure/ai-projects` 2.x, `@azure/ai-agents` 1.x |
-| Database   | Azure Cosmos DB (optional, for feedback)                       |
+| Database   | Azure Cosmos DB (optional, for feedback and interaction analytics) |
 | Auth       | `@azure/identity` (DefaultAzureCredential)                     |
 | Linting    | Biome 2.x                                                      |
 | Testing    | Jest 29.x                                                      |
 | Containers | Docker (node:22-alpine), Azure Container Apps                  |
+| Functions  | Azure Functions v4 (Node.js), TimerTrigger                     |
 | CI/CD      | GitHub Actions + Bicep                                         |
 
 ### 4.2 Deployment Topology
@@ -246,6 +307,20 @@ loading message:
 │  │   └─► HTTPS ──────► Cosmos DB          │  │
 │  └────────────────────────────────────────┘  │
 └──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│  Azure Function App                          │
+│                                              │
+│  ┌────────────────────────────────────────┐  │
+│  │  usage-report-function                 │  │
+│  │  TimerTrigger (cron: 0 9 * * 1)        │  │
+│  │                                        │  │
+│  │  WeeklyReportTrigger/index.js          │  │
+│  │   ├─► HTTPS ──────► Cosmos DB          │  │
+│  │   ├─► HTTPS ──────► Key Vault          │  │
+│  │   └─► HTTPS ──────► Slack Webhook      │  │
+│  └────────────────────────────────────────┘  │
+└──────────────────────────────────────────────┘
 ```
 
 ### 4.3 Deployment Environments
@@ -258,6 +333,8 @@ loading message:
 
 ### 4.4 Module Structure
 
+**`apps/fiona-slack/src/`**
+
 ```none
 src/
 ├── app.js                          # Entry point: Bolt init, listener registration, start
@@ -265,6 +342,7 @@ src/
 │   ├── llm-caller.js              # Multi-provider LLM routing & streaming
 │   ├── rate-limiter.js            # Per-user sliding-window rate limiter
 │   ├── feedback-store.js          # Cosmos DB feedback persistence
+│   ├── interaction-store.js       # Cosmos DB interaction analytics persistence
 │   └── tools/
 │       ├── dice.js                # roll_dice tool implementation
 │       └── perplexity-search.js   # perplexity_search tool definition
@@ -280,6 +358,18 @@ src/
     │   └── feedback.js            # Feedback button click handler
     └── views/
         └── feedback_block.js      # Feedback button UI block builder
+```
+
+**`apps/usage-report-function/`**
+
+```none
+WeeklyReportTrigger/
+├── function.json                  # TimerTrigger binding config
+└── index.js                       # Queries Cosmos DB, formats report, posts to Slack
+lib/
+├── cosmos-queries.js              # 8 KPI query functions (distinct users, sessions, etc.)
+├── slack-formatter.js             # Formats the weekly Slack message string
+└── key-vault-client.js            # Retrieves Slack webhook URL from Azure Key Vault
 ```
 
 ## 5. Backlog
@@ -330,5 +420,14 @@ documentation. Key groups:
 | Azure Foundry | `AZURE_PROJECT_ENDPOINT`, `AZURE_AGENT_ID`                                                             |
 | Perplexity    | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`                               |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
-| Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`     |
+| Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
+
+### 7.2 Usage Report Function (`apps/usage-report-function`)
+
+| Group      | Variables                                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| Schedule   | `REPORT_SCHEDULE` (cron expression, default: `0 9 * * 1`)                                                        |
+| Cosmos DB  | `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_FEEDBACK_CONTAINER`               |
+| Deployment | `DEPLOYMENT_TYPE`                                                                                                |
+| Key Vault  | `KEY_VAULT_URL`, `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME` (secret name, default: `slack-fiona-weekly-report-webhook`) |
