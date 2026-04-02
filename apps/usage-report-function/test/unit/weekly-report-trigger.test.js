@@ -56,12 +56,24 @@ jest.unstable_mockModule('../../lib/slack-formatter.js', () => ({
 // Set required env vars before the module loads and captures them
 process.env.COSMOS_ENDPOINT = 'https://test.cosmos.azure.com';
 
-// Import causes app.timer() to be called at module scope
+// Configure CosmosClient mock before import so module-scope init resolves correctly
+const interactionsContainer = {};
+const feedbackContainer = {};
+MockCosmosClient.mockImplementation(() => ({
+  database: jest.fn().mockReturnValue({
+    container: jest.fn()
+      .mockReturnValueOnce(interactionsContainer)
+      .mockReturnValueOnce(feedbackContainer),
+  }),
+}));
+
+// Import causes app.timer() and new CosmosClient() to be called at module scope
 await import('../../WeeklyReportTrigger/index.js');
 
 // Extract registration args before any test can clear mocks
 const [[timerName, timerConfig]] = mockAppTimer.mock.calls;
 const { schedule, handler } = timerConfig;
+const [[cosmosClientConstructorArgs]] = MockCosmosClient.mock.calls;
 
 // -- Test helpers --
 
@@ -80,21 +92,17 @@ function makeContext(logger) {
   return { log: logger };
 }
 
-function makeDefaultCosmosSetup() {
-  const interactionsContainer = {};
-  const feedbackContainer = {};
-  const database = {
-    container: jest.fn().mockReturnValueOnce(interactionsContainer).mockReturnValueOnce(feedbackContainer),
-  };
-  MockCosmosClient.mockImplementation(() => ({
-    database: jest.fn().mockReturnValue(database),
-  }));
-  return { interactionsContainer, feedbackContainer, database };
-}
-
 // -- Tests --
 
 describe('WeeklyReportTrigger', () => {
+  describe('module initialization', () => {
+    it('creates a CosmosClient with the configured endpoint', () => {
+      expect(cosmosClientConstructorArgs).toMatchObject({
+        endpoint: 'https://test.cosmos.azure.com',
+      });
+    });
+  });
+
   describe('timer registration', () => {
     it('registers a timer named WeeklyReportTrigger', () => {
       expect(timerName).toBe('WeeklyReportTrigger');
@@ -116,7 +124,6 @@ describe('WeeklyReportTrigger', () => {
 
       logger = makeLogger();
       context = makeContext(logger);
-      makeDefaultCosmosSetup();
 
       // Default happy-path query results
       mockGetDistinctUsers.mockResolvedValue(42);
@@ -143,13 +150,6 @@ describe('WeeklyReportTrigger', () => {
     it('logs that the function was triggered', async () => {
       await handler({}, context);
       expect(logger).toHaveBeenCalledWith('Weekly report function triggered');
-    });
-
-    it('creates a CosmosClient with the configured endpoint', async () => {
-      await handler({}, context);
-      expect(MockCosmosClient).toHaveBeenCalledWith(
-        expect.objectContaining({ endpoint: 'https://test.cosmos.azure.com' }),
-      );
     });
 
     it('passes all 8 KPI queries to Promise.all', async () => {

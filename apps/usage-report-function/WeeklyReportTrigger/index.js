@@ -27,6 +27,14 @@ const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feed
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
 const SLACK_WEBHOOK_SECRET_NAME = process.env.SLACK_WEBHOOK_KEYVAULT_SECRET_NAME || 'slack-fiona-weekly-report-webhook';
 
+const cosmosClient = new CosmosClient({
+  endpoint: COSMOS_ENDPOINT,
+  aadCredentials: new DefaultAzureCredential(),
+});
+const database = cosmosClient.database(COSMOS_DATABASE);
+const interactionsContainer = database.container(COSMOS_INTERACTIONS_CONTAINER);
+const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
+
 app.timer('WeeklyReportTrigger', {
   schedule: '%REPORT_SCHEDULE%',
   handler: async (_myTimer, context) => {
@@ -34,16 +42,6 @@ app.timer('WeeklyReportTrigger', {
     logger('Weekly report function triggered');
 
     try {
-      // Initialize Cosmos DB client using Managed Identity
-      const cosmosClient = new CosmosClient({
-        endpoint: COSMOS_ENDPOINT,
-        aadCredentials: new DefaultAzureCredential(),
-      });
-
-      const database = cosmosClient.database(COSMOS_DATABASE);
-      const interactionsContainer = database.container(COSMOS_INTERACTIONS_CONTAINER);
-      const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
-
       // Calculate lookback window (past 7 days)
       const now = new Date();
       const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
