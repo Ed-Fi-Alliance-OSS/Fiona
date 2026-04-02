@@ -5,13 +5,13 @@ An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https
 ## Setup
 
 1. Copy `.env.sample` to `.env` and fill in the required values.
-2. Install dependencies:
+1. Install dependencies:
 
    ```sh
    npm ci
    ```
 
-3. Run locally with the Slack CLI:
+1. Run locally with the Slack CLI:
 
    ```sh
    slack run
@@ -23,6 +23,8 @@ An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https
    npm start
    ```
 
+1. For local testing, [install Cosmos DB Emulator](../../docs/testing-with-cosmos-emulator.md) and then call `npm run setup:emulator` to create the database and container.
+
 ## LLM Providers
 
 Set `LLM_PROVIDER` in `.env` to one of: `openai`, `azure`, `foundry`, `perplexity`. See `.env.sample` for the credentials each provider requires.
@@ -32,14 +34,14 @@ Set `LLM_PROVIDER` in `.env` to one of: `openai`, `azure`, `foundry`, `perplexit
 User feedback (thumbs up/down) is persisted to Azure Cosmos DB. Three auth methods are supported, in priority order:
 
 1. **Connection string** &mdash; set `COSMOS_CONNECTION_STRING`
-2. **Endpoint + key** &mdash; set `COSMOS_ENDPOINT` and `COSMOS_KEY`
-3. **Managed identity** &mdash; set `COSMOS_ENDPOINT` only (uses `DefaultAzureCredential`)
+1. **Endpoint + key** &mdash; set `COSMOS_ENDPOINT` and `COSMOS_KEY`
+1. **Managed identity** &mdash; set `COSMOS_ENDPOINT` only (uses `DefaultAzureCredential`)
 
 If none are configured, feedback is acknowledged to the user but not persisted.
 
 ## Project Structure
 
-```
+```none
 src/
   app.js                       Entry point
   agent/
@@ -85,11 +87,14 @@ The `.slack/` directory holds configuration for the [Slack CLI](https://tools.sl
 ### Local development with the Slack CLI
 
 1. [Install the Slack CLI](https://tools.slack.dev/slack-cli/guides/installing-cli/)
-2. Authenticate:
+1. Authenticate:
+
    ```sh
    slack login
    ```
+
 3. Create or link your own Slack app for development:
+
    ```sh
    # Create a new app in your workspace from the manifest:
    slack app create
@@ -97,11 +102,16 @@ The `.slack/` directory holds configuration for the [Slack CLI](https://tools.sl
    # Or link an existing app:
    slack app link
    ```
+
    This creates `.slack/apps.dev.json` (gitignored) with your workspace binding.
-4. Start the app locally:
+1. Start the app locally:
+
    ```sh
    slack run
    ```
+
+   > [!TIP]
+   > To connect to a local CosmosDB with self-signed certificate, execute `npm run slack:unsafe`.
 
 ### `apps.json` for production/CI
 
