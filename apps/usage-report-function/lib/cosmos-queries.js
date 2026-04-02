@@ -125,27 +125,28 @@ export async function getFeedbackResponseRate(
   deploymentType,
   oneWeekAgoISO,
 ) {
-  const successCount = await runScalarQuery(
-    interactionsContainer,
-    `SELECT VALUE COUNT(1)
-     FROM interactions i
-     WHERE i.deploymentType = @deploymentType
-       AND i.timestamp > @oneWeekAgoISO
-       AND i.status = 'success'
-       AND i.rateLimited = false`,
-    deploymentType,
-    oneWeekAgoISO,
-  );
-
-  const feedbackCount = await runScalarQuery(
-    feedbackContainer,
-    `SELECT VALUE COUNT(1)
-     FROM feedback f
-     WHERE f.deploymentType = @deploymentType
-       AND f.timestamp > @oneWeekAgoISO`,
-    deploymentType,
-    oneWeekAgoISO,
-  );
+  const [successCount, feedbackCount] = await Promise.all([
+    runScalarQuery(
+      interactionsContainer,
+      `SELECT VALUE COUNT(1)
+       FROM interactions i
+       WHERE i.deploymentType = @deploymentType
+         AND i.timestamp > @oneWeekAgoISO
+         AND i.status = 'success'
+         AND i.rateLimited = false`,
+      deploymentType,
+      oneWeekAgoISO,
+    ),
+    runScalarQuery(
+      feedbackContainer,
+      `SELECT VALUE COUNT(1)
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp > @oneWeekAgoISO`,
+      deploymentType,
+      oneWeekAgoISO,
+    ),
+  ]);
 
   if (!successCount) {
     return 0;
