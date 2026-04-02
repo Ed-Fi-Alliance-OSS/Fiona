@@ -168,12 +168,12 @@ describe('cosmos-queries', () => {
   });
 
   describe('getFeedbackResponseRate', () => {
-    it('returns feedback response rate percentage', async () => {
+    it('divides feedback count by interaction count and returns percentage', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: jest.fn().mockResolvedValue({ resources: [500] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [200] }),
       });
       mockFeedbackContainer.items.query.mockReturnValue({
-        fetchAll: jest.fn().mockResolvedValue({ resources: [49] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [50] }),
       });
       const result = await getFeedbackResponseRate(
         mockInteractionsContainer,
@@ -181,7 +181,7 @@ describe('cosmos-queries', () => {
         deploymentType,
         oneWeekAgoISO,
       );
-      expect(result).toBe(9.8);
+      expect(result).toBe(25); // (50 / 200) * 100
     });
 
     it('returns 0 when no interactions', async () => {
