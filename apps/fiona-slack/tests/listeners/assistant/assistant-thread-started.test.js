@@ -92,7 +92,7 @@ describe('assistantThreadStarted', () => {
         setSuggestedPrompts: mockSetSuggestedPrompts,
         saveThreadContext: mockSaveThreadContext,
       }),
-    ).resolves.not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
   it('does not throw when context is null', async () => {
@@ -106,7 +106,7 @@ describe('assistantThreadStarted', () => {
         setSuggestedPrompts: mockSetSuggestedPrompts,
         saveThreadContext: mockSaveThreadContext,
       }),
-    ).resolves.not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
   it('logs error and does not throw when say rejects', async () => {
