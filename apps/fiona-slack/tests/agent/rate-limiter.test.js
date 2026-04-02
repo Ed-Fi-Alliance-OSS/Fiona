@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, it, expect } from '@jest/globals';
-import { checkRateLimit } from '../../src/agent/rate-limiter.js';
+import { checkRateLimit, getUserTimestampsSize } from '../../src/agent/rate-limiter.js';
 
 // Use a counter + timestamp to guarantee unique user IDs across all tests,
 // preventing the module-level Map from leaking state between test cases.
@@ -70,5 +70,13 @@ describe('checkRateLimit', () => {
 
     // user2 has a fresh bucket and should still be allowed
     expect(checkRateLimit(userId2).allowed).toBe(true);
+  });
+
+  it('exports getUserTimestampsSize returning a number', () => {
+    expect(typeof getUserTimestampsSize).toBe('function');
+    const userId = uniqueUserId();
+    const sizeBefore = getUserTimestampsSize();
+    checkRateLimit(userId);
+    expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
   });
 });

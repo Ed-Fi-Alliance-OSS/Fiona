@@ -10,6 +10,15 @@ const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
 const userTimestamps = new Map();
 
 /**
+ * Returns the number of user entries currently in the rate-limit Map.
+ * Exported for test inspection only.
+ * @returns {number}
+ */
+export function getUserTimestampsSize() {
+  return userTimestamps.size;
+}
+
+/**
  * Check whether a user is within their rate limit.
  *
  * @param {string} userId - Slack user ID
@@ -24,9 +33,14 @@ export function checkRateLimit(userId) {
   const windowStart = now - WINDOW_MS;
   const timestamps = (userTimestamps.get(userId) ?? []).filter((t) => t > windowStart);
 
+  // Clean up: remove Map entry entirely when no valid timestamps remain
+  if (timestamps.length === 0) {
+    userTimestamps.delete(userId);
+  }
+
   if (timestamps.length >= MAX_REQUESTS) {
+    if (timestamps.length > 0) userTimestamps.set(userId, timestamps);
     const retryAfterMs = timestamps[0] - windowStart;
-    userTimestamps.set(userId, timestamps);
     return { allowed: false, retryAfterMs };
   }
 
