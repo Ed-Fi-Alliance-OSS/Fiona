@@ -11,13 +11,14 @@ const userTimestamps = new Map();
 
 /**
  * Returns the number of user entries currently in the rate-limit Map.
- * Exported for test inspection only.
+ * Internal helper, exposed only via the __testing object for test inspection.
  * @returns {number}
  */
-export function getUserTimestampsSize() {
+function getUserTimestampsSize() {
   return userTimestamps.size;
 }
 
+export const __testing = { getUserTimestampsSize };
 /**
  * Check whether a user is within their rate limit.
  *
