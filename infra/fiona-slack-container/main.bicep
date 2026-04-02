@@ -171,7 +171,7 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
           ]
         ]
       }
-      // No TTL � interaction records are retained indefinitely for long-term trend analysis
+      // No TTL interaction records are retained indefinitely for long-term trend analysis
     }
     options: {
       // Empty: throughput defined at database level unless serverless.
