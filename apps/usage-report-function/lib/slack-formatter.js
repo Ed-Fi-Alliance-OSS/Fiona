@@ -9,11 +9,15 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 function formatWeekLabel(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
-  const month = MONTH_NAMES[start.getUTCMonth()];
+  const startMonth = MONTH_NAMES[start.getUTCMonth()];
+  const endMonth = MONTH_NAMES[end.getUTCMonth()];
   const startYear = start.getUTCFullYear();
   const endYear = end.getUTCFullYear();
   const yearLabel = startYear === endYear ? startYear : endYear;
-  return `${month} ${start.getUTCDate()}–${end.getUTCDate()}, ${yearLabel}`;
+  const endPart = startMonth === endMonth
+    ? `${end.getUTCDate()}`
+    : `${endMonth} ${end.getUTCDate()}`;
+  return `${startMonth} ${start.getUTCDate()}–${endPart}, ${yearLabel}`;
 }
 
 /**
