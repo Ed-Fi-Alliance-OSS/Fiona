@@ -155,9 +155,6 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
         ]
         compositeIndexes: [
           [
-            { path: '/timestamp', order: 'descending' }
-          ]
-          [
             { path: '/userId', order: 'ascending' }
             { path: '/timestamp', order: 'descending' }
           ]
@@ -198,8 +195,9 @@ resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
     resource: {
       id: cosmosContainer
       partitionKey: {
-        paths: [ '/deploymentType' ]
-        kind: 'Hash'
+        paths: [ '/deploymentType', '/feedbackId' ]
+        kind: 'MultiHash'
+        version: 2
       }
       indexingPolicy: {
         indexingMode: 'consistent'
