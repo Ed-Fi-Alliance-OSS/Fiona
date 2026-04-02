@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from '@jest/globals';
 import { formatWeeklyReport } from '../../lib/slack-formatter.js';
 
 describe('formatWeeklyReport', () => {

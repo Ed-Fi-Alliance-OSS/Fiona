@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import {
   getDistinctUsers,
   getSessionCount,
@@ -20,8 +20,8 @@ describe('cosmos-queries', () => {
   beforeEach(() => {
     const makeQueryable = (resources) => ({
       items: {
-        query: vi.fn().mockReturnValue({
-          fetchAll: vi.fn().mockResolvedValue({ resources }),
+        query: jest.fn().mockReturnValue({
+          fetchAll: jest.fn().mockResolvedValue({ resources }),
         }),
       },
     });
@@ -38,7 +38,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no results', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getDistinctUsers(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -55,7 +55,7 @@ describe('cosmos-queries', () => {
   describe('getSessionCount', () => {
     it('returns count of distinct sessions', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [118] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [118] }),
       });
       const result = await getSessionCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(118);
@@ -63,7 +63,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no results', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getSessionCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -73,7 +73,7 @@ describe('cosmos-queries', () => {
   describe('getTotalInteractions', () => {
     it('returns total interaction count', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [347] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [347] }),
       });
       const result = await getTotalInteractions(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(347);
@@ -81,7 +81,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no results', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getTotalInteractions(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -91,7 +91,7 @@ describe('cosmos-queries', () => {
   describe('getErrorCount', () => {
     it('returns count of error interactions', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [8] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [8] }),
       });
       const result = await getErrorCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(8);
@@ -99,7 +99,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no results', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getErrorCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -109,7 +109,7 @@ describe('cosmos-queries', () => {
   describe('getRateLimitedCount', () => {
     it('returns count of rate-limited requests', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [6] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [6] }),
       });
       const result = await getRateLimitedCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(6);
@@ -117,7 +117,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no results', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getRateLimitedCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -127,7 +127,7 @@ describe('cosmos-queries', () => {
   describe('getFeedbackBreakdown', () => {
     it('returns array of feedback value/count pairs', async () => {
       mockFeedbackContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({
+        fetchAll: jest.fn().mockResolvedValue({
           resources: [
             { value: 'good-feedback', count: 29 },
             { value: 'bad-feedback', count: 7 },
@@ -142,7 +142,7 @@ describe('cosmos-queries', () => {
 
     it('returns empty array when no feedback', async () => {
       mockFeedbackContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getFeedbackBreakdown(mockFeedbackContainer, deploymentType, oneWeekAgoISO);
       expect(result).toEqual([]);
@@ -152,7 +152,7 @@ describe('cosmos-queries', () => {
   describe('getAvgInteractionsPerUser', () => {
     it('returns average interactions per user', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [8.3] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [8.3] }),
       });
       const result = await getAvgInteractionsPerUser(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(8.3);
@@ -160,7 +160,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no active users', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getAvgInteractionsPerUser(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
@@ -170,7 +170,7 @@ describe('cosmos-queries', () => {
   describe('getFeedbackResponseRate', () => {
     it('returns feedback response rate percentage', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [9.8] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [9.8] }),
       });
       const result = await getFeedbackResponseRate(
         mockInteractionsContainer,
@@ -183,7 +183,7 @@ describe('cosmos-queries', () => {
 
     it('returns 0 when no interactions', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
-        fetchAll: vi.fn().mockResolvedValue({ resources: [] }),
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
       });
       const result = await getFeedbackResponseRate(
         mockInteractionsContainer,
