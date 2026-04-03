@@ -68,7 +68,9 @@ app.timer('WeeklyReportTrigger', {
         getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
       ]);
 
-      logger(`Session Count: ${sessionCount}, Total Interactions: ${totalInteractions}, Distinct Users: ${distinctUsers}`);
+      logger(
+        `Session Count: ${sessionCount}, Total Interactions: ${totalInteractions}, Distinct Users: ${distinctUsers}`,
+      );
       logger(`Error Count: ${errorCount}, Rate Limited Count: ${rateLimitedCount}`);
 
       // Parse feedback counts
@@ -101,7 +103,7 @@ app.timer('WeeklyReportTrigger', {
       logger(`Report formatted: ${message.substring(0, 100)}...`);
 
       if (process.env.SLACK_DRY_RUN === 'true') {
-        logger('Dry-run mode — skipping Slack post. Full report:\n' + message);
+        logger(`Dry-run mode — skipping Slack post. Full report:\n${message}`);
         return;
       }
 
