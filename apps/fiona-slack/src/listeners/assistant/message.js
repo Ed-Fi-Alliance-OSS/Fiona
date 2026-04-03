@@ -3,10 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { recordInteraction } from '../../agent/interaction-store.js';
 import { handleInteractionWithTelemetry, sleep, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
 import { CITATION_POLICY, callLLM, finalizeMetadataEnvelope } from '../../agent/llm-caller.js';
-import { checkRateLimit } from '../../agent/rate-limiter.js';
+import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { feedbackBlock } from '../views/feedback_block.js';
@@ -67,27 +66,20 @@ export const message = async ({ client, context, logger, message, say, setStatus
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
-      const { allowed, retryAfterMs } = checkRateLimit(userId);
-      if (!allowed) {
-        markRateLimited();
-        recordInteraction({
+      if (
+        await handleRateLimitedInteraction({
           userId,
           teamId,
           channelId: channel,
           threadTs: thread_ts,
           messageTs,
           interactionType: 'assistant_message',
-          status: 'error',
-          errorType: 'rate_limited',
-          rateLimited: true,
           logger,
-        }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
-        markInteractionRecorded();
-
-        const minutes = Math.ceil(retryAfterMs / 60000);
-        await say(
-          `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
-        );
+          say,
+          markRateLimited,
+          markInteractionRecorded,
+        })
+      ) {
         return;
       }
 
