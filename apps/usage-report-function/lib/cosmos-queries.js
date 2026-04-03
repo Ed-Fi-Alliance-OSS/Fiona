@@ -18,12 +18,16 @@ async function runScalarQuery(container, queryText, deploymentType, oneWeekAgoIS
 export async function getDistinctUsers(container, deploymentType, oneWeekAgoISO) {
   return runScalarQuery(
     container,
-    `SELECT VALUE COUNT(DISTINCT i.userId)
-     FROM interactions i
-     WHERE i.deploymentType = @deploymentType
-       AND i.timestamp > @oneWeekAgoISO
-       AND i.status = 'success'
-       AND i.rateLimited = false`,
+    `SELECT VALUE COUNT(1)
+     FROM (
+       SELECT i.userId
+       FROM interactions i
+       WHERE i.deploymentType = @deploymentType
+         AND i.timestamp > @oneWeekAgoISO
+         AND i.status = 'success'
+         AND i.rateLimited = false
+       GROUP BY i.userId
+     ) AS sub`,
     deploymentType,
     oneWeekAgoISO,
   );
@@ -32,12 +36,16 @@ export async function getDistinctUsers(container, deploymentType, oneWeekAgoISO)
 export async function getSessionCount(container, deploymentType, oneWeekAgoISO) {
   return runScalarQuery(
     container,
-    `SELECT VALUE COUNT(DISTINCT i.threadTs)
-     FROM interactions i
-     WHERE i.deploymentType = @deploymentType
-       AND i.timestamp > @oneWeekAgoISO
-       AND i.status = 'success'
-       AND i.rateLimited = false`,
+    `SELECT VALUE COUNT(1)
+     FROM (
+       SELECT i.threadTs
+       FROM interactions i
+       WHERE i.deploymentType = @deploymentType
+         AND i.timestamp > @oneWeekAgoISO
+         AND i.status = 'success'
+         AND i.rateLimited = false
+       GROUP BY i.threadTs
+     ) AS sub`,
     deploymentType,
     oneWeekAgoISO,
   );
@@ -84,11 +92,11 @@ export async function getRateLimitedCount(container, deploymentType, oneWeekAgoI
 export async function getFeedbackBreakdown(container, deploymentType, oneWeekAgoISO) {
   const { resources } = await container.items
     .query(
-      `SELECT f.value, COUNT(f.feedbackId) AS count
+      `SELECT f["value"], COUNT(f.feedbackId) AS count
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp > @oneWeekAgoISO
-       GROUP BY f.value`,
+       GROUP BY f["value"]`,
       { parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO) },
     )
     .fetchAll();
