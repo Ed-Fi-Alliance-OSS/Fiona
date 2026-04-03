@@ -68,9 +68,12 @@ app.timer('WeeklyReportTrigger', {
         getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
       ]);
 
+      logger(`Session Count: ${sessionCount}, Total Interactions: ${totalInteractions}, Distinct Users: ${distinctUsers}`);
+      logger(`Error Count: ${errorCount}, Rate Limited Count: ${rateLimitedCount}`);
+
       // Parse feedback counts
-      const goodFeedback = feedbackBreakdown.find((f) => f.value === 'good-feedback')?.count ?? 0;
-      const badFeedback = feedbackBreakdown.find((f) => f.value === 'bad-feedback')?.count ?? 0;
+      const goodFeedback = feedbackBreakdown.find((f) => f.feedbackValue === 'good-feedback')?.count ?? 0;
+      const badFeedback = feedbackBreakdown.find((f) => f.feedbackValue === 'bad-feedback')?.count ?? 0;
       const feedbackRatio = goodFeedback + badFeedback > 0 ? (goodFeedback / (goodFeedback + badFeedback)) * 100 : 0;
       const errorRate = totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0;
 
