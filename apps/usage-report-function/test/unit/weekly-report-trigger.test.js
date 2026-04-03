@@ -89,7 +89,7 @@ function makeLogger() {
 }
 
 function makeContext(logger) {
-  return { log: logger };
+  return { log: logger, error: jest.fn() };
 }
 
 // -- Tests --
@@ -132,8 +132,8 @@ describe('WeeklyReportTrigger', () => {
       mockGetErrorCount.mockResolvedValue(8);
       mockGetRateLimitedCount.mockResolvedValue(6);
       mockGetFeedbackBreakdown.mockResolvedValue([
-        { value: 'good-feedback', count: 29 },
-        { value: 'bad-feedback', count: 7 },
+        { feedbackValue: 'good-feedback', count: 29 },
+        { feedbackValue: 'bad-feedback', count: 7 },
       ]);
       mockGetAvgInteractionsPerUser.mockResolvedValue(8.3);
       mockGetFeedbackResponseRate.mockResolvedValue(9.8);
@@ -200,8 +200,8 @@ describe('WeeklyReportTrigger', () => {
 
     it('calculates feedbackRatio as good / (good + bad) * 100', async () => {
       mockGetFeedbackBreakdown.mockResolvedValue([
-        { value: 'good-feedback', count: 3 },
-        { value: 'bad-feedback', count: 1 },
+        { feedbackValue: 'good-feedback', count: 3 },
+        { feedbackValue: 'bad-feedback', count: 1 },
       ]);
 
       await handler({}, context);
@@ -264,7 +264,7 @@ describe('WeeklyReportTrigger', () => {
       mockGetDistinctUsers.mockRejectedValue(new Error('Cosmos unavailable'));
 
       await expect(handler({}, context)).resolves.toBeUndefined();
-      expect(logger.error).toHaveBeenCalledWith(
+      expect(context.error).toHaveBeenCalledWith(
         expect.stringContaining('Cosmos unavailable'),
       );
     });

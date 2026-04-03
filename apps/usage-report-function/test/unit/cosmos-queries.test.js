@@ -46,9 +46,9 @@ describe('cosmos-queries', () => {
 
     it('passes correct query parameters', async () => {
       await getDistinctUsers(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
-      const [, options] = mockInteractionsContainer.items.query.mock.calls[0];
-      expect(options.parameters).toContainEqual({ name: '@deploymentType', value: 'production' });
-      expect(options.parameters).toContainEqual({ name: '@oneWeekAgoISO', value: oneWeekAgoISO });
+      const [querySpec] = mockInteractionsContainer.items.query.mock.calls[0];
+      expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: 'production' });
+      expect(querySpec.parameters).toContainEqual({ name: '@oneWeekAgoISO', value: oneWeekAgoISO });
     });
   });
 
