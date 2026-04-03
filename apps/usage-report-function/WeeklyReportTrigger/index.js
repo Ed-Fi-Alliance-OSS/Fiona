@@ -27,10 +27,9 @@ const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feed
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
 const SLACK_WEBHOOK_SECRET_NAME = process.env.SLACK_WEBHOOK_KEYVAULT_SECRET_NAME || 'slack-fiona-weekly-report-webhook';
 
-const cosmosClient = new CosmosClient({
-  endpoint: COSMOS_ENDPOINT,
-  aadCredentials: new DefaultAzureCredential(),
-});
+const cosmosClient = COSMOS_ENDPOINT.includes('AccountKey=')
+  ? new CosmosClient(COSMOS_ENDPOINT)
+  : new CosmosClient({ endpoint: COSMOS_ENDPOINT, aadCredentials: new DefaultAzureCredential() });
 const database = cosmosClient.database(COSMOS_DATABASE);
 const interactionsContainer = database.container(COSMOS_INTERACTIONS_CONTAINER);
 const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
