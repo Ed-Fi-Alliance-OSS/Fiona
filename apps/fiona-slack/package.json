@@ -11,7 +11,7 @@
     "lint:fix": "npx @biomejs/biome check --write src/",
     "test": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js",
     "test:ci": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js --coverage --reporters=default --reporters=jest-junit",
-    "setup:emulator": "node scripts/setup-cosmos-emulator.js"
+    "setup:emulator": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 node scripts/setup-cosmos-emulator.js"
   },
   "author": "Ed-Fi Alliance, LLC",
   "license": "Apache-2.0",
