@@ -27,6 +27,19 @@ const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feed
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
 const SLACK_WEBHOOK_SECRET_NAME = process.env.SLACK_WEBHOOK_KEYVAULT_SECRET_NAME || 'slack-fiona-weekly-report-webhook';
 
+// Validate required configuration
+if (!COSMOS_ENDPOINT) {
+  throw new Error('Required environment variable COSMOS_ENDPOINT is not set');
+}
+if (typeof COSMOS_ENDPOINT !== 'string' || COSMOS_ENDPOINT.trim() === '') {
+  throw new Error('COSMOS_ENDPOINT must be a non-empty string');
+}
+const isConnectionString = COSMOS_ENDPOINT.includes('AccountKey=');
+const isValidUrl = COSMOS_ENDPOINT.startsWith('https://');
+if (!isConnectionString && !isValidUrl) {
+  throw new Error('COSMOS_ENDPOINT must be either a connection string (containing AccountKey=) or a valid HTTPS URL');
+}
+
 const cosmosClient = COSMOS_ENDPOINT.includes('AccountKey=')
   ? new CosmosClient(COSMOS_ENDPOINT)
   : new CosmosClient({ endpoint: COSMOS_ENDPOINT, aadCredentials: new DefaultAzureCredential() });
