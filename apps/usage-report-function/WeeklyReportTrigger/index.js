@@ -20,6 +20,39 @@ import {
 import { getSlackWebhookUrl } from '../lib/key-vault-client.js';
 import { formatWeeklyReport } from '../lib/slack-formatter.js';
 
+// Configure axios instance with timeout and retry policy
+const axiosInstance = axios.create({
+  timeout: 10000, // 10 second timeout
+  maxRedirects: 0,
+});
+
+// Add retry interceptor for transient failures
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const { config, code } = error;
+    const maxRetries = 3;
+    config.retryCount = config.retryCount || 0;
+
+    // Retry on network errors or 5xx status codes
+    const isRetryable =
+      !error.response ||
+      (error.response.status >= 500 && error.response.status < 600) ||
+      code === 'ECONNABORTED' ||
+      code === 'ECONNREFUSED' ||
+      code === 'ETIMEDOUT';
+
+    if (isRetryable && config.retryCount < maxRetries) {
+      config.retryCount += 1;
+      const delayMs = 2 ** (config.retryCount - 1) * 500; // Exponential backoff: 500ms, 1s, 2s
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return axiosInstance(config);
+    }
+
+    return Promise.reject(error);
+  },
+);
+
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'fiona';
 const COSMOS_INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
@@ -126,7 +159,7 @@ app.timer('WeeklyReportTrigger', {
       });
       logger('Retrieved webhook URL from Key Vault, posting to Slack...');
 
-      await axios.post(webhookUrl, { text: message }, { maxRedirects: 0 });
+      await axiosInstance.post(webhookUrl, { text: message });
 
       logger('Weekly report posted successfully');
     } catch (error) {

@@ -34,7 +34,14 @@ jest.unstable_mockModule('@azure/identity', () => ({
   DefaultAzureCredential: MockDefaultAzureCredential,
 }));
 jest.unstable_mockModule('axios', () => ({
-  default: { post: mockAxiosPost },
+  default: {
+    create: jest.fn().mockReturnValue({
+      post: mockAxiosPost,
+      interceptors: {
+        response: { use: jest.fn() },
+      },
+    }),
+  },
 }));
 jest.unstable_mockModule('../../lib/cosmos-queries.js', () => ({
   getDistinctUsers: mockGetDistinctUsers,
@@ -257,7 +264,7 @@ describe('WeeklyReportTrigger', () => {
       await handler({}, context);
       expect(mockAxiosPost).toHaveBeenCalledWith('https://hooks.slack.com/test', {
         text: 'Fiona Usage Report text',
-      }, { maxRedirects: 0 });
+      });
     });
 
     it('catches errors and logs them without rethrowing', async () => {
