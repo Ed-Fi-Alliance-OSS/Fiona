@@ -215,6 +215,10 @@ a button:
 1. Sends an ephemeral confirmation message to the user.
 1. Optionally records the feedback to Azure Cosmos DB (if configured).
 
+Feedback records capture the complete interaction—user request and AI
+response—to enable analysis and continuous improvement of Fiona's guidance
+quality. Records are automatically purged after 90 days.
+
 **Feedback document schema:**
 
 | Field            | Description                                                      |
@@ -228,6 +232,10 @@ a button:
 | `botResponse`    | Fiona's response text                                            |
 | `deploymentType` | `local`, `insiders`, or `production`                             |
 | `timestamp`      | ISO 8601 timestamp                                               |
+| `ttl`            | Time-to-live (seconds). Cosmos DB automatically deletes records after 90 days (7,776,000 seconds) |
+
+**Data retention:** All feedback records are subject to Cosmos DB's TTL policy
+and are automatically expunged 90 days after creation.
 
 Cosmos DB supports three authentication methods (in priority order):
 
