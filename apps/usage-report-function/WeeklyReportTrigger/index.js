@@ -38,7 +38,7 @@ const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
 app.timer('WeeklyReportTrigger', {
   schedule: '%REPORT_SCHEDULE%',
   handler: async (_myTimer, context) => {
-    const logger = context.log;
+    const logger = context.log.bind(context);
     logger('Weekly report function triggered');
 
     try {
@@ -113,8 +113,8 @@ app.timer('WeeklyReportTrigger', {
 
       logger('Weekly report posted successfully');
     } catch (error) {
-      logger.error(`Error generating weekly report: ${error.message}`);
-      logger.error(error.stack);
+      context.error(`Error generating weekly report: ${error.message}`);
+      context.error(error.stack);
     }
   },
 });
