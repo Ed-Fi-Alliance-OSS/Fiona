@@ -16,7 +16,7 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
-  AZURE_RESOURCE_GROUP: ${{ var.AZURE_RESOURCE_GROUP }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 permissions: read-all
 
