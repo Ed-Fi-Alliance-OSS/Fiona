@@ -52,7 +52,7 @@ cp local.settings.json.example local.settings.json
 
 | Setting           | Description                                                              |
 | ----------------- | ------------------------------------------------------------------------ |
-| `COSMOS_ENDPOINT` | Emulator: `https://localhost:8081` — or your Azure Cosmos endpoint       |
+| `COSMOS_ENDPOINT` | Emulator or your Azure Cosmos endpoint                                   |
 | `SLACK_DRY_RUN`   | Set to `true` to print the report to the log instead of posting to Slack |
 | `REPORT_SCHEDULE` | Use `* * * * * *` locally so the function fires immediately on start     |
 
@@ -91,6 +91,14 @@ curl -X POST http://localhost:7071/admin/functions/WeeklyReportTrigger `
   -H "Content-Type: application/json" `
   -d '{"input": ""}'
 ```
+
+> [!TIP]
+> The function host keeps running until you stop it — that's normal Azure Functions local behavior. The timer will
+> keep firing on the schedule.
+>
+> With `"REPORT_SCHEDULE": "* * * * * *"` in your `local.settings.json`, it fires every second. You'll keep getting
+> reports until you hit Ctrl+C. That's intentional for local testing (so you don't have to wait), but you may want to
+> trigger it once and stop — just Ctrl+C after you see the report in the logs.
 
 ## Running tests
 
