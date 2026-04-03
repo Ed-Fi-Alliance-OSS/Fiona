@@ -12,7 +12,7 @@ async function runScalarQuery(container, queryText, deploymentType, oneWeekAgoIS
   //console.log('Running query:', queryText.replace('@deploymentType', deploymentType).replace('@oneWeekAgoISO', oneWeekAgoISO));
 
   const { resources } = await container.items
-    .query(queryText, { parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO) })
+    .query({ query: queryText, parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO) })
     .fetchAll();
 
   return resources[0] ?? 0;
@@ -95,12 +95,14 @@ export async function getRateLimitedCount(container, deploymentType, oneWeekAgoI
 export async function getFeedbackBreakdown(container, deploymentType, oneWeekAgoISO) {
   const { resources } = await container.items
     .query(
-      `SELECT f["value"] AS feedbackValue, COUNT(1) AS count
+      {
+        query: `SELECT f["value"] AS feedbackValue, COUNT(1) AS count
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp > @oneWeekAgoISO
        GROUP BY f["value"]`,
-      { parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO) },
+        parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO),
+      },
     )
     .fetchAll();
   return resources;
