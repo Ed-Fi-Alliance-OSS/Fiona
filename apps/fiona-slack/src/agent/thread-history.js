@@ -13,6 +13,21 @@ const MAX_HISTORY_CHARS = 20_000;
 const CONTENT_SUBTYPES = new Set(['bot_message', 'me_message', 'file_share', 'thread_broadcast']);
 
 /**
+ * Removes leading assistant messages from a message array in-place.
+ * LLM APIs require the first non-system message to be from the user; injecting a
+ * synthetic user placeholder would pollute the context with content the user never sent.
+ *
+ * @param {Array<{role: string, content: string}>} messages - Mutated in place.
+ * @returns {Array<{role: string, content: string}>} The same array reference.
+ */
+function dropLeadingAssistantMessages(messages) {
+  while (messages.length > 0 && messages[0].role === 'assistant') {
+    messages.shift();
+  }
+  return messages;
+}
+
+/**
  * Merges consecutive messages with the same role and drops any leading assistant
  * messages (LLM APIs require the first non-system message to be from the user).
  *
@@ -35,13 +50,7 @@ function normalizeMessages(messages) {
     }
   }
 
-  // Drop leading assistant messages — injecting a synthetic user placeholder
-  // would pollute the LLM context with content the user never actually sent.
-  while (merged.length > 0 && merged[0].role === 'assistant') {
-    merged.shift();
-  }
-
-  return merged;
+  return dropLeadingAssistantMessages(merged);
 }
 
 /**
@@ -119,11 +128,9 @@ export async function buildThreadHistory(
   const trimmed = truncateToCharBudget(normalized, maxChars);
 
   // Truncation removes from the front, which can expose a leading assistant message
-  // if the oldest user message was the last one removed. Re-apply the same guard as
-  // normalizeMessages so the first message is always from the user.
-  while (trimmed.length > 0 && trimmed[0].role === 'assistant') {
-    trimmed.shift();
-  }
+  // if the oldest user message was the last one removed. Re-apply the guard so the
+  // first message is always from the user.
+  dropLeadingAssistantMessages(trimmed);
 
   // Fall back to the current message when no history is available.
   if (trimmed.length === 0) {
