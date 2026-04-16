@@ -125,12 +125,12 @@ export async function buildThreadHistory(
     .filter(Boolean);
 
   const normalized = normalizeMessages(rawMessages);
-  const trimmed = truncateToCharBudget(normalized, maxChars);
+  let trimmed = truncateToCharBudget(normalized, maxChars);
 
   // Truncation removes from the front, which can expose a leading assistant message
   // if the oldest user message was the last one removed. Re-apply the guard so the
   // first message is always from the user.
-  dropLeadingAssistantMessages(trimmed);
+  trimmed = dropLeadingAssistantMessages(trimmed);
 
   // Fall back to the current message when no history is available.
   if (trimmed.length === 0) {
