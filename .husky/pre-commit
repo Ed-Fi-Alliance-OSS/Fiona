@@ -1,0 +1,27 @@
+#!/bin/bash
+# Pre-commit hook: lint check + tests for changed apps
+set -e
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+if git diff --cached --name-only | grep -q "^apps/fiona-slack/"; then
+  echo "Changes detected in apps/fiona-slack — running checks..."
+  cd "$REPO_ROOT/apps/fiona-slack"
+  echo "Running Biome lint check..."
+  npx @biomejs/biome check src/
+  echo "Running tests..."
+  npm test
+  cd "$REPO_ROOT"
+fi
+
+if git diff --cached --name-only | grep -q "^apps/usage-report-function/"; then
+  echo "Changes detected in apps/usage-report-function — running checks..."
+  cd "$REPO_ROOT/apps/usage-report-function"
+  echo "Running lint..."
+  npm run lint
+  echo "Running tests..."
+  npm test
+  cd "$REPO_ROOT"
+fi
+
+echo "Pre-commit checks passed."

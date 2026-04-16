@@ -86,6 +86,13 @@ param cosmosDatabase string = 'chatbot'
 @description('Cosmos DB container name for feedback storage')
 param cosmosContainer string = 'feedback'
 
+@description('Cosmos DB account name (required for provisioning the interactions and feedback containers)')
+@minLength(1)
+param cosmosAccountName string
+
+@description('Cosmos DB container name for interaction/usage analytics storage')
+param interactionsContainerName string = 'interactions'
+
 // --- Reference shared resources ---
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -113,6 +120,104 @@ resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
     )
     principalId: containerManagedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+// --- Cosmos DB resources for usage analytics ---
+
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' existing = {
+  name: cosmosAccountName
+}
+
+resource sqlDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-05-15' existing = {
+  name: cosmosDatabase
+  parent: cosmosAccount
+}
+
+// Interactions Container (Collection) for usage analytics
+resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  name: interactionsContainerName
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: interactionsContainerName
+      partitionKey: {
+        paths: [ '/deploymentType', '/userId' ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+        ]
+        compositeIndexes: [
+          [
+            { path: '/userId', order: 'ascending' }
+            { path: '/timestamp', order: 'descending' }
+          ]
+          [
+            { path: '/threadTs', order: 'ascending' }
+            { path: '/messageTs', order: 'ascending' }
+          ]
+          [
+            { path: '/status', order: 'ascending' }
+            { path: '/timestamp', order: 'descending' }
+          ]
+          // Analytics queries filter on timestamp + status + rateLimited together
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/status', order: 'ascending' }
+            { path: '/rateLimited', order: 'ascending' }
+          ]
+          // getRateLimitedCount filters on timestamp + rateLimited without status
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/rateLimited', order: 'ascending' }
+          ]
+        ]
+      }
+      // No TTL - interaction records are retained indefinitely for long-term trend analysis
+    }
+    options: {
+      // Empty: throughput defined at database level unless serverless.
+    }
+  }
+}
+
+// Feedback Container for storing per-interaction user feedback
+resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  name: cosmosContainer
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: cosmosContainer
+      partitionKey: {
+        paths: [ '/deploymentType', '/feedbackId' ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+        ]
+        // getFeedbackBreakdown groups by value within a timestamp window
+        compositeIndexes: [
+          [
+            { path: '/timestamp', order: 'descending' }
+            { path: '/value', order: 'ascending' }
+          ]
+        ]
+      }
+    }
+    options: {}
   }
 }
 

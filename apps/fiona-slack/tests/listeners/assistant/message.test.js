@@ -6,6 +6,10 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
+jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
+  recordInteraction: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue(undefined),
   finalizeMetadataEnvelope: jest.fn(),
@@ -48,6 +52,7 @@ const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/l
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
 const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
+const { recordInteraction } = await import('../../../src/agent/interaction-store.js');
 
 describe('message (assistant thread handler)', () => {
   let mockSay;
@@ -225,10 +230,21 @@ describe('message (assistant thread handler)', () => {
       setStatus: mockSetStatus,
     });
 
+    expect(recordInteraction).toHaveBeenCalledTimes(1);
+    expect(recordInteraction).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'U123',
+      rateLimited: true,
+      status: 'error',
+      errorType: 'rate_limited',
+    }));
+
     expect(mockSay).toHaveBeenCalledTimes(1);
     const [msg] = mockSay.mock.calls[0];
     expect(msg).toContain('request limit');
     expect(callLLM).not.toHaveBeenCalled();
+
+    // recordInteraction is fired before say() but not awaited — say() is not blocked on the Cosmos write
+    expect(recordInteraction.mock.invocationCallOrder[0]).toBeLessThan(mockSay.mock.invocationCallOrder[0]);
   });
 
   it('calls callLLM for a normal message', async () => {

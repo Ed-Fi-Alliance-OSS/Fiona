@@ -1,0 +1,15 @@
+# Override root-level gitignore that excludes lib/ (a Python artifact convention)
+!lib/
+
+node_modules
+dist
+build
+.env
+.env.local
+.DS_Store
+*.log
+coverage
+.vscode/settings.json
+.idea
+local.settings.json
+function-app.zip
