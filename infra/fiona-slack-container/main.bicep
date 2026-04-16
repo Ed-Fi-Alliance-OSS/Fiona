@@ -86,7 +86,8 @@ param cosmosDatabase string = 'chatbot'
 @description('Cosmos DB container name for feedback storage')
 param cosmosContainer string = 'feedback'
 
-@description('Cosmos DB account name (required for provisioning the interactions container)')
+@description('Cosmos DB account name (required for provisioning the interactions and feedback containers)')
+@minLength(1)
 param cosmosAccountName string
 
 @description('Cosmos DB container name for interaction/usage analytics storage')
@@ -124,17 +125,17 @@ resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
 
 // --- Cosmos DB resources for usage analytics ---
 
-resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' existing = if (cosmosAccountName != '') {
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' existing = {
   name: cosmosAccountName
 }
 
-resource sqlDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-05-15' existing = if (cosmosAccountName != '') {
+resource sqlDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-05-15' existing = {
   name: cosmosDatabase
   parent: cosmosAccount
 }
 
 // Interactions Container (Collection) for usage analytics
-resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (cosmosAccountName != '') {
+resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
   name: interactionsContainerName
   parent: sqlDatabase
   properties: {
@@ -179,7 +180,7 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
           ]
         ]
       }
-      // No TTL interaction records are retained indefinitely for long-term trend analysis
+      // No TTL - interaction records are retained indefinitely for long-term trend analysis
     }
     options: {
       // Empty: throughput defined at database level unless serverless.
@@ -188,7 +189,7 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
 }
 
 // Feedback Container for storing per-interaction user feedback
-resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (cosmosAccountName != '') {
+resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
   name: cosmosContainer
   parent: sqlDatabase
   properties: {
