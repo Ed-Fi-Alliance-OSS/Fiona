@@ -3,8 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function formatWeekLabel(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
@@ -14,9 +13,7 @@ function formatWeekLabel(startDate, endDate) {
   const startYear = start.getUTCFullYear();
   const endYear = end.getUTCFullYear();
   const yearLabel = startYear === endYear ? startYear : endYear;
-  const endPart = startMonth === endMonth
-    ? `${end.getUTCDate()}`
-    : `${endMonth} ${end.getUTCDate()}`;
+  const endPart = startMonth === endMonth ? `${end.getUTCDate()}` : `${endMonth} ${end.getUTCDate()}`;
   return `${startMonth} ${start.getUTCDate()}–${endPart}, ${yearLabel}`;
 }
 

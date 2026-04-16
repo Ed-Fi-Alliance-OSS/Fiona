@@ -94,16 +94,14 @@ export async function getRateLimitedCount(container, deploymentType, oneWeekAgoI
 
 export async function getFeedbackBreakdown(container, deploymentType, oneWeekAgoISO) {
   const { resources } = await container.items
-    .query(
-      {
-        query: `SELECT f["value"] AS feedbackValue, COUNT(1) AS count
+    .query({
+      query: `SELECT f["value"] AS feedbackValue, COUNT(1) AS count
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp > @oneWeekAgoISO
        GROUP BY f["value"]`,
-        parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO),
-      },
-    )
+      parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO),
+    })
     .fetchAll();
   return resources;
 }
@@ -132,12 +130,7 @@ export async function getAvgInteractionsPerUser(container, deploymentType, oneWe
  * Queries the interactions and feedback containers separately, then computes
  * the response rate in application code.
  */
-export async function getFeedbackResponseRate(
-  interactionsContainer,
-  feedbackContainer,
-  deploymentType,
-  oneWeekAgoISO,
-) {
+export async function getFeedbackResponseRate(interactionsContainer, feedbackContainer, deploymentType, oneWeekAgoISO) {
   const [successCount, feedbackCount] = await Promise.all([
     runScalarQuery(
       interactionsContainer,

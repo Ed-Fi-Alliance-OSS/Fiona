@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // -- Declare mock functions before registering modules --
 
@@ -68,9 +68,7 @@ const interactionsContainer = {};
 const feedbackContainer = {};
 MockCosmosClient.mockImplementation(() => ({
   database: jest.fn().mockReturnValue({
-    container: jest.fn()
-      .mockReturnValueOnce(interactionsContainer)
-      .mockReturnValueOnce(feedbackContainer),
+    container: jest.fn().mockReturnValueOnce(interactionsContainer).mockReturnValueOnce(feedbackContainer),
   }),
 }));
 
@@ -173,16 +171,8 @@ describe('WeeklyReportTrigger', () => {
 
     it('queries with the correct deployment type and lookback window', async () => {
       await handler({}, context);
-      expect(mockGetDistinctUsers).toHaveBeenCalledWith(
-        expect.anything(),
-        'production',
-        EXPECTED_ONE_WEEK_AGO_ISO,
-      );
-      expect(mockGetSessionCount).toHaveBeenCalledWith(
-        expect.anything(),
-        'production',
-        EXPECTED_ONE_WEEK_AGO_ISO,
-      );
+      expect(mockGetDistinctUsers).toHaveBeenCalledWith(expect.anything(), 'production', EXPECTED_ONE_WEEK_AGO_ISO);
+      expect(mockGetSessionCount).toHaveBeenCalledWith(expect.anything(), 'production', EXPECTED_ONE_WEEK_AGO_ISO);
     });
 
     it('calculates errorRate as percentage of totalInteractions', async () => {
@@ -254,10 +244,7 @@ describe('WeeklyReportTrigger', () => {
 
     it('fetches the webhook URL using the default Key Vault secret name', async () => {
       await handler({}, context);
-      expect(mockGetSlackWebhookUrl).toHaveBeenCalledWith(
-        'slack-fiona-weekly-report-webhook',
-        expect.anything(),
-      );
+      expect(mockGetSlackWebhookUrl).toHaveBeenCalledWith('slack-fiona-weekly-report-webhook', expect.anything());
     });
 
     it('posts the formatted report to the Slack webhook URL', async () => {
@@ -271,9 +258,7 @@ describe('WeeklyReportTrigger', () => {
       mockGetDistinctUsers.mockRejectedValue(new Error('Cosmos unavailable'));
 
       await expect(handler({}, context)).resolves.toBeUndefined();
-      expect(context.error).toHaveBeenCalledWith(
-        expect.stringContaining('Cosmos unavailable'),
-      );
+      expect(context.error).toHaveBeenCalledWith(expect.stringContaining('Cosmos unavailable'));
     });
   });
 });

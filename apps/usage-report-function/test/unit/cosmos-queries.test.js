@@ -1,13 +1,13 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import {
+  getAvgInteractionsPerUser,
   getDistinctUsers,
+  getErrorCount,
+  getFeedbackBreakdown,
+  getFeedbackResponseRate,
+  getRateLimitedCount,
   getSessionCount,
   getTotalInteractions,
-  getErrorCount,
-  getRateLimitedCount,
-  getFeedbackBreakdown,
-  getAvgInteractionsPerUser,
-  getFeedbackResponseRate,
 } from '../../lib/cosmos-queries.js';
 
 describe('cosmos-queries', () => {
