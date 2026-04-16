@@ -97,6 +97,7 @@ jobs:
             cosmosKey="${{ secrets.COSMOS_KEY }}" \
             cosmosDatabase="${{ vars.COSMOS_DATABASE || 'chatbot' }}" \
             cosmosContainer="${{ vars.COSMOS_CONTAINER || 'feedback' }}" \
+            cosmosAccountName="${{ vars.COSMOS_ACCOUNT_NAME }}" \
             deploymentType="${{ inputs.environment || 'insiders' }}" \
             skipRoleAssignments=true
 
