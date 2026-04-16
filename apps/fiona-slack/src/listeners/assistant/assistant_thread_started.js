@@ -17,7 +17,7 @@
  * @see {@link https://docs.slack.dev/reference/events/assistant_thread_started}
  */
 export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
-  const { context } = event.assistant_thread;
+  const context = event.assistant_thread?.context ?? {};
 
   try {
     /**
@@ -42,15 +42,23 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
      */
     if (!context.channel_id) {
       await setSuggestedPrompts({
-        title: 'Start with this suggested prompt:',
+        title: 'Try these prompts:',
         prompts: [
           {
-            title: 'Prompt a task with thinking steps',
-            message: 'Wonder a few deep thoughts.',
+            title: 'Set up ODS/API',
+            message: 'How do I set up ODS/API version 7.3?',
           },
           {
-            title: 'Roll dice for a random number',
-            message: 'Roll two 12-sided dice and three 6-sided dice for a pseudo-random score.',
+            title: 'Data Standard updates',
+            message: "What's new in Data Standard 6.0?",
+          },
+          {
+            title: 'Configure Admin App',
+            message: 'How do I configure Ed-Fi Admin App?',
+          },
+          {
+            title: 'Student resource fields',
+            message: 'What are the required fields for the Student resource?',
           },
         ],
       });
