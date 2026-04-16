@@ -55,9 +55,13 @@ function createSingleLineLogger(initialLevel) {
     info: (...args) => write(LogLevel.INFO, console.info, args),
     warn: (...args) => write(LogLevel.WARN, console.warn, args),
     error: (...args) => write(LogLevel.ERROR, console.error, args),
-    setLevel: (level) => { currentLevel = level; },
+    setLevel: (level) => {
+      currentLevel = level;
+    },
     getLevel: () => currentLevel,
-    setName: (n) => { name = n; },
+    setName: (n) => {
+      name = n;
+    },
   };
 }
 
