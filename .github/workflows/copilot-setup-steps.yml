@@ -33,7 +33,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/fiona-slack/package-lock.json
 
-      - name: Install dependencies fo fiona-slack
+      - name: Install dependencies for fiona-slack
         run: npm ci
         working-directory: apps/fiona-slack
 
@@ -44,6 +44,6 @@ jobs:
           cache: npm
           cache-dependency-path: apps/usage-report-function/package-lock.json
 
-      - name: Install dependencies fo usage-report-function
+      - name: Install dependencies for usage-report-function
         run: npm ci
         working-directory: apps/usage-report-function
