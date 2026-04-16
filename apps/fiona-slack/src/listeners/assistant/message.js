@@ -51,8 +51,13 @@ export const message = async ({ client, context, logger, message, say, setStatus
   }
 
   const { channel, thread_ts } = message;
-  const { userId, teamId } = context || { userId: 'unknown_user', teamId: 'unknown_team' };
   const messageTs = message.ts;
+
+  if (!context?.userId) {
+    logger.warn('Missing context.userId on message event — skipping interaction processing');
+    return;
+  }
+  const { userId, teamId } = context;
 
   await handleInteractionWithTelemetry(
     {
