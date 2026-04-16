@@ -9,8 +9,6 @@ const BASE_PARAMS = (deploymentType, oneWeekAgoISO) => [
 ];
 
 async function runScalarQuery(container, queryText, deploymentType, oneWeekAgoISO) {
-  //console.log('Running query:', queryText.replace('@deploymentType', deploymentType).replace('@oneWeekAgoISO', oneWeekAgoISO));
-
   const { resources } = await container.items
     .query({ query: queryText, parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO) })
     .fetchAll();
