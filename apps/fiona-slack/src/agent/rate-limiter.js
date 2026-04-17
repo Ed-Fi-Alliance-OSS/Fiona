@@ -24,6 +24,8 @@ const userTimestamps = new Map();
 function sweepExpiredEntries() {
   const windowStart = Date.now() - WINDOW_MS;
   for (const [userId, timestamps] of userTimestamps) {
+    // Invariant: timestamps remain ordered oldest -> newest because filter()
+    // preserves order and checkRateLimit() only appends via push(now).
     const newestTimestamp = timestamps[timestamps.length - 1];
     if (timestamps.length === 0 || newestTimestamp <= windowStart) {
       userTimestamps.delete(userId);
