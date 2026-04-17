@@ -24,7 +24,8 @@ const userTimestamps = new Map();
 function sweepExpiredEntries() {
   const windowStart = Date.now() - WINDOW_MS;
   for (const [userId, timestamps] of userTimestamps) {
-    if (timestamps.every((t) => t <= windowStart)) {
+    const newestTimestamp = timestamps[timestamps.length - 1];
+    if (timestamps.length === 0 || newestTimestamp <= windowStart) {
       userTimestamps.delete(userId);
     }
   }
@@ -61,11 +62,6 @@ export function checkRateLimit(userId) {
   const now = Date.now();
   const windowStart = now - WINDOW_MS;
   const timestamps = (userTimestamps.get(userId) ?? []).filter((t) => t > windowStart);
-
-  // Clean up: remove Map entry entirely when no valid timestamps remain
-  if (timestamps.length === 0) {
-    userTimestamps.delete(userId);
-  }
 
   if (timestamps.length >= MAX_REQUESTS) {
     userTimestamps.set(userId, timestamps);
