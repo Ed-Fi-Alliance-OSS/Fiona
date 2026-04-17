@@ -4,7 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordInteraction } from './interaction-store.js';
-import { handleMetadataTimeout, MetadataLifecycleState } from './llm-caller.js';
+import {
+  handleMetadataTimeout,
+  MetadataLifecycleState,
+  TOOL_CALL_DEPTH_EXCEEDED_CODE,
+  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE,
+} from './llm-caller.js';
 import { rollbackFinalization } from './utils/idempotent-finalize.js';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,12 +105,18 @@ export async function handleInteractionWithTelemetry(
       errorType = 'llm_rate_limited';
     } else if (e.code?.includes('openai') || e.name?.includes('APIError')) {
       errorType = 'llm_error';
+    } else if (e.code === TOOL_CALL_DEPTH_EXCEEDED_CODE) {
+      errorType = 'max_tool_call_depth_exceeded';
     } else {
       errorType = 'unknown';
     }
 
     logger.error('Failed to handle a user message event:', e);
-    await say(':warning: Something went wrong! Please try again later.').catch(() => {
+    const userErrorMessage =
+      e.code === TOOL_CALL_DEPTH_EXCEEDED_CODE
+        ? `:warning: ${TOOL_CALL_DEPTH_EXCEEDED_MESSAGE}`
+        : ':warning: Something went wrong! Please try again later.';
+    await say(userErrorMessage).catch(() => {
       logger.warn?.('Failed to send error message to Slack');
     });
   } finally {

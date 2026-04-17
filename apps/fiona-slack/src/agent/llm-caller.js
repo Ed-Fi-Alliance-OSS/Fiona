@@ -39,7 +39,6 @@ const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
-export const MAX_RECURSION_DEPTH = 10;
 
 /**
  * Safely parse an environment variable into a positive integer.
@@ -57,6 +56,13 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
   }
   return parsedInt;
 }
+
+// ─── Tool Call Recursion Limits ─────────────────────────────────────────────
+export const MAX_TOOL_CALL_DEPTH = parsePositiveIntEnv(process.env.MAX_TOOL_CALL_DEPTH, 10);
+export const MAX_RECURSION_DEPTH = MAX_TOOL_CALL_DEPTH;
+export const TOOL_CALL_DEPTH_EXCEEDED_CODE = 'MAX_TOOL_CALL_DEPTH_EXCEEDED';
+export const TOOL_CALL_DEPTH_EXCEEDED_MESSAGE =
+  'The AI encountered too many tool invocations. Please try a simpler request.';
 
 export const CITATION_POLICY = {
   MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
@@ -616,8 +622,23 @@ async function callAzureAgent(streamer, prompts, logger) {
  * @param {import("@slack/logger").Logger} logger
  */
 async function callOpenAICompatible(streamer, prompts, logger, depth = 0) {
-  if (depth >= MAX_RECURSION_DEPTH) {
-    throw new Error(`Maximum recursion depth (${MAX_RECURSION_DEPTH}) exceeded in callOpenAICompatible`);
+  if (depth >= MAX_TOOL_CALL_DEPTH) {
+    const recentToolCalls = prompts
+      .filter((prompt) => prompt?.type === 'function_call' && typeof prompt.name === 'string')
+      .slice(-5)
+      .map((prompt) => prompt.name);
+    logger.warn('[llm] Maximum tool call depth exceeded.', {
+      code: TOOL_CALL_DEPTH_EXCEEDED_CODE,
+      depth,
+      maxDepth: MAX_TOOL_CALL_DEPTH,
+      recentToolCalls,
+    });
+
+    const error = new Error(`Maximum tool call depth (${MAX_TOOL_CALL_DEPTH}) exceeded`);
+    error.name = 'ToolCallDepthError';
+    error.code = TOOL_CALL_DEPTH_EXCEEDED_CODE;
+    error.userMessage = TOOL_CALL_DEPTH_EXCEEDED_MESSAGE;
+    throw error;
   }
   const toolCalls = [];
   const appender = createCitationAwareAppender(streamer);

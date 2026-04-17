@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({
   recordInteraction: jest.fn().mockResolvedValue(undefined),
@@ -15,6 +15,8 @@ jest.unstable_mockModule('../../src/agent/utils/idempotent-finalize.js', () => (
 
 jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({
   handleMetadataTimeout: jest.fn(),
+  TOOL_CALL_DEPTH_EXCEEDED_CODE: 'MAX_TOOL_CALL_DEPTH_EXCEEDED',
+  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE: 'The AI encountered too many tool invocations. Please try a simpler request.',
   MetadataLifecycleState: {
     READY_TO_FINALIZE: 'READY_TO_FINALIZE',
     DEGRADED_NO_METADATA: 'DEGRADED_NO_METADATA',
@@ -438,9 +440,7 @@ describe('handleInteractionWithTelemetry', () => {
         ),
       ).resolves.not.toThrow();
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to record interaction'),
-      );
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to record interaction'));
     });
 
     it('includes rate limit flag in recorded interaction', async () => {
