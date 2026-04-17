@@ -6,6 +6,7 @@
 import { AIProjectClient } from '@azure/ai-projects';
 import { DefaultAzureCredential } from '@azure/identity';
 import { AzureOpenAI, OpenAI } from 'openai';
+import { validateAzureAgentId } from './startup-validator.js';
 import { perplexitySearchDefinition } from './tools/perplexity-search.js';
 import {
   incrementDegradedNoMetadataCount,
@@ -562,7 +563,8 @@ async function callAzureAgent(streamer, prompts, logger) {
     throw new Error('Azure AI Foundry agent is not configured. Set AZURE_PROJECT_ENDPOINT and AZURE_AGENT_ID.');
   }
 
-  const agentParts = AZURE_AGENT_ID.split(':');
+  const validatedAgentId = validateAzureAgentId(AZURE_AGENT_ID);
+  const agentParts = validatedAgentId.split(':');
   const agentName = agentParts[0];
   const agentVersion = agentParts.length > 1 ? agentParts[1] : '1';
 
