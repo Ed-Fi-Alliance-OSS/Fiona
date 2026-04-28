@@ -26,8 +26,10 @@ function sweepExpiredEntries() {
   for (const [userId, timestamps] of userTimestamps) {
     // Invariant: timestamps remain ordered oldest -> newest because filter()
     // preserves order and checkRateLimit() only appends via push(now).
+    // entries always have ≥1 timestamp (checkRateLimit pushes before setting the Map)
+    // <= mirrors checkRateLimit's strict > filter: a timestamp exactly at windowStart is expired
     const newestTimestamp = timestamps[timestamps.length - 1];
-    if (timestamps.length === 0 || newestTimestamp <= windowStart) {
+    if (newestTimestamp <= windowStart) {
       userTimestamps.delete(userId);
     }
   }

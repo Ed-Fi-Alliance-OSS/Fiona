@@ -74,10 +74,6 @@ describe('checkRateLimit', () => {
     expect(checkRateLimit(userId2).allowed).toBe(true);
   });
 
-  it('getUserTimestampsSize returns a number', () => {
-    expect(typeof getUserTimestampsSize()).toBe('number');
-  });
-
   it('Map entry is added after a request', () => {
     const userId = uniqueUserId();
     const sizeBefore = getUserTimestampsSize();
@@ -108,6 +104,30 @@ describe('checkRateLimit', () => {
       expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
     } finally {
       jest.useRealTimers();
+    }
+  });
+
+  it('allows all requests when MAX_REQUESTS is 0 (rate limiting disabled)', async () => {
+    const original = process.env.RATE_LIMIT_MAX_REQUESTS;
+    process.env.RATE_LIMIT_MAX_REQUESTS = '0';
+    jest.resetModules();
+
+    try {
+      const { checkRateLimit: checkDisabled } = await import('../../src/agent/rate-limiter.js');
+
+      // Call well beyond the default limit to confirm nothing is ever blocked.
+      for (let i = 0; i < 30; i++) {
+        const result = checkDisabled(`disabled-user-${i}`);
+        expect(result.allowed).toBe(true);
+        expect(result.retryAfterMs).toBe(0);
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.RATE_LIMIT_MAX_REQUESTS;
+      } else {
+        process.env.RATE_LIMIT_MAX_REQUESTS = original;
+      }
+      jest.resetModules();
     }
   });
 
