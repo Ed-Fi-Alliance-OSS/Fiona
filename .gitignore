@@ -165,3 +165,5 @@ backups/
 *.backup
 *.bak
 .claude/settings.local.json
+infra/fiona-slack-container/main.json
+apps/usage-report-function/AzuriteConfig

@@ -1,0 +1,129 @@
+# Usage Report Function Deployment Guide
+
+## Prerequisites
+
+1. Azure subscription with Fiona resource group (`fiona-rg`)
+2. Cosmos DB account with `fiona` database, `interactions` container, and `feedback` container
+3. Azure Key Vault instance for storing secrets
+4. GitHub secrets configured: `AZURE_CREDENTIALS`, `COSMOS_ENDPOINT`, `KEY_VAULT_URL`
+
+## Manual Setup Steps
+
+### 1. Create Function App
+
+```shell
+az functionapp create \
+  --resource-group fiona-rg \
+  --consumption-plan-location eastus \
+  --runtime node \
+  --runtime-version 20 \
+  --functions-version 4 \
+  --name usage-report-function \
+  --storage-account fionastorage
+```
+
+### 2. Configure Managed Identity
+
+```shell
+# Enable system-assigned managed identity and grant Cosmos DB Data Reader role
+az functionapp identity assign \
+  --resource-group fiona-rg \
+  --name usage-report-function
+
+# Get the principal ID of the managed identity
+PRINCIPAL_ID=$(az functionapp identity show \
+  --name usage-report-function \
+  --resource-group fiona-rg \
+  --query principalId -o tsv)
+
+# Grant Cosmos DB Data Reader role (scoped to the fiona database)
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL_ID" \
+  --role "Cosmos DB Data Reader" \
+  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.DocumentDB/databaseAccounts/fiona/sqlDatabases/fiona
+
+# Grant Key Vault Secrets User role
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL_ID" \
+  --role "Key Vault Secrets User" \
+  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.KeyVault/vaults/fiona-kv
+```
+
+### 3. Store Slack Webhook URL in Key Vault
+
+```shell
+az keyvault secret set \
+  --vault-name fiona-kv \
+  --name slack-fiona-weekly-report-webhook \
+  --value "https://hooks.slack.com/services/T.../B.../X..."
+```
+
+### 4. Configure App Settings
+
+App settings are populated automatically by the GitHub Actions workflow on deploy. For manual deployment:
+
+```shell
+az functionapp config appsettings set \
+  --resource-group fiona-rg \
+  --name usage-report-function \
+  --settings \
+    REPORT_SCHEDULE='0 0 9 * * 1' \
+    COSMOS_ENDPOINT='https://fiona.documents.azure.com:443/' \
+    COSMOS_DATABASE='fiona' \
+    COSMOS_INTERACTIONS_CONTAINER='interactions' \
+    COSMOS_FEEDBACK_CONTAINER='feedback' \
+    DEPLOYMENT_TYPE='production' \
+    KEY_VAULT_URL='https://fiona-kv.vault.azure.net/' \
+    SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
+```
+
+### 5. Monitor with Application Insights
+
+Function App logs are automatically sent to Application Insights. Query logs:
+
+```shell
+az monitor app-insights query \
+  --app fiona-usage-report \
+  --analytics-query "traces | where message contains 'Weekly report'"
+```
+
+## Testing
+
+### Local Testing
+
+```shell
+# Install Azure Functions Core Tools
+npm install -g azure-functions-core-tools@4
+
+# Start function locally (requires local.settings.json with env vars)
+func start
+
+# In another terminal, manually trigger the timer
+curl -X POST http://localhost:7071/admin/functions/WeeklyReportTrigger \
+  -H "Content-Type: application/json" \
+  -d '{"input": "test"}'
+```
+
+### Manual Trigger in Azure Portal
+
+1. Open the Function App in the Azure Portal
+2. Navigate to **Functions** → **WeeklyReportTrigger**
+3. Click **Test/Run** and provide an empty timer payload
+
+## REPORT_SCHEDULE Cron Format
+
+The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 fields):
+
+| Value | Meaning |
+|---|---|
+| `0 0 9 * * 1` | Every Monday at 9:00 AM UTC |
+| `0 0 9 * * *` | Every day at 9:00 AM UTC |
+| `0 */30 * * * *` | Every 30 minutes (for testing) |
+
+## Troubleshooting
+
+- **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `fiona` database
+- **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret
+- **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`
+- **Function timeout:** Check Cosmos DB query performance; ensure composite indexes are created by Bicep template
+- **Private endpoint connectivity:** If Cosmos DB uses private endpoints, ensure the Function App is VNet-integrated

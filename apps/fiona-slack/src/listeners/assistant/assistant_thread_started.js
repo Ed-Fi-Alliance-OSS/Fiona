@@ -17,7 +17,7 @@
  * @see {@link https://docs.slack.dev/reference/events/assistant_thread_started}
  */
 export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
-  const { context } = event.assistant_thread;
+  const context = event.assistant_thread?.context ?? {};
 
   try {
     /**
@@ -46,19 +46,19 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
         prompts: [
           {
             title: 'Set up ODS/API',
-            message: 'How do I set up ODS/API?',
+            message: 'How do I set up ODS/API version 7.3?',
           },
           {
             title: 'Data Standard updates',
             message: "What's new in Data Standard 6.0?",
           },
           {
-            title: 'Configure Admin Console',
-            message: 'How do I configure Admin Console?',
+            title: 'Configure Admin App',
+            message: 'How do I configure Ed-Fi Admin App?',
           },
           {
-            title: 'Student entity fields',
-            message: 'What are the required fields for the Student entity?',
+            title: 'Student resource fields',
+            message: 'What are the required fields for the Student resource?',
           },
         ],
       });

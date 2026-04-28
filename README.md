@@ -39,6 +39,7 @@ language conversation.
 - [Node.js](https://nodejs.org/) 22+
 - A [Slack app](https://api.slack.com/apps) configured with Socket Mode
 - An LLM provider API key (Perplexity, OpenAI, or Azure)
+- Git hooks via [Husky](https://typicode.github.io/husky/) (installed automatically when you run `npm ci`)
 
 ### Local Development
 

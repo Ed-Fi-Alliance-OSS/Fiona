@@ -81,6 +81,34 @@ describe('assistantThreadStarted', () => {
     expect(mockSetSuggestedPrompts).not.toHaveBeenCalled();
   });
 
+  it('does not throw when assistant_thread is undefined', async () => {
+    const event = { assistant_thread: undefined };
+
+    await expect(
+      assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not throw when context is null', async () => {
+    const event = { assistant_thread: { context: null } };
+
+    await expect(
+      assistantThreadStarted({
+        event,
+        logger: mockLogger,
+        say: mockSay,
+        setSuggestedPrompts: mockSetSuggestedPrompts,
+        saveThreadContext: mockSaveThreadContext,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it('logs error and does not throw when say rejects', async () => {
     const error = new Error('say failed');
     mockSay.mockRejectedValueOnce(error);
