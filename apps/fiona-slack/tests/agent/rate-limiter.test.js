@@ -3,8 +3,10 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect } from '@jest/globals';
-import { checkRateLimit } from '../../src/agent/rate-limiter.js';
+import { describe, it, expect, jest } from '@jest/globals';
+import { checkRateLimit, __testing } from '../../src/agent/rate-limiter.js';
+
+const { getUserTimestampsSize, sweepExpiredEntries } = __testing;
 
 // Use a counter + timestamp to guarantee unique user IDs across all tests,
 // preventing the module-level Map from leaking state between test cases.
@@ -70,5 +72,89 @@ describe('checkRateLimit', () => {
 
     // user2 has a fresh bucket and should still be allowed
     expect(checkRateLimit(userId2).allowed).toBe(true);
+  });
+
+  it('Map entry is added after a request', () => {
+    const userId = uniqueUserId();
+    const sizeBefore = getUserTimestampsSize();
+    checkRateLimit(userId);
+    expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
+  });
+
+  it('re-calling checkRateLimit after window expiry prunes stale timestamps for that user', () => {
+    const userId = uniqueUserId();
+    const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
+
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
+
+    try {
+      const sizeBefore = getUserTimestampsSize();
+
+      checkRateLimit(userId);
+      expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
+
+      // Move past the window and call again to force the filter/delete path.
+      jest.setSystemTime(new Date(windowMs + 1));
+      const result = checkRateLimit(userId);
+
+      expect(result.allowed).toBe(true);
+      expect(result.retryAfterMs).toBe(0);
+      // Size stays bounded instead of growing with repeated calls over expired windows.
+      expect(getUserTimestampsSize()).toBe(sizeBefore + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('allows all requests when MAX_REQUESTS is 0 (rate limiting disabled)', async () => {
+    const original = process.env.RATE_LIMIT_MAX_REQUESTS;
+    process.env.RATE_LIMIT_MAX_REQUESTS = '0';
+    jest.resetModules();
+
+    try {
+      const { checkRateLimit: checkDisabled } = await import('../../src/agent/rate-limiter.js');
+
+      // Call well beyond the default limit to confirm nothing is ever blocked.
+      for (let i = 0; i < 30; i++) {
+        const result = checkDisabled(`disabled-user-${i}`);
+        expect(result.allowed).toBe(true);
+        expect(result.retryAfterMs).toBe(0);
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.RATE_LIMIT_MAX_REQUESTS;
+      } else {
+        process.env.RATE_LIMIT_MAX_REQUESTS = original;
+      }
+      jest.resetModules();
+    }
+  });
+
+  it('sweepExpiredEntries removes entries whose timestamps have all expired', () => {
+    const userId = uniqueUserId();
+    const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '3600000', 10);
+
+    // Set fake time to epoch 0 so this entry's timestamp is far enough in the
+    // past that only it gets swept, while real-clock entries from other tests
+    // (timestamped near the real clock time) remain untouched.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
+
+    try {
+      checkRateLimit(userId); // entry stored at timestamp 0
+      const sizeBefore = getUserTimestampsSize();
+
+      // Still within the window – sweep should keep the entry
+      sweepExpiredEntries();
+      expect(getUserTimestampsSize()).toBe(sizeBefore);
+
+      // Advance past the window – sweep should remove the entry
+      jest.setSystemTime(new Date(windowMs + 1));
+      sweepExpiredEntries();
+      expect(getUserTimestampsSize()).toBe(sizeBefore - 1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
