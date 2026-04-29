@@ -247,7 +247,7 @@ function transitionMetadataState(envelope, newState) {
   };
 
   const allowed = validTransitions[currentState];
-  if (!allowed || !allowed.includes(newState)) {
+  if (!allowed?.includes(newState)) {
     throw new Error(`Invalid metadata state transition: ${currentState} -> ${newState}`);
   }
 
@@ -484,7 +484,7 @@ function createCitationAwareAppender(streamer) {
  * @param {Array} prompts
  * @returns {Promise<string[]>} Citation URL strings (may be empty)
  */
-async function callPerplexityChat(streamer, prompts) {
+export async function callPerplexityChat(streamer, prompts) {
   if (!perplexityClient) {
     throw new Error('Perplexity client is not configured.');
   }
@@ -502,17 +502,16 @@ async function callPerplexityChat(streamer, prompts) {
     stream: true,
   });
 
-  // Collect citations from chunks; last one wins.
+  // Buffer all text chunks during streaming so that citation markers can be
+  // linkified after `source_index_map` has been fully populated.  Emitting
+  // per-chunk would always see an empty map because Perplexity delivers
+  // citations on the *last* chunk, after the text deltas.
   let citations = [];
-  const appender = createCitationAwareAppender(streamer);
+  let textBuffer = '';
 
   for await (const chunk of response) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
-
-      if (citations.length > 0 && streamer?.__citation_metadata) {
-        aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
-      }
     }
 
     const delta = chunk?.choices?.[0]?.delta;
@@ -535,15 +534,23 @@ async function callPerplexityChat(streamer, prompts) {
     }
 
     if (text) {
-      await appender.append(text);
+      textBuffer += text;
     }
   }
 
-  await appender.flush();
-
-  // Read the final chunk's citations one last time in case they were updated after the last text delta
-  if (streamer?.__citation_metadata && citations.length > 0) {
+  // Aggregate citations into the metadata envelope so source_index_map is
+  // fully populated before we linkify.
+  if (citations.length > 0 && streamer?.__citation_metadata) {
     aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  }
+
+  // Linkify [n] markers using the now-populated source_index_map, then emit
+  // a single append call.  Skipping the append entirely when there is no text
+  // avoids sending an empty markdown block to Slack.
+  if (textBuffer) {
+    const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
+    const linkifiedText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    await streamer.append({ markdown_text: linkifiedText });
   }
 
   return citations;
