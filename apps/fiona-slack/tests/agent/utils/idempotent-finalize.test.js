@@ -273,5 +273,31 @@ describe('idempotent-finalize', () => {
       expect(getFinalizedResponseCount()).toBe(0);
       jest.useRealTimers();
     });
+
+    it('respects a short TTL from env configuration', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      jest.useFakeTimers();
+
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '30000';
+        jest.resetModules();
+
+        const mod = await import('../../../src/agent/utils/idempotent-finalize.js');
+        const id = mod.generateResponseId('C1', 't1', 'req-short');
+
+        mod.markResponseFinalized(id);
+        expect(mod.isResponseFinalized(id)).toBe(true);
+
+        jest.advanceTimersByTime(30001);
+        expect(mod.isResponseFinalized(id)).toBe(false);
+      } finally {
+        if (priorTtl === undefined) {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        } else {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        }
+        jest.useRealTimers();
+      }
+    });
   });
 });

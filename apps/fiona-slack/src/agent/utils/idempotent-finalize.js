@@ -14,10 +14,15 @@
  * unbounded memory growth in long-running processes.
  */
 
-const TTL_MS = parseInt(process.env.IDEMPOTENT_FINALIZE_TTL_MS ?? '3600000', 10);
+const rawTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS ?? '3600000';
+const TTL_MS = Number.parseInt(rawTtl, 10);
 
-// Sweep runs at 10 % of TTL, minimum 60 s, maximum 10 min
-const SWEEP_INTERVAL_MS = Math.min(Math.max(Math.floor(TTL_MS * 0.1), 60_000), 600_000);
+if (!Number.isFinite(TTL_MS) || TTL_MS <= 0) {
+  throw new Error(`Invalid IDEMPOTENT_FINALIZE_TTL_MS: "${rawTtl}". Expected a positive integer (ms).`);
+}
+
+// Sweep at 10% of TTL, at least 1s, at most 10m, and never slower than TTL.
+const SWEEP_INTERVAL_MS = Math.min(Math.max(Math.floor(TTL_MS * 0.1), 1_000), 600_000, TTL_MS);
 
 /**
  * Map<responseId, expiresAt> — value is the absolute expiry timestamp (ms since epoch).
