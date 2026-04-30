@@ -95,8 +95,12 @@ export function isResponseFinalized(responseId) {
 }
 
 /**
- * Mark a response as finalized.
+ * Mark a response as finalized with a TTL expiry.
  * Should be called after `streamer.stop()` completes.
+ *
+ * NOTE: Calling this multiple times on the same responseId will reset the TTL
+ * to a new expiry (now + TTL_MS). This is intentional — finalization timestamps
+ * are updated on each attempt, allowing the entry to stay live across retries.
  *
  * @param {string} responseId - Response ID
  */
