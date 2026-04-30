@@ -240,38 +240,47 @@ describe('idempotent-finalize', () => {
   describe('TTL eviction', () => {
     it('treats an expired entry as not finalized', () => {
       jest.useFakeTimers();
-      const id = generateResponseId('C1', 't1', 'req1');
-      markResponseFinalized(id);
-      expect(isResponseFinalized(id)).toBe(true);
+      try {
+        const id = generateResponseId('C1', 't1', 'req1');
+        markResponseFinalized(id);
+        expect(isResponseFinalized(id)).toBe(true);
 
-      jest.advanceTimersByTime(3600001);
+        jest.advanceTimersByTime(3600001);
 
-      expect(isResponseFinalized(id)).toBe(false);
-      jest.useRealTimers();
+        expect(isResponseFinalized(id)).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('shouldFinalize returns true after TTL expiry allowing retry', () => {
       jest.useFakeTimers();
-      const id = generateResponseId('C1', 't1', 'req2');
-      expect(shouldFinalize(id)).toBe(true);
-      expect(shouldFinalize(id)).toBe(false);
+      try {
+        const id = generateResponseId('C1', 't1', 'req2');
+        expect(shouldFinalize(id)).toBe(true);
+        expect(shouldFinalize(id)).toBe(false);
 
-      jest.advanceTimersByTime(3600001);
+        jest.advanceTimersByTime(3600001);
 
-      expect(shouldFinalize(id)).toBe(true);
-      jest.useRealTimers();
+        expect(shouldFinalize(id)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('getFinalizedResponseCount excludes expired entries', () => {
       jest.useFakeTimers();
-      markResponseFinalized(generateResponseId('C1', 't1'));
-      markResponseFinalized(generateResponseId('C2', 't2'));
-      expect(getFinalizedResponseCount()).toBe(2);
+      try {
+        markResponseFinalized(generateResponseId('C1', 't1'));
+        markResponseFinalized(generateResponseId('C2', 't2'));
+        expect(getFinalizedResponseCount()).toBe(2);
 
-      jest.advanceTimersByTime(3600001);
+        jest.advanceTimersByTime(3600001);
 
-      expect(getFinalizedResponseCount()).toBe(0);
-      jest.useRealTimers();
+        expect(getFinalizedResponseCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('respects a short TTL from env configuration', async () => {
