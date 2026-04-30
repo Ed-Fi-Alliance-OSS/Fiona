@@ -17,34 +17,71 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   rollback:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout insiders branch
-      uses: actions/checkout@v4
+      uses: actions/checkout@4de7e40e17b37dcd54ef52a79c1f043f6f6bf6d0  # v4.2.2
       with:
         ref: insiders
-        fetch-depth: 10
+        fetch-depth: 0
 
-    - name: Verify commit exists
+    - name: Verify commit exists and is on ancestry
       run: |
-        git log --oneline | head -20
-        COMMIT_FOUND=$(git log --oneline | grep -c "${{ inputs.commit_to_revert }}")
-        if [ "$COMMIT_FOUND" -eq 0 ]; then
-          echo "ERROR: Commit ${{ inputs.commit_to_revert }} not found in recent history"
+        COMMIT="${{ inputs.commit_to_revert }}"
+        # Verify commit object exists
+        if ! git rev-parse --verify "$COMMIT^{commit}" >/dev/null 2>&1; then
+          echo "❌ ERROR: Commit $COMMIT does not exist"
           exit 1
         fi
-        echo "✓ Commit ${{ inputs.commit_to_revert }} found"
+        # Verify commit is on current branch ancestry
+        if ! git merge-base --is-ancestor "$COMMIT" HEAD; then
+          echo "❌ ERROR: Commit $COMMIT is not on insiders branch ancestry"
+          exit 1
+        fi
+        echo "✅ Commit $COMMIT verified and is on insiders ancestry"
 
     - name: Create revert commit
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-        git revert --no-edit ${{ inputs.commit_to_revert }}
+        COMMIT="${{ inputs.commit_to_revert }}"
+        # Check if commit is a merge commit (has multiple parents)
+        PARENT_COUNT=$(git log -1 --format=%P "$COMMIT" | wc -w)
+        if [ "$PARENT_COUNT" -gt 1 ]; then
+          echo "ℹ️  Detected merge commit (multiple parents) - using -m 1"
+          git revert -m 1 "$COMMIT" --no-edit
+        else
+          echo "ℹ️  Regular commit - standard revert"
+          git revert "$COMMIT" --no-edit
+        fi
         echo "REVERT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+
+    - name: Handle revert conflicts
+      if: failure()
+      run: |
+        if git status | grep -q "both"; then
+          echo "⚠️  ERROR: Revert encountered conflicts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Likely cause:** Later commits modified the same code" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**To resolve manually:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. git revert --abort" >> $GITHUB_STEP_SUMMARY
+          echo "2. git revert -m 1 ${{ inputs.commit_to_revert }} (if merge commit)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Resolve conflicts manually" >> $GITHUB_STEP_SUMMARY
+          echo "4. git add . && git commit" >> $GITHUB_STEP_SUMMARY
+          git revert --abort
+          exit 1
+        fi
+        exit 1
 
     - name: Push revert to insiders
       run: |

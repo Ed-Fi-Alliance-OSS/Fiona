@@ -7,26 +7,28 @@ Fiona Insiders is a pre-release testing channel where new features are automatic
 ## Quick Links
 
 ### For Engineers
-📖 [Branching Strategy](./branching-strategy.md) — How to create PRs and merge to insiders  
-🔧 [Rollback Guide](./rollback-guide.md) — How to revert a bad deployment
+📖 [Branching Strategy](./insiders/WORKFLOW.md) — How to create PRs and merge to insiders  
+🔧 [Rollback Guide](./insiders/ROLLBACK.md) — How to revert a bad deployment
 
 ### For QA & Testers
-🧪 [QA Testing Guide](./insiders-qa-guide.md) — How to verify features and report bugs
+🧪 [QA Testing Guide](./insiders/TESTING.md) — How to verify features and report bugs  
+📊 [Monitoring](./insiders/MONITORING.md) — See what's live and traceability
 
 ### For Leadership & Product
-📊 [Insiders Program Overview](./insiders-overview.md) — Strategy, metrics, roadmap
+📈 [Insiders Program Overview](./insiders/OVERVIEW.md) — Strategy, metrics, roadmap
 
 ### Emergency Procedures
-🚨 [Rollback Guide](./rollback-guide.md) — What to do if something goes wrong (engineers & ops)
+🚨 [Rollback Guide](./insiders/ROLLBACK.md) — What to do if something goes wrong (engineers & ops)
 
 ## Documentation Structure
 
 | Document | Audience | Purpose |
 |----------|----------|---------|
-| branching-strategy.md | Engineers | Daily workflow: how to get code into insiders |
-| insiders-qa-guide.md | QA, beta testers | How to test features and report issues |
-| rollback-guide.md | Everyone | How to revert deployments (manual + automated) |
-| insiders-overview.md | Leadership, product | Strategic overview, metrics, roadmap |
+| insiders/WORKFLOW.md | Engineers | Daily workflow: how to get code into insiders |
+| insiders/TESTING.md | QA, beta testers | How to test features and report issues |
+| insiders/MONITORING.md | Engineers, QA | Where to see deployments and traceability |
+| insiders/ROLLBACK.md | Everyone | How to revert deployments (manual + automated) |
+| insiders/OVERVIEW.md | Leadership, product | Strategic overview, metrics, roadmap |
 
 ## 30-Second Overview
 
@@ -48,9 +50,18 @@ A: Check the Actions tab logs. Rollback if needed using the rollback guide.
 **Q: How do insiders features get to production?**  
 A: Team decision. Usually: validate in insiders → merge to main → deploy to production.
 
+## Key Updates (PR #37)
+
+✅ **Deployment Trigger:** Now covers both `insiders` exact branch and `insiders-**` pattern  
+✅ **Rollback Reliability:** Enhanced with strict commit verification, merge-commit handling, and conflict detection  
+✅ **Documentation:** Reorganized into dedicated `docs/insiders/` folder with new monitoring guide  
+
+See [Insiders Documentation Hub](./insiders/README.md) for full details.
+
 ## Getting Help
 
-- Questions about branching? → `branching-strategy.md`
-- Questions about testing? → `insiders-qa-guide.md`
-- Questions about rollback? → `rollback-guide.md`
-- Strategic questions? → `insiders-overview.md`
+- Questions about branching? → [insiders/WORKFLOW.md](./insiders/WORKFLOW.md)
+- Questions about testing? → [insiders/TESTING.md](./insiders/TESTING.md)
+- Questions about monitoring? → [insiders/MONITORING.md](./insiders/MONITORING.md)
+- Questions about rollback? → [insiders/ROLLBACK.md](./insiders/ROLLBACK.md)
+- Strategic questions? → [insiders/OVERVIEW.md](./insiders/OVERVIEW.md)
