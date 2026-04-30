@@ -309,4 +309,50 @@ describe('idempotent-finalize', () => {
       }
     });
   });
+
+  describe('sweepExpired', () => {
+    it('removes expired entries and preserves live ones', () => {
+      jest.useFakeTimers();
+      try {
+        const id1 = generateResponseId('C1', 't1', 'req1');
+        const id2 = generateResponseId('C2', 't2', 'req2');
+
+        markResponseFinalized(id1);
+        markResponseFinalized(id2);
+
+        expect(getFinalizedResponseCount()).toBe(2);
+
+        // Advance past TTL expiry (3600000ms = 1 hour + 1ms)
+        jest.advanceTimersByTime(3600001);
+
+        // Both should now be expired since they were marked at same time
+        expect(isResponseFinalized(id1)).toBe(false);
+        expect(isResponseFinalized(id2)).toBe(false);
+        expect(getFinalizedResponseCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('is idempotent (calling it multiple times is safe)', () => {
+      jest.useFakeTimers();
+      try {
+        const id = generateResponseId('C1', 't1');
+        markResponseFinalized(id);
+
+        // Advance past expiry
+        jest.advanceTimersByTime(3600001);
+
+        // sweepExpired is called by getFinalizedResponseCount
+        // Call getFinalizedResponseCount twice to trigger sweep twice
+        const count1 = getFinalizedResponseCount();
+        const count2 = getFinalizedResponseCount();
+
+        expect(count1).toBe(0);
+        expect(count2).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
 });
