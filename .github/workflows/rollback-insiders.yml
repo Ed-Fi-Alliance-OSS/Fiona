@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Rollback Insiders Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_to_revert:
+        description: 'Git commit hash to revert (e.g., abc1234)'
+        required: true
+        type: string
+      reason:
+        description: 'Reason for rollback (for audit trail)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout insiders branch
+      uses: actions/checkout@v4
+      with:
+        ref: insiders
+        fetch-depth: 10
+
+    - name: Verify commit exists
+      run: |
+        git log --oneline | head -20
+        COMMIT_FOUND=$(git log --oneline | grep -c "${{ inputs.commit_to_revert }}")
+        if [ "$COMMIT_FOUND" -eq 0 ]; then
+          echo "ERROR: Commit ${{ inputs.commit_to_revert }} not found in recent history"
+          exit 1
+        fi
+        echo "✓ Commit ${{ inputs.commit_to_revert }} found"
+
+    - name: Create revert commit
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git revert --no-edit ${{ inputs.commit_to_revert }}
+        echo "REVERT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+
+    - name: Push revert to insiders
+      run: |
+        git push origin insiders
+        echo "## Rollback Initiated" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Reverted commit:** ${{ inputs.commit_to_revert }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Revert commit:** ${{ env.REVERT_COMMIT }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Reason:** ${{ inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Deployment workflow will trigger automatically. Check Actions tab to monitor."
+
+    - name: Failure notification
+      if: failure()
+      run: |
+        echo "❌ Rollback failed. Revert commit was not pushed." >> $GITHUB_STEP_SUMMARY
+        echo "Manual recovery required: see rollback guide." >> $GITHUB_STEP_SUMMARY
