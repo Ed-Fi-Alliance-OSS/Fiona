@@ -12,6 +12,7 @@ import {
   rollbackFinalization,
   clearFinalizedResponses,
   getFinalizedResponseCount,
+  sweepExpired,
 } from '../../../src/agent/utils/idempotent-finalize.js';
 
 describe('idempotent-finalize', () => {
@@ -311,7 +312,7 @@ describe('idempotent-finalize', () => {
   });
 
   describe('sweepExpired', () => {
-    it('removes expired entries and preserves live ones', () => {
+    it('removes expired entries when called directly', () => {
       jest.useFakeTimers();
       try {
         const id1 = generateResponseId('C1', 't1', 'req1');
@@ -322,13 +323,40 @@ describe('idempotent-finalize', () => {
 
         expect(getFinalizedResponseCount()).toBe(2);
 
-        // Advance past TTL expiry (3600000ms = 1 hour + 1ms)
+        // Advance past TTL expiry
         jest.advanceTimersByTime(3600001);
 
-        // Both should now be expired since they were marked at same time
+        // Directly call sweepExpired to trigger cleanup
+        sweepExpired();
+
+        // Both entries should be removed
         expect(isResponseFinalized(id1)).toBe(false);
         expect(isResponseFinalized(id2)).toBe(false);
         expect(getFinalizedResponseCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('preserves live entries when sweeping', () => {
+      jest.useFakeTimers();
+      try {
+        const id1 = generateResponseId('C1', 't1', 'req1');
+        const id2 = generateResponseId('C2', 't2', 'req2');
+
+        markResponseFinalized(id1);
+        markResponseFinalized(id2);
+
+        // Advance time but not past TTL for both
+        jest.advanceTimersByTime(1800000); // halfway to expiry
+
+        // Directly call sweepExpired
+        sweepExpired();
+
+        // Both should still be live
+        expect(isResponseFinalized(id1)).toBe(true);
+        expect(isResponseFinalized(id2)).toBe(true);
+        expect(getFinalizedResponseCount()).toBe(2);
       } finally {
         jest.useRealTimers();
       }
@@ -340,16 +368,14 @@ describe('idempotent-finalize', () => {
         const id = generateResponseId('C1', 't1');
         markResponseFinalized(id);
 
-        // Advance past expiry
         jest.advanceTimersByTime(3600001);
 
-        // sweepExpired is called by getFinalizedResponseCount
-        // Call getFinalizedResponseCount twice to trigger sweep twice
-        const count1 = getFinalizedResponseCount();
-        const count2 = getFinalizedResponseCount();
+        // Call sweepExpired multiple times directly
+        sweepExpired();
+        sweepExpired();
+        sweepExpired();
 
-        expect(count1).toBe(0);
-        expect(count2).toBe(0);
+        expect(getFinalizedResponseCount()).toBe(0);
       } finally {
         jest.useRealTimers();
       }
