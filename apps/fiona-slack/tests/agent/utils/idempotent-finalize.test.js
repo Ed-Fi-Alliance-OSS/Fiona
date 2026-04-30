@@ -355,4 +355,64 @@ describe('idempotent-finalize', () => {
       }
     });
   });
+
+  describe('startup validation', () => {
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is NaN', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = 'not-a-number';
+        jest.resetModules();
+
+        // Dynamic import should throw
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is 0', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '0';
+        jest.resetModules();
+
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is negative', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '-1000';
+        jest.resetModules();
+
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+  });
 });
