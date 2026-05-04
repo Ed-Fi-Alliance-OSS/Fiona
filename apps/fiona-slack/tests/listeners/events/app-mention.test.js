@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
@@ -27,6 +27,8 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
     FINALIZED: 'finalized',
     DEGRADED_NO_METADATA: 'degraded_no_metadata',
   },
+  TOOL_CALL_DEPTH_EXCEEDED_CODE: 'MAX_TOOL_CALL_DEPTH_EXCEEDED',
+  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE: 'The AI encountered too many tool invocations. Please try a simpler request.',
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
@@ -35,9 +37,11 @@ jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
 jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
-  buildThreadHistory: jest.fn().mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
-    Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
-  ),
+  buildThreadHistory: jest
+    .fn()
+    .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
+      Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
+    ),
 }));
 
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
@@ -45,7 +49,6 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   shouldFinalize: jest.fn().mockReturnValue(true),
   rollbackFinalization: jest.fn(),
 }));
-
 
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
@@ -104,11 +107,13 @@ describe('appMentionCallback', () => {
     expect(callLLM).not.toHaveBeenCalled();
 
     expect(recordInteraction).toHaveBeenCalledTimes(1);
-    expect(recordInteraction).toHaveBeenCalledWith(expect.objectContaining({
-      rateLimited: true,
-      status: 'error',
-      errorType: 'rate_limited',
-    }));
+    expect(recordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rateLimited: true,
+        status: 'error',
+        errorType: 'rate_limited',
+      }),
+    );
     // recordInteraction is fired before say() but not awaited — say() is not blocked on the Cosmos write
     expect(recordInteraction.mock.invocationCallOrder[0]).toBeLessThan(mockSay.mock.invocationCallOrder[0]);
   });
@@ -133,17 +138,13 @@ describe('appMentionCallback', () => {
   it('uses event.thread_ts as thread_ts when present', async () => {
     mockEvent.thread_ts = '1234567890.000000';
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
-    expect(mockClient.chatStream).toHaveBeenCalledWith(
-      expect.objectContaining({ thread_ts: '1234567890.000000' }),
-    );
+    expect(mockClient.chatStream).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '1234567890.000000' }));
   });
 
   it('falls back to event.ts as thread_ts when thread_ts is absent', async () => {
     delete mockEvent.thread_ts;
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
-    expect(mockClient.chatStream).toHaveBeenCalledWith(
-      expect.objectContaining({ thread_ts: '1234567890.000001' }),
-    );
+    expect(mockClient.chatStream).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '1234567890.000001' }));
   });
 
   it('sends a warning and logs error when an exception occurs', async () => {
@@ -230,61 +231,61 @@ describe('appMentionCallback', () => {
     expect(callLLM).not.toHaveBeenCalled();
   });
 
-    it('skips streamer.stop when shouldFinalize returns false', async () => {
-      shouldFinalize.mockReturnValueOnce(false);
+  it('skips streamer.stop when shouldFinalize returns false', async () => {
+    shouldFinalize.mockReturnValueOnce(false);
 
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockStreamer.stop).not.toHaveBeenCalled();
+    expect(mockStreamer.stop).not.toHaveBeenCalled();
+  });
+
+  it('logs citation state and source count when metadata is present', async () => {
+    callLLM.mockResolvedValueOnce({
+      finalize_state: 'ready_to_finalize',
+      sources: [{ url: 'https://a.com' }],
+      source_index_map: { 'https://a.com': 1 },
     });
 
-    it('logs citation state and source count when metadata is present', async () => {
-      callLLM.mockResolvedValueOnce({
-        finalize_state: 'ready_to_finalize',
-        sources: [{ url: 'https://a.com' }],
-        source_index_map: { 'https://a.com': 1 },
-      });
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
+  });
 
-      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
-      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
-    });
+  it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
+    const metadata = {
+      finalize_state: 'ready_to_finalize',
+      sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
+      source_index_map: { 'https://docs.ed-fi.org': 1 },
+    };
+    callLLM.mockResolvedValueOnce(metadata);
 
-    it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
-      const metadata = {
-        finalize_state: 'ready_to_finalize',
-        sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
-        source_index_map: { 'https://docs.ed-fi.org': 1 },
-      };
-      callLLM.mockResolvedValueOnce(metadata);
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+    expect(finalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
+  });
 
-      expect(finalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
-    });
+  it('passes logger to shouldFinalize', async () => {
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-    it('passes logger to shouldFinalize', async () => {
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+    expect(shouldFinalize).toHaveBeenCalledWith(expect.any(String), mockLogger);
+  });
 
-      expect(shouldFinalize).toHaveBeenCalledWith(expect.any(String), mockLogger);
-    });
+  it('rolls back finalization when streamer.stop throws', async () => {
+    shouldFinalize.mockReturnValueOnce(true);
+    mockStreamer.stop.mockRejectedValueOnce(new Error('stop failed'));
 
-    it('rolls back finalization when streamer.stop throws', async () => {
-      shouldFinalize.mockReturnValueOnce(true);
-      mockStreamer.stop.mockRejectedValueOnce(new Error('stop failed'));
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+    expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
+    expect(mockLogger.error).toHaveBeenCalled();
+  });
 
-      expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
-      expect(mockLogger.error).toHaveBeenCalled();
-    });
+  it('does not roll back when shouldFinalize returns false (no slot was claimed)', async () => {
+    shouldFinalize.mockReturnValueOnce(false);
 
-    it('does not roll back when shouldFinalize returns false (no slot was claimed)', async () => {
-      shouldFinalize.mockReturnValueOnce(false);
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
-
-      expect(rollbackFinalization).not.toHaveBeenCalled();
-    });
+    expect(rollbackFinalization).not.toHaveBeenCalled();
+  });
 });

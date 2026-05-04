@@ -57,6 +57,13 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
   return parsedInt;
 }
 
+// ─── Tool Call Recursion Limits ─────────────────────────────────────────────
+export const MAX_TOOL_CALL_DEPTH = parsePositiveIntEnv(process.env.MAX_TOOL_CALL_DEPTH, 10);
+export const MAX_RECURSION_DEPTH = MAX_TOOL_CALL_DEPTH;
+export const TOOL_CALL_DEPTH_EXCEEDED_CODE = 'MAX_TOOL_CALL_DEPTH_EXCEEDED';
+export const TOOL_CALL_DEPTH_EXCEEDED_MESSAGE =
+  'The AI encountered too many tool invocations. Please try a simpler request.';
+
 export const CITATION_POLICY = {
   MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
@@ -240,7 +247,7 @@ function transitionMetadataState(envelope, newState) {
   };
 
   const allowed = validTransitions[currentState];
-  if (!allowed || !allowed.includes(newState)) {
+  if (!allowed?.includes(newState)) {
     throw new Error(`Invalid metadata state transition: ${currentState} -> ${newState}`);
   }
 
@@ -477,7 +484,7 @@ function createCitationAwareAppender(streamer) {
  * @param {Array} prompts
  * @returns {Promise<string[]>} Citation URL strings (may be empty)
  */
-async function callPerplexityChat(streamer, prompts) {
+export async function callPerplexityChat(streamer, prompts) {
   if (!perplexityClient) {
     throw new Error('Perplexity client is not configured.');
   }
@@ -495,17 +502,16 @@ async function callPerplexityChat(streamer, prompts) {
     stream: true,
   });
 
-  // Collect citations from chunks; last one wins.
+  // Buffer all text chunks during streaming so that citation markers can be
+  // linkified after `source_index_map` has been fully populated.  Emitting
+  // per-chunk would always see an empty map because Perplexity delivers
+  // citations on the *last* chunk, after the text deltas.
   let citations = [];
-  const appender = createCitationAwareAppender(streamer);
+  let textBuffer = '';
 
   for await (const chunk of response) {
     if (Array.isArray(chunk.citations)) {
       citations = chunk.citations;
-
-      if (citations.length > 0 && streamer?.__citation_metadata) {
-        aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
-      }
     }
 
     const delta = chunk?.choices?.[0]?.delta;
@@ -528,15 +534,23 @@ async function callPerplexityChat(streamer, prompts) {
     }
 
     if (text) {
-      await appender.append(text);
+      textBuffer += text;
     }
   }
 
-  await appender.flush();
-
-  // Read the final chunk's citations one last time in case they were updated after the last text delta
-  if (streamer?.__citation_metadata && citations.length > 0) {
+  // Aggregate citations into the metadata envelope so source_index_map is
+  // fully populated before we linkify.
+  if (citations.length > 0 && streamer?.__citation_metadata) {
     aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  }
+
+  // Linkify [n] markers using the now-populated source_index_map, then emit
+  // a single append call.  Skipping the append entirely when there is no text
+  // avoids sending an empty markdown block to Slack.
+  if (textBuffer) {
+    const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
+    const linkifiedText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    await streamer.append({ markdown_text: linkifiedText });
   }
 
   return citations;
@@ -614,7 +628,25 @@ async function callAzureAgent(streamer, prompts, logger) {
  * @param {Array} prompts
  * @param {import("@slack/logger").Logger} logger
  */
-async function callOpenAICompatible(streamer, prompts, logger) {
+async function callOpenAICompatible(streamer, prompts, logger, depth = 0) {
+  if (depth >= MAX_TOOL_CALL_DEPTH) {
+    const recentToolCalls = prompts
+      .filter((prompt) => prompt?.type === 'function_call' && typeof prompt.name === 'string')
+      .slice(-5)
+      .map((prompt) => prompt.name);
+    logger.warn('[llm] Maximum tool call depth exceeded.', {
+      code: TOOL_CALL_DEPTH_EXCEEDED_CODE,
+      depth,
+      maxDepth: MAX_TOOL_CALL_DEPTH,
+      recentToolCalls,
+    });
+
+    const error = new Error(`Maximum tool call depth (${MAX_TOOL_CALL_DEPTH}) exceeded`);
+    error.name = 'ToolCallDepthError';
+    error.code = TOOL_CALL_DEPTH_EXCEEDED_CODE;
+    error.userMessage = TOOL_CALL_DEPTH_EXCEEDED_MESSAGE;
+    throw error;
+  }
   const toolCalls = [];
   const appender = createCitationAwareAppender(streamer);
 
@@ -719,7 +751,7 @@ async function callOpenAICompatible(streamer, prompts, logger) {
       }
     }
 
-    await callOpenAICompatible(streamer, prompts, logger);
+    await callOpenAICompatible(streamer, prompts, logger, depth + 1);
   }
 }
 

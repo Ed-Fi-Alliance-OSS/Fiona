@@ -218,6 +218,25 @@ describe('buildThreadHistory', () => {
       expect(result[result.length - 1].content).toBe('Latest question');
     });
 
+    it('never starts with an assistant message after truncation', async () => {
+      mockClient.conversations.replies.mockResolvedValueOnce({
+        messages: [
+          { text: 'Old question', bot_id: undefined },
+          { text: 'Old answer', bot_id: 'B123', subtype: 'bot_message' },
+          { text: 'Recent question', bot_id: undefined },
+          { text: 'Recent answer', bot_id: 'B123', subtype: 'bot_message' },
+          { text: 'Latest question', bot_id: undefined },
+        ],
+      });
+      // Budget of 35 chars: truncation removes 'Old question' (12), 'Old answer' (10),
+      // 'Recent question' (15), leaving [assistant:'Recent answer', user:'Latest question'].
+      // Without the fix, the result would start with 'assistant', triggering a 400 from
+      // Perplexity ("user/tool messages should alternate with assistant messages").
+      const result = await buildThreadHistory(mockClient, 'C123', '123.456', { maxChars: 35 });
+      expect(result.length).toBeGreaterThan(0);
+      expect(result[0].role).toBe('user');
+    });
+
     it('always retains at least one message even when content exceeds maxChars', async () => {
       mockClient.conversations.replies.mockResolvedValueOnce({
         messages: [{ text: 'A'.repeat(100), bot_id: undefined }],
