@@ -66,11 +66,11 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --settings \
-              REPORT_SCHEDULE='0 0 9 * * 1' \
-              COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
-              COSMOS_DATABASE='fiona' \
-              COSMOS_INTERACTIONS_CONTAINER='interactions' \
-              COSMOS_FEEDBACK_CONTAINER='feedback' \
-              DEPLOYMENT_TYPE='production' \
-              KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
-              SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
+            REPORT_SCHEDULE='0 0 9 * * 1' \
+            COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
+            COSMOS_DATABASE='fiona' \
+            COSMOS_INTERACTIONS_CONTAINER='interactions' \
+            COSMOS_FEEDBACK_CONTAINER='feedback' \
+            DEPLOYMENT_TYPE='production' \
+            KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
+            SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
