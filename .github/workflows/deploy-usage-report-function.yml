@@ -15,8 +15,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'usage-report-function' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'edfi-fiona-rg' }}
 
 permissions: write-all
 
@@ -30,6 +30,15 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Warn when using default deployment values
+        run: |
+          if [ -z "${{ vars.AZURE_FUNCTIONAPP_NAME }}" ]; then
+            echo "::warning::Repository variable AZURE_FUNCTIONAPP_NAME is not set. Using default 'usage-report-function'."
+          fi
+          if [ -z "${{ vars.AZURE_RESOURCE_GROUP }}" ]; then
+            echo "::warning::Repository variable AZURE_RESOURCE_GROUP is not set. Using default 'edfi-fiona-rg'."
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
