@@ -18,7 +18,11 @@ env:
   AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
   AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
-permissions: read-all
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
 
 jobs:
   build-and-test:
