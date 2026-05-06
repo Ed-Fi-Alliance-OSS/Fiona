@@ -60,7 +60,7 @@ jobs:
         run: |
           cd apps/usage-report-function
           rm -f function-app.zip
-          zip -r ../../function-app.zip . -x "node_modules/*" ".git/*" "test/*" "coverage/*"
+          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*"
 
       - name: Deploy to Azure
         run: |
