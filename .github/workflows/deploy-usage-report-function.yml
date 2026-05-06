@@ -18,7 +18,9 @@ env:
   AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'usage-report-function' }}
   AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'edfi-fiona-rg' }}
 
-permissions: write-all
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   build-and-test:
@@ -60,7 +62,7 @@ jobs:
         run: |
           cd apps/usage-report-function
           rm -f function-app.zip
-          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*"
+          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*" "node_modules/*"
 
       - name: Deploy to Azure
         run: |
