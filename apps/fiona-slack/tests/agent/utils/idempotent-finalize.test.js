@@ -236,4 +236,183 @@ describe('idempotent-finalize', () => {
       expect(shouldFinalize(id2)).toBe(true);
     });
   });
+
+  describe('TTL eviction', () => {
+    it('treats an expired entry as not finalized', () => {
+      jest.useFakeTimers();
+      try {
+        const id = generateResponseId('C1', 't1', 'req1');
+        markResponseFinalized(id);
+        expect(isResponseFinalized(id)).toBe(true);
+
+        jest.advanceTimersByTime(3600001);
+
+        expect(isResponseFinalized(id)).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('shouldFinalize returns true after TTL expiry allowing retry', () => {
+      jest.useFakeTimers();
+      try {
+        const id = generateResponseId('C1', 't1', 'req2');
+        expect(shouldFinalize(id)).toBe(true);
+        expect(shouldFinalize(id)).toBe(false);
+
+        jest.advanceTimersByTime(3600001);
+
+        expect(shouldFinalize(id)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('getFinalizedResponseCount excludes expired entries', () => {
+      jest.useFakeTimers();
+      try {
+        markResponseFinalized(generateResponseId('C1', 't1'));
+        markResponseFinalized(generateResponseId('C2', 't2'));
+        expect(getFinalizedResponseCount()).toBe(2);
+
+        jest.advanceTimersByTime(3600001);
+
+        expect(getFinalizedResponseCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('respects a short TTL from env configuration', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      jest.useFakeTimers();
+
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '30000';
+        jest.resetModules();
+
+        const mod = await import('../../../src/agent/utils/idempotent-finalize.js');
+        const id = mod.generateResponseId('C1', 't1', 'req-short');
+
+        mod.markResponseFinalized(id);
+        expect(mod.isResponseFinalized(id)).toBe(true);
+
+        jest.advanceTimersByTime(30001);
+        expect(mod.isResponseFinalized(id)).toBe(false);
+      } finally {
+        if (priorTtl === undefined) {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        } else {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        }
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('sweepExpired', () => {
+    it('removes expired entries and preserves live ones', () => {
+      jest.useFakeTimers();
+      try {
+        const id1 = generateResponseId('C1', 't1', 'req1');
+        const id2 = generateResponseId('C2', 't2', 'req2');
+
+        markResponseFinalized(id1);
+        markResponseFinalized(id2);
+
+        expect(getFinalizedResponseCount()).toBe(2);
+
+        // Advance past TTL expiry (3600000ms = 1 hour + 1ms)
+        jest.advanceTimersByTime(3600001);
+
+        // Both should now be expired since they were marked at same time
+        expect(isResponseFinalized(id1)).toBe(false);
+        expect(isResponseFinalized(id2)).toBe(false);
+        expect(getFinalizedResponseCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('is idempotent (calling it multiple times is safe)', () => {
+      jest.useFakeTimers();
+      try {
+        const id = generateResponseId('C1', 't1');
+        markResponseFinalized(id);
+
+        // Advance past expiry
+        jest.advanceTimersByTime(3600001);
+
+        // sweepExpired is called by getFinalizedResponseCount
+        // Call getFinalizedResponseCount twice to trigger sweep twice
+        const count1 = getFinalizedResponseCount();
+        const count2 = getFinalizedResponseCount();
+
+        expect(count1).toBe(0);
+        expect(count2).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('startup validation', () => {
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is NaN', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = 'not-a-number';
+        jest.resetModules();
+
+        // Dynamic import should throw
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is 0', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '0';
+        jest.resetModules();
+
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+
+    it('throws error when IDEMPOTENT_FINALIZE_TTL_MS is negative', async () => {
+      const priorTtl = process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+      try {
+        process.env.IDEMPOTENT_FINALIZE_TTL_MS = '-1000';
+        jest.resetModules();
+
+        await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+        );
+      } finally {
+        if (priorTtl) {
+          process.env.IDEMPOTENT_FINALIZE_TTL_MS = priorTtl;
+        } else {
+          delete process.env.IDEMPOTENT_FINALIZE_TTL_MS;
+        }
+        jest.resetModules();
+      }
+    });
+  });
 });

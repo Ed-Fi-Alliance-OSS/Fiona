@@ -111,4 +111,4 @@ A: Yes, but follow your team's process for promoting from insiders to production
 
 - Deployment issues? Check the Actions tab logs
 - Questions about a feature that's live? Check Deployments tab for commit hash
-- Need to revert a bad merge? See the [rollback guide](./rollback-guide.md)
+- Need to revert a bad merge? See the [rollback guide](./insiders/ROLLBACK.md)
