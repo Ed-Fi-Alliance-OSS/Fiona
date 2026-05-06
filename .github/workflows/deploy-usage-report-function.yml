@@ -27,6 +27,7 @@ permissions:
 jobs:
   build-and-test:
     uses: ./.github/workflows/on-pullrequest-usage-report.yml
+    secrets: inherit
 
   deploy:
     needs: build-and-test
@@ -85,5 +86,6 @@ jobs:
             COSMOS_INTERACTIONS_CONTAINER='interactions' \
             COSMOS_FEEDBACK_CONTAINER='feedback' \
             DEPLOYMENT_TYPE='production' \
+            SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
             KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
             SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
