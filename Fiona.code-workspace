@@ -6,6 +6,10 @@
 		{
 			"name": "⚡ Slack App (Bolt)",
 			"path": "apps/fiona-slack"
+		},
+		{
+			"name": "📈 Usage Analytics Function",
+			"path": "apps/usage-report-function"
 		}
 	],
 	"settings": {
