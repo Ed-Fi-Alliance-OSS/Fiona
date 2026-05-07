@@ -5,8 +5,6 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 
-jest.unstable_mockModule('@azure/ai-projects', () => ({ AIProjectClient: jest.fn() }));
-jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
   recordMetadataWaitDuration: jest.fn(),
   recordSourceCount: jest.fn(),
@@ -18,7 +16,6 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
 const mockCreate = jest.fn();
 
 jest.unstable_mockModule('openai', () => ({
-  AzureOpenAI: jest.fn(),
   OpenAI: jest.fn().mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
   })),

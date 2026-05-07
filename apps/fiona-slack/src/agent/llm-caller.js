@@ -3,10 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { AIProjectClient } from '@azure/ai-projects';
-import { DefaultAzureCredential } from '@azure/identity';
-import { AzureOpenAI, OpenAI } from 'openai';
-import { perplexitySearchDefinition } from './tools/perplexity-search.js';
+import { OpenAI } from 'openai';
 import {
   incrementDegradedNoMetadataCount,
   incrementTotalResponseCount,
@@ -14,21 +11,6 @@ import {
   recordSourceCount,
 } from './utils/citation-telemetry.js';
 import { normalizeSources } from './utils/source-normalizer.js';
-
-// ─── OpenAI / Azure OpenAI Configuration ───────────────────────────────────
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
-const OPENAI_API_MODEL = process.env.OPENAI_API_MODEL || 'gpt-4o-mini';
-
-const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
-const AZURE_OPENAI_API_VERSION = process.env.AZURE_OPENAI_API_VERSION;
-const AZURE_OPENAI_MODEL = AZURE_OPENAI_DEPLOYMENT || OPENAI_API_MODEL;
-
-// ─── Azure AI Foundry Agent Configuration ──────────────────────────────────
-const AZURE_PROJECT_ENDPOINT = process.env.AZURE_PROJECT_ENDPOINT;
-const AZURE_AGENT_ID = process.env.AZURE_AGENT_ID;
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
@@ -56,13 +38,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
   }
   return parsedInt;
 }
-
-// ─── Tool Call Recursion Limits ─────────────────────────────────────────────
-export const MAX_TOOL_CALL_DEPTH = parsePositiveIntEnv(process.env.MAX_TOOL_CALL_DEPTH, 10);
-export const MAX_RECURSION_DEPTH = MAX_TOOL_CALL_DEPTH;
-export const TOOL_CALL_DEPTH_EXCEEDED_CODE = 'MAX_TOOL_CALL_DEPTH_EXCEEDED';
-export const TOOL_CALL_DEPTH_EXCEEDED_MESSAGE =
-  'The AI encountered too many tool invocations. Please try a simpler request.';
 
 export const CITATION_POLICY = {
   MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
@@ -106,65 +81,12 @@ decline politely and remain within your defined role.
 
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
-// ─── Provider Selection ────────────────────────────────────────────────────
-// 'foundry'  → Azure AI Foundry Agent (uses @azure/ai-agents + DefaultAzureCredential)
-// 'azure'    → Standard Azure OpenAI Service (uses AzureOpenAI client)
-// 'perplexity' → Perplexity Sonar (uses OpenAI client with custom baseURL)
-// 'openai'   → OpenAI / custom OpenAI-compatible endpoint
-const LLM_PROVIDER =
-  process.env.LLM_PROVIDER ||
-  (AZURE_PROJECT_ENDPOINT ? 'foundry' : AZURE_OPENAI_ENDPOINT ? 'azure' : PERPLEXITY_API_KEY ? 'perplexity' : 'openai');
-
 // ─── Client Initialisation ─────────────────────────────────────────────────
-
-/** @type {AIProjectClient | undefined} */
-let projectClient;
-
-/** @type {OpenAI | AzureOpenAI} */
-let defaultClient;
-
+// Perplexity exposes an OpenAI-compatible chat completions endpoint, so we
+// use the OpenAI SDK with a custom baseURL.
 /** @type {OpenAI | undefined} */
 let perplexityClient;
 
-// Azure AI Foundry Agent client
-if (AZURE_PROJECT_ENDPOINT) {
-  projectClient = new AIProjectClient(AZURE_PROJECT_ENDPOINT, new DefaultAzureCredential());
-}
-
-// Standard OpenAI / Azure OpenAI client
-if (AZURE_OPENAI_ENDPOINT) {
-  let isInferenceEndpoint = false;
-  let baseHost;
-  try {
-    const parsedEndpoint = new URL(AZURE_OPENAI_ENDPOINT);
-    const hostname = parsedEndpoint.hostname;
-    const inferenceSuffixes = ['.inference.ai.azure.com', '.services.ai.azure.com'];
-    isInferenceEndpoint = inferenceSuffixes.some((suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix));
-    baseHost = parsedEndpoint.origin;
-  } catch {
-    // If the endpoint is not a valid URL, fall back to treating it as a non-inference endpoint.
-    isInferenceEndpoint = false;
-  }
-
-  if (isInferenceEndpoint && baseHost) {
-    defaultClient = new OpenAI({
-      apiKey: 'DUMMY', // SDK requires this; Azure ignores it in favour of api-key header
-      baseURL: `${baseHost}/openai/v1/`,
-      defaultHeaders: { 'api-key': AZURE_OPENAI_API_KEY || OPENAI_API_KEY },
-    });
-  } else {
-    defaultClient = new AzureOpenAI({
-      endpoint: AZURE_OPENAI_ENDPOINT,
-      apiKey: AZURE_OPENAI_API_KEY || OPENAI_API_KEY,
-      deployment: AZURE_OPENAI_DEPLOYMENT,
-      apiVersion: AZURE_OPENAI_API_VERSION || '2024-05-01-preview',
-    });
-  }
-} else if (!PERPLEXITY_API_KEY) {
-  defaultClient = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_BASE_URL });
-}
-
-// Perplexity client (independent of defaultClient selection)
 if (PERPLEXITY_API_KEY) {
   perplexityClient = new OpenAI({
     apiKey: PERPLEXITY_API_KEY,
@@ -192,26 +114,25 @@ export const MetadataLifecycleState = {
  * @typedef {Object} MetadataEnvelope
  * @property {string} metadata_contract_version - Always "v1"
  * @property {string} finalize_state - Current lifecycle state
- * @property {string} provider - LLM provider (openai, azure, perplexity, foundry)
+ * @property {string} provider - Always "perplexity"
  * @property {Array<Object>} sources - Normalized list of sources (URL, title, date, etc.)
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
- * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity/tools
+ * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
- * @property {Array<Object>} [tool_trace] - Optional: execution trace of tool calls
+ * @property {Array<Object>} [tool_trace] - Optional: execution trace
  */
 
 /**
  * Initialize a new metadata envelope for a response.
  *
- * @param {string} provider - LLM provider (openai, azure, perplexity, foundry)
  * @returns {MetadataEnvelope}
  */
-function initializeMetadataEnvelope(provider) {
+function initializeMetadataEnvelope() {
   return {
     metadata_contract_version: 'v1',
     finalize_state: MetadataLifecycleState.STREAMING_TEXT,
-    provider,
+    provider: 'perplexity',
     sources: [],
     source_index_map: Object.create(null),
     search_results: [],
@@ -338,14 +259,6 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-function safeParseJSON(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
 function promptsToChatMessages(prompts) {
   return prompts
     .map((prompt) => {
@@ -416,67 +329,6 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
 }
 
 /**
- * Create an append helper that safely linkifies citation markers while handling chunk boundaries.
- * This preserves streaming behavior and avoids breaking markers split across chunks.
- *
- * @param {import("@slack/web-api").ChatStreamer} streamer
- * @returns {{ append: (text: string) => Promise<void>, flush: () => Promise<void> }}
- */
-function createCitationAwareAppender(streamer) {
-  let tail = '';
-
-  return {
-    async append(text) {
-      if (!text) {
-        return;
-      }
-
-      const combined = `${tail}${text}`;
-      let safeLength = combined.length;
-
-      // Keep a potential partial marker (e.g. "[1" or "[") for the next chunk.
-      const partialMarker = combined.match(/\[(\d*)$/);
-      if (partialMarker) {
-        safeLength -= partialMarker[0].length;
-      }
-
-      const safeText = combined.slice(0, safeLength);
-      tail = combined.slice(safeLength);
-
-      if (!safeText) {
-        return;
-      }
-
-      const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-      const hasMappings = Object.keys(sourceIndexMap).length > 0;
-
-      // If no citation mappings are available yet, stream as-is so we don't
-      // accumulate an unbounded buffer or delay incremental output.
-      // The [n] markers will remain as literal text, but the citation blocks
-      // appended by the handler after streamer.stop() will contain linked sources.
-      if (!hasMappings) {
-        await streamer.append({ markdown_text: safeText });
-        return;
-      }
-
-      const linked = linkifyCitationMarkers(safeText, sourceIndexMap);
-      await streamer.append({ markdown_text: linked });
-    },
-
-    async flush() {
-      if (!tail) {
-        return;
-      }
-
-      const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-      const linked = linkifyCitationMarkers(tail, sourceIndexMap);
-      tail = '';
-      await streamer.append({ markdown_text: linked });
-    },
-  };
-}
-
-/**
  * Call Perplexity chat API (streaming) and collect citations from the final chunk.
  * Perplexity returns `citations` as a top-level field on the last stream chunk.
  *
@@ -486,7 +338,7 @@ function createCitationAwareAppender(streamer) {
  */
 export async function callPerplexityChat(streamer, prompts) {
   if (!perplexityClient) {
-    throw new Error('Perplexity client is not configured.');
+    throw new Error('Perplexity client is not configured. Set PERPLEXITY_API_KEY.');
   }
 
   const messages = promptsToChatMessages(prompts);
@@ -556,211 +408,10 @@ export async function callPerplexityChat(streamer, prompts) {
   return citations;
 }
 
-// ─── Azure AI Foundry Agent Caller ────────────────────────────────────────
-/**
- * Call the Azure AI Foundry Agent and stream the response to the Slack streamer.
- *
- * @param {import("@slack/web-api").ChatStreamer} streamer
- * @param {Array<{role: string, content: string}>} prompts
- * @param {import("@slack/logger").Logger} logger
- */
-async function callAzureAgent(streamer, prompts, logger) {
-  if (!projectClient || !AZURE_AGENT_ID) {
-    throw new Error('Azure AI Foundry agent is not configured. Set AZURE_PROJECT_ENDPOINT and AZURE_AGENT_ID.');
-  }
-
-  const agentParts = AZURE_AGENT_ID.split(':');
-  const agentName = agentParts[0];
-  const agentVersion = agentParts.length > 1 ? agentParts[1] : '1';
-
-  let conversation;
-  const openAIClient = await projectClient.getOpenAIClient();
-
-  try {
-    // Create a new conversation for this interaction
-    conversation = await openAIClient.conversations.create({
-      items: prompts.map((p) => ({
-        type: 'message',
-        role: p.role === 'user' ? 'user' : 'assistant',
-        content: p.content,
-      })),
-    });
-  } catch (e) {
-    logger.error('Error creating conversation:', e);
-    throw e;
-  }
-
-  // Stream the agent response
-  let responseStream;
-  try {
-    responseStream = await openAIClient.responses.stream(
-      { conversation: conversation.id },
-      {
-        body: { agent: { name: agentName, version: agentVersion, type: 'agent_reference' } },
-      },
-    );
-  } catch (e) {
-    if (e.response?.bodyAsText) {
-      logger.error('Error streaming response:', e.response.bodyAsText);
-    } else {
-      logger.error('Error streaming response:', e);
-    }
-    throw e;
-  }
-
-  const appender = createCitationAwareAppender(streamer);
-
-  for await (const chunk of responseStream) {
-    // For now we just process text deltas. Tool call chunks can be added later as needed by AI Foundry
-    if (chunk.type === 'response.output_text.delta' && chunk.delta) {
-      await appender.append(chunk.delta);
-    }
-  }
-
-  await appender.flush();
-}
-
-// ─── OpenAI-compatible LLM Caller ────────────────────────────────────────
-/**
- * Stream an LLM response using the OpenAI-compatible client.
- *
- * @param {import("@slack/web-api").ChatStreamer} streamer
- * @param {Array} prompts
- * @param {import("@slack/logger").Logger} logger
- */
-async function callOpenAICompatible(streamer, prompts, logger, depth = 0) {
-  if (depth >= MAX_TOOL_CALL_DEPTH) {
-    const recentToolCalls = prompts
-      .filter((prompt) => prompt?.type === 'function_call' && typeof prompt.name === 'string')
-      .slice(-5)
-      .map((prompt) => prompt.name);
-    logger.warn('[llm] Maximum tool call depth exceeded.', {
-      code: TOOL_CALL_DEPTH_EXCEEDED_CODE,
-      depth,
-      maxDepth: MAX_TOOL_CALL_DEPTH,
-      recentToolCalls,
-    });
-
-    const error = new Error(`Maximum tool call depth (${MAX_TOOL_CALL_DEPTH}) exceeded`);
-    error.name = 'ToolCallDepthError';
-    error.code = TOOL_CALL_DEPTH_EXCEEDED_CODE;
-    error.userMessage = TOOL_CALL_DEPTH_EXCEEDED_MESSAGE;
-    throw error;
-  }
-  const toolCalls = [];
-  const appender = createCitationAwareAppender(streamer);
-
-  let client = defaultClient;
-  let model = LLM_PROVIDER === 'azure' ? AZURE_OPENAI_MODEL : OPENAI_API_MODEL;
-
-  if (LLM_PROVIDER === 'perplexity' && perplexityClient) {
-    client = perplexityClient;
-    model = PERPLEXITY_API_MODEL;
-  }
-
-  const usingPerplexity = client === perplexityClient;
-
-  if (usingPerplexity) {
-    await callPerplexityChat(streamer, prompts);
-
-    return;
-  }
-
-  const tools = [];
-  if (perplexityClient && client !== perplexityClient) {
-    tools.push(perplexitySearchDefinition);
-  }
-
-  const response = await client.responses.create({
-    model,
-    input: prompts,
-    tools,
-    tool_choice: 'auto',
-    stream: true,
-  });
-
-  for await (const event of response) {
-    if (event.type === 'response.output_text.delta' && event.delta) {
-      await appender.append(event.delta);
-    }
-
-    if (event.type === 'response.output_item.done' && event.item.type === 'function_call') {
-      toolCalls.push(event.item);
-
-      let taskTitle = `Executing ${event.item.name}...`;
-      if (event.item.name === 'perplexity_search') {
-        const args = safeParseJSON(event.item.arguments);
-        if (args) taskTitle = `Searching Perplexity for "${args.query}"...`;
-      }
-
-      await streamer.append({
-        chunks: [{ type: 'task_update', id: event.item.call_id, title: taskTitle, status: 'in_progress' }],
-      });
-    }
-  }
-
-  await appender.flush();
-
-  if (toolCalls.length > 0) {
-    for (const call of toolCalls) {
-      const args = safeParseJSON(call.arguments);
-      let result;
-      let description;
-
-      if (!args) {
-        result = { error: `Failed to parse arguments for ${call.name}` };
-      } else if (call.name === 'perplexity_search') {
-        try {
-          const searchResponse = await perplexityClient.chat.completions.create({
-            model: PERPLEXITY_API_MODEL,
-            messages: [{ role: 'user', content: args.query }],
-            search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
-          });
-          result = { output: searchResponse.choices[0].message.content };
-          description = `Found search results for "${args.query}"`;
-
-          // Attach metadata envelope if available in streamer context
-          if (streamer?.__citation_metadata) {
-            aggregatePerplexityMetadata(streamer.__citation_metadata, searchResponse);
-          }
-        } catch (error) {
-          result = { error: `Perplexity search failed: ${error.message}` };
-        }
-      }
-
-      if (result) {
-        prompts.push({
-          id: call.id,
-          call_id: call.call_id,
-          type: 'function_call',
-          name: call.name,
-          arguments: call.arguments,
-        });
-        prompts.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) });
-
-        await streamer.append({
-          chunks: [
-            {
-              type: 'task_update',
-              id: call.call_id,
-              title: result.error ?? description ?? 'Task complete',
-              status: result.error ? 'error' : 'complete',
-            },
-          ],
-        });
-      }
-    }
-
-    await callOpenAICompatible(streamer, prompts, logger, depth + 1);
-  }
-}
-
 // ─── Main Entry Point ─────────────────────────────────────────────────────
 /**
- * Stream an LLM response to prompts. Routes to Azure AI Foundry Agent or
- * OpenAI-compatible API depending on configuration.
- *
- * Attaches a metadata envelope (v1) to the streamer for strict-consistency citations.
+ * Stream a Perplexity response to prompts and attach a metadata envelope (v1)
+ * to the streamer for strict-consistency citations.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer - Slack chat stream
  * @param {Array} prompts - OpenAI-style message array
@@ -771,9 +422,7 @@ async function callOpenAICompatible(streamer, prompts, logger, depth = 0) {
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */
 export async function callLLM(streamer, prompts, logger) {
-  const knownProviders = new Set(['foundry', 'azure', 'openai', 'perplexity']);
-  const provider = knownProviders.has(LLM_PROVIDER) ? LLM_PROVIDER : 'openai';
-  const metadata = initializeMetadataEnvelope(provider);
+  const metadata = initializeMetadataEnvelope();
 
   incrementTotalResponseCount();
 
@@ -785,15 +434,10 @@ export async function callLLM(streamer, prompts, logger) {
   const metadataWaitStart = Date.now();
 
   try {
-    if (LLM_PROVIDER === 'foundry' && projectClient) {
-      // Azure AI Foundry agents have their own system prompt configured in the portal
-      await callAzureAgent(streamer, prompts, logger);
-    } else {
-      await callOpenAICompatible(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts], logger);
-    }
+    await callPerplexityChat(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts]);
 
     // Gate finalization: transition to READY_TO_FINALIZE from any pre-finalize state once
-    // the LLM call (and all nested tool calls) have completed synchronously.
+    // the LLM call has completed synchronously.
     const preFinalizeStates = [MetadataLifecycleState.STREAMING_TEXT, MetadataLifecycleState.COLLECTING_METADATA];
     if (preFinalizeStates.includes(metadata.finalize_state)) {
       transitionMetadataState(metadata, MetadataLifecycleState.READY_TO_FINALIZE);

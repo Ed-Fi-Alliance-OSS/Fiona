@@ -1,7 +1,7 @@
 {
   "name": "ed-fi-fiona",
   "version": "1.0.0",
-  "description": "An AI assistant for Ed-Fi data standards, built using the Slack Bolt framework and Azure AI services.",
+  "description": "An AI assistant for Ed-Fi data standards, built using the Slack Bolt framework.",
   "type": "module",
   "main": "src/app.js",
   "scripts": {
@@ -28,8 +28,6 @@
     "url": "https://github.com/Ed-Fi-Alliance-OSS/Fiona/issues"
   },
   "dependencies": {
-    "@azure/ai-agents": "^1.1.0",
-    "@azure/ai-projects": "^2.0.0-beta.5",
     "@azure/cosmos": "^4.9.1",
     "@azure/identity": "^4.13.0",
     "@slack/bolt": "^4.6.0",

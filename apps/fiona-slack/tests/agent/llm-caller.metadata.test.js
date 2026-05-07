@@ -6,17 +6,8 @@
 import { describe, it, expect, jest } from '@jest/globals';
 
 // Mock all external dependencies before importing the module under test.
-jest.unstable_mockModule('@azure/ai-projects', () => ({
-  AIProjectClient: jest.fn(),
-}));
-
-jest.unstable_mockModule('@azure/identity', () => ({
-  DefaultAzureCredential: jest.fn(),
-}));
-
 jest.unstable_mockModule('openai', () => ({
   OpenAI: jest.fn(),
-  AzureOpenAI: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../src/agent/utils/source-normalizer.js', () => ({

@@ -15,8 +15,6 @@ jest.unstable_mockModule('../../src/agent/utils/idempotent-finalize.js', () => (
 
 jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({
   handleMetadataTimeout: jest.fn(),
-  TOOL_CALL_DEPTH_EXCEEDED_CODE: 'MAX_TOOL_CALL_DEPTH_EXCEEDED',
-  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE: 'The AI encountered too many tool invocations. Please try a simpler request.',
   MetadataLifecycleState: {
     READY_TO_FINALIZE: 'READY_TO_FINALIZE',
     DEGRADED_NO_METADATA: 'DEGRADED_NO_METADATA',
@@ -29,12 +27,7 @@ const { handleInteractionWithTelemetry, sleep, waitForMetadataReady } = await im
 );
 const { recordInteraction } = await import('../../src/agent/interaction-store.js');
 const { rollbackFinalization } = await import('../../src/agent/utils/idempotent-finalize.js');
-const {
-  handleMetadataTimeout,
-  MetadataLifecycleState,
-  TOOL_CALL_DEPTH_EXCEEDED_CODE,
-  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE,
-} = await import('../../src/agent/llm-caller.js');
+const { handleMetadataTimeout, MetadataLifecycleState } = await import('../../src/agent/llm-caller.js');
 
 describe('handleInteractionWithTelemetry', () => {
   let say;
@@ -281,34 +274,6 @@ describe('handleInteractionWithTelemetry', () => {
           errorType: 'llm_error',
         }),
       );
-    });
-
-    it('classifies max tool call depth errors and sends a targeted user message', async () => {
-      const error = new Error('Maximum tool call depth exceeded');
-      error.code = TOOL_CALL_DEPTH_EXCEEDED_CODE;
-      const handler = jest.fn().mockRejectedValue(error);
-
-      await handleInteractionWithTelemetry(
-        {
-          userId: 'U123',
-          teamId: 'T123',
-          channelId: 'C123',
-          threadTs: '1712345678.001',
-          messageTs: '1712345678.123',
-          interactionType: 'app_mention',
-          logger,
-          say,
-        },
-        handler,
-      );
-
-      expect(recordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: 'error',
-          errorType: 'max_tool_call_depth_exceeded',
-        }),
-      );
-      expect(say).toHaveBeenCalledWith(`:warning: ${TOOL_CALL_DEPTH_EXCEEDED_MESSAGE}`);
     });
 
     it('classifies unknown errors as unknown', async () => {
