@@ -127,3 +127,32 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 - **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`
 - **Function timeout:** Check Cosmos DB query performance; ensure composite indexes are created by Bicep template
 - **Private endpoint connectivity:** If Cosmos DB uses private endpoints, ensure the Function App is VNet-integrated
+
+## GitHub Actions Automated Deployment
+
+The function is deployed automatically to Azure Functions via the `deploy-usage-report-function.yml` GitHub Actions workflow when commits are pushed to `main`.
+
+### Deployment Process
+
+1. **Trigger:** Push to `main` branch or manual `workflow_dispatch`
+2. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
+3. **Package:** Create zip archive (excluding `node_modules` for server-side installation)
+4. **Deploy:** Use `az functionapp deployment source config-zip` to deploy to Azure Functions
+5. **Configure:** Set app settings and environment variables via Azure CLI
+
+### Troubleshooting Deployment
+
+**Deployment timeout:**
+- Check Azure portal Function App deployment status
+- Review GitHub Actions workflow logs for error messages
+- Verify `AZURE_CREDENTIALS` secret is current and has necessary permissions
+
+**Function app not responding:**
+- Verify app settings are correctly configured: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
+- Check logs in Azure Portal: Function App → Deployment slots → Logs
+- Test locally with `func start` and check for runtime errors
+
+**Managed Identity or Key Vault errors:**
+- Verify managed identity role assignments: `az functionapp identity show --resource-group fiona-rg --name usage-report-function`
+- Check Key Vault access policies for the managed identity
+- Test access locally using `DefaultAzureCredential` with proper AZURE_CLIENT_ID/AZURE_TENANT_ID set

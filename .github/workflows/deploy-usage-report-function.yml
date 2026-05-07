@@ -15,21 +15,35 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'usage-report-function'
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'usage-report-function' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'edfi-fiona-rg' }}
 
-permissions: read-all
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
 
 jobs:
   build-and-test:
     uses: ./.github/workflows/on-pullrequest-usage-report.yml
+    secrets: inherit
 
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Warn when using default deployment values
+        run: |
+          if [ -z "${{ vars.AZURE_FUNCTIONAPP_NAME }}" ]; then
+            echo "::warning::Repository variable AZURE_FUNCTIONAPP_NAME is not set. Using default 'usage-report-function'."
+          fi
+          if [ -z "${{ vars.AZURE_RESOURCE_GROUP }}" ]; then
+            echo "::warning::Repository variable AZURE_RESOURCE_GROUP is not set. Using default 'edfi-fiona-rg'."
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
@@ -51,14 +65,14 @@ jobs:
         run: |
           cd apps/usage-report-function
           rm -f function-app.zip
-          zip -r ../../function-app.zip . -x "node_modules/*" ".git/*" "test/*" "coverage/*"
+          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*" "node_modules/*"
 
       - name: Deploy to Azure
         run: |
           az functionapp deployment source config-zip \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --src-path function-app.zip
+            --src function-app.zip
 
       - name: Set app settings
         run: |
@@ -66,11 +80,12 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --settings \
-              REPORT_SCHEDULE='0 0 9 * * 1' \
-              COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
-              COSMOS_DATABASE='fiona' \
-              COSMOS_INTERACTIONS_CONTAINER='interactions' \
-              COSMOS_FEEDBACK_CONTAINER='feedback' \
-              DEPLOYMENT_TYPE='production' \
-              KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
-              SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
+            REPORT_SCHEDULE='0 0 9 * * 1' \
+            COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
+            COSMOS_DATABASE='fiona' \
+            COSMOS_INTERACTIONS_CONTAINER='interactions' \
+            COSMOS_FEEDBACK_CONTAINER='feedback' \
+            DEPLOYMENT_TYPE='production' \
+            SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+            KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
+            SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
