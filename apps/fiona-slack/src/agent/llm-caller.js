@@ -466,8 +466,12 @@ export async function callLLM(streamer, prompts, logger) {
     }
   } catch (error) {
     logger.error('Error during LLM call:', error);
-    // On error, transition directly to degraded state
-    if (metadata.finalize_state !== MetadataLifecycleState.FINALIZED) {
+    // On error, transition to DEGRADED_NO_METADATA only from pre-finalize states.
+    // If a prior timeout/handler already transitioned to DEGRADED_NO_METADATA or
+    // READY_TO_FINALIZE, repeating the transition would throw an invalid-transition
+    // error and mask the original LLM failure.
+    const transitionableStates = [MetadataLifecycleState.STREAMING_TEXT, MetadataLifecycleState.COLLECTING_METADATA];
+    if (transitionableStates.includes(metadata.finalize_state)) {
       transitionMetadataState(metadata, MetadataLifecycleState.DEGRADED_NO_METADATA);
       incrementDegradedNoMetadataCount();
     }
