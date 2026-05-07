@@ -5,6 +5,7 @@
 
 import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
+import { assertLLMConfigured } from './agent/llm-caller.js';
 import { registerListeners } from './listeners/index.js';
 
 const LOG_LEVEL_MAP = {
@@ -84,6 +85,7 @@ registerListeners(app);
 // Start the Bolt app
 (async () => {
   try {
+    assertLLMConfigured();
     await app.start();
     app.logger.info('⚡️ Bolt app is running!');
   } catch (error) {

@@ -25,7 +25,15 @@ jest.unstable_mockModule('openai', () => ({
 // picks it up and assigns `perplexityClient`.
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
-const { aggregatePerplexityMetadata, callPerplexityChat } = await import('../../src/agent/llm-caller.js');
+const { aggregatePerplexityMetadata, callPerplexityChat, assertLLMConfigured } = await import(
+  '../../src/agent/llm-caller.js'
+);
+
+describe('assertLLMConfigured', () => {
+  it('does not throw when PERPLEXITY_API_KEY is set at module load', () => {
+    expect(() => assertLLMConfigured()).not.toThrow();
+  });
+});
 
 function makeMetadata() {
   return {

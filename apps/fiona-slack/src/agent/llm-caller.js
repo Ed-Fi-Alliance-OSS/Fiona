@@ -94,6 +94,19 @@ if (PERPLEXITY_API_KEY) {
   });
 }
 
+/**
+ * Assert that the LLM client is configured. Call from the app entrypoint so
+ * the process exits at boot if PERPLEXITY_API_KEY is missing, rather than
+ * appearing healthy and failing on the first user request.
+ *
+ * @throws {Error} when no Perplexity client is configured.
+ */
+export function assertLLMConfigured() {
+  if (!perplexityClient) {
+    throw new Error('PERPLEXITY_API_KEY is not set. Refusing to start without an LLM provider.');
+  }
+}
+
 // ─── Metadata Contract and Lifecycle (v1) ─────────────────────────────────
 /**
  * Lifecycle states for strict consistency citation finalization.

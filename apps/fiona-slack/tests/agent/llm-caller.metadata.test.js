@@ -21,8 +21,25 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
   incrementTotalResponseCount: jest.fn(),
 }));
 
-const { MetadataLifecycleState, CITATION_POLICY, METADATA_CONTRACT_VERSION, finalizeMetadataEnvelope, handleMetadataTimeout } =
-  await import('../../src/agent/llm-caller.js');
+// Ensure PERPLEXITY_API_KEY is unset so assertLLMConfigured can be tested in
+// the missing-config case.  Other suites that need a configured client set
+// the env var before their own dynamic import.
+delete process.env.PERPLEXITY_API_KEY;
+
+const {
+  MetadataLifecycleState,
+  CITATION_POLICY,
+  METADATA_CONTRACT_VERSION,
+  finalizeMetadataEnvelope,
+  handleMetadataTimeout,
+  assertLLMConfigured,
+} = await import('../../src/agent/llm-caller.js');
+
+describe('assertLLMConfigured', () => {
+  it('throws when PERPLEXITY_API_KEY is missing at module load', () => {
+    expect(() => assertLLMConfigured()).toThrow(/PERPLEXITY_API_KEY/);
+  });
+});
 
 describe('MetadataLifecycleState', () => {
   it('defines all five lifecycle states', () => {
