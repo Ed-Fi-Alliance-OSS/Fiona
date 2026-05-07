@@ -25,9 +25,9 @@ An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https
 
 1. For local testing, [install Cosmos DB Emulator](../../docs/testing-with-cosmos-emulator.md) and then call `npm run setup:emulator` to create the database and container.
 
-## LLM Providers
+## LLM Provider
 
-Set `LLM_PROVIDER` in `.env` to one of: `openai`, `azure`, `foundry`, `perplexity`. See `.env.sample` for the credentials each provider requires.
+Fiona calls the [Perplexity Sonar API](https://docs.perplexity.ai/) for grounded, citation-backed responses. Set `PERPLEXITY_API_KEY` in `.env`. See `.env.sample` for optional model and domain-filter overrides.
 
 ## Feedback Storage
 

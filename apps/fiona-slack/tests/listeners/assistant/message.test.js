@@ -27,8 +27,6 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
     FINALIZED: 'finalized',
     DEGRADED_NO_METADATA: 'degraded_no_metadata',
   },
-  TOOL_CALL_DEPTH_EXCEEDED_CODE: 'MAX_TOOL_CALL_DEPTH_EXCEEDED',
-  TOOL_CALL_DEPTH_EXCEEDED_MESSAGE: 'The AI encountered too many tool invocations. Please try a simpler request.',
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({

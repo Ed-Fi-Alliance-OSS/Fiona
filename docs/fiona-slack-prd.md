@@ -72,15 +72,9 @@ than sending an empty prompt to the LLM.
 
 ### 2.2 LLM Integration
 
-Fiona supports four LLM providers, selectable via the `LLM_PROVIDER`:
-Perplexity, Azure Foundry, Azure Open AI, and Open AI. Each provider has its
-own authentication method and configuration, all injected via environment
-variable.
-
-> [!NOTE]
-> Perplexity is currently the provider of choice and is used in all
-> environments. The other providers are available for testing and future
-> flexibility.
+Fiona calls the [Perplexity Sonar API](https://docs.perplexity.ai/) for grounded,
+citation-backed responses. Authentication uses `PERPLEXITY_API_KEY`, injected via
+environment variable.
 
 #### 2.2.1 Streaming
 
@@ -92,20 +86,10 @@ Users see text appear progressively rather than waiting for a complete response.
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
 can be overridden via the `SYSTEM_PROMPT` environment variable.
 
-> [!TIP]
-> The `foundry` provider ignores this value because the system prompt is
-> configured in the Azure AI Foundry portal.
-
-#### 2.2.3 Keyword-Based Provider Routing
-
-When a non-Perplexity provider is primary but a Perplexity client is configured,
-messages containing "search" or prefixed with "sonar:" are routed to Perplexity
-for real-time web search.
-
 > **Known issue (AI-49):** This keyword routing operates on untrusted user input
 > and should be reviewed for potential abuse.
 
-#### 2.2.4 Citations (AI-58)
+#### 2.2.3 Citations (AI-58)
 
 When Perplexity is used as the primary provider or invoked via the
 `perplexity_search` tool, the API returns a list of source URLs alongside the
@@ -323,7 +307,7 @@ loading message:
 | Category                  | Requirement                                                             | Implementation                                                                               |
 | ------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | **Availability**          | Bot must maintain a persistent connection to Slack                      | Fixed 1-replica deployment; Socket Mode (outbound WebSocket) eliminates ingress dependencies |
-| **Security — Auth**       | Azure services use Entra ID where possible                              | `DefaultAzureCredential` for Foundry and Cosmos DB managed identity                          |
+| **Security — Auth**       | Azure services use Entra ID where possible                              | `DefaultAzureCredential` for Cosmos DB managed identity                                      |
 | **Security — Secrets**    | Secrets are not stored in code                                          | Environment variables injected at runtime; `.env` in `.gitignore`                            |
 | **Security — Guardrails** | LLM must not generate harmful content or leak its system prompt         | System prompt includes explicit guidelines; persona constraints; domain filtering            |
 | **Resilience**            | Optional subsystems must not block core functionality                   | Cosmos DB feedback, rate limiting degrade gracefully                                         |
@@ -339,8 +323,6 @@ loading message:
 | Category          | Requirement                                                   | Notes                                                                                | Related Jira |
 | ----------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------ |
 | **Security**      | Sanitize or redact sensitive data before writing to logs      | Error log may contain API responses with PII or keys                                 | AI-47        |
-| **Security**      | Validate `AZURE_AGENT_ID` format on startup                   | Currently accepts any string without validation                                      | AI-50        |
-| **Reliability**   | Cap tool-call recursion depth                                 | Prevent runaway LLM tool loops                                                       | AI-43        |
 | **Reliability**   | Guard against undefined `context` in assistant thread started | Edge case when Slack sends unexpected payload shape                                  | AI-44        |
 | **Observability** | Structured logging with correlation IDs                       | Enables tracing a single user request across log entries                             | —            |
 | **Observability** | Azure billing and activity alerts                             | Cost guardrails for LLM and Cosmos DB usage                                          | AI-32        |
@@ -357,7 +339,7 @@ loading message:
 | ---------- | -------------------------------------------------------------- |
 | Runtime    | Node.js 22 (Alpine for containers)                             |
 | Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                        |
-| LLM SDKs   | `openai` 6.x, `@azure/ai-projects` 2.x, `@azure/ai-agents` 1.x |
+| LLM SDKs   | `openai` 6.x (used as a thin client against the Perplexity Sonar API) |
 | Database   | Azure Cosmos DB (optional, for feedback and interaction analytics) |
 | Auth       | `@azure/identity` (DefaultAzureCredential)                     |
 | Linting    | Biome 2.x                                                      |
@@ -494,11 +476,7 @@ documentation. Key groups:
 | Group         | Variables                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
-| LLM Provider  | `LLM_PROVIDER`, `SYSTEM_PROMPT`                                                                        |
-| OpenAI        | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`                                                |
-| Azure OpenAI  | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
-| Azure Foundry | `AZURE_PROJECT_ENDPOINT`, `AZURE_AGENT_ID`                                                             |
-| Perplexity    | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`                               |
+| LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
 | Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER` |

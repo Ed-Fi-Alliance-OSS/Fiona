@@ -42,29 +42,6 @@ param slackBotToken string
 @secure()
 param slackAppToken string
 
-@description('LLM provider: openai | azure | foundry | perplexity')
-param llmProvider string = 'openai'
-
-@description('OpenAI API key')
-@secure()
-param openaiApiKey string = ''
-
-@description('Azure OpenAI endpoint')
-param azureOpenaiEndpoint string = ''
-
-@description('Azure OpenAI API key')
-@secure()
-param azureOpenaiApiKey string = ''
-
-@description('Azure OpenAI deployment name')
-param azureOpenaiDeployment string = ''
-
-@description('Azure AI Foundry project endpoint')
-param azureProjectEndpoint string = ''
-
-@description('Azure AI Foundry agent ID')
-param azureAgentId string = ''
-
 @description('Perplexity API key')
 @secure()
 param perplexityApiKey string = ''
@@ -264,34 +241,6 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'SLACK_APP_TOKEN'
               value: slackAppToken
-            }
-            {
-              name: 'LLM_PROVIDER'
-              value: llmProvider
-            }
-            {
-              name: 'OPENAI_API_KEY'
-              value: openaiApiKey
-            }
-            {
-              name: 'AZURE_OPENAI_ENDPOINT'
-              value: azureOpenaiEndpoint
-            }
-            {
-              name: 'AZURE_OPENAI_API_KEY'
-              value: azureOpenaiApiKey
-            }
-            {
-              name: 'AZURE_OPENAI_DEPLOYMENT'
-              value: azureOpenaiDeployment
-            }
-            {
-              name: 'AZURE_PROJECT_ENDPOINT'
-              value: azureProjectEndpoint
-            }
-            {
-              name: 'AZURE_AGENT_ID'
-              value: azureAgentId
             }
             {
               name: 'PERPLEXITY_API_KEY'

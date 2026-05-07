@@ -5,8 +5,6 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 
-jest.unstable_mockModule('@azure/ai-projects', () => ({ AIProjectClient: jest.fn() }));
-jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
   recordMetadataWaitDuration: jest.fn(),
   recordSourceCount: jest.fn(),
@@ -18,7 +16,6 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
 const mockCreate = jest.fn();
 
 jest.unstable_mockModule('openai', () => ({
-  AzureOpenAI: jest.fn(),
   OpenAI: jest.fn().mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
   })),
@@ -28,7 +25,15 @@ jest.unstable_mockModule('openai', () => ({
 // picks it up and assigns `perplexityClient`.
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
-const { aggregatePerplexityMetadata, callPerplexityChat } = await import('../../src/agent/llm-caller.js');
+const { aggregatePerplexityMetadata, callPerplexityChat, callLLM, assertLLMConfigured } = await import(
+  '../../src/agent/llm-caller.js'
+);
+
+describe('assertLLMConfigured', () => {
+  it('does not throw when PERPLEXITY_API_KEY is set at module load', () => {
+    expect(() => assertLLMConfigured()).not.toThrow();
+  });
+});
 
 function makeMetadata() {
   return {
@@ -159,5 +164,71 @@ describe('callPerplexityChat – buffer and linkify', () => {
     await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
     expect(streamer.append).not.toHaveBeenCalled();
+  });
+});
+
+describe('callLLM error path does not mask original failure', () => {
+  function makeLogger() {
+    return { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+  }
+
+  function makeStreamer() {
+    return { append: jest.fn().mockResolvedValue(undefined) };
+  }
+
+  it('rethrows the original LLM error when metadata is already DEGRADED_NO_METADATA', async () => {
+    const llmError = new Error('upstream LLM exploded');
+    // First chunk transitions to COLLECTING_METADATA via citations; subsequent
+    // throw simulates a streaming failure mid-flight. Then we manually drop
+    // the envelope into DEGRADED_NO_METADATA before the throw bubbles up.
+    mockCreate.mockImplementation(async () => {
+      throw llmError;
+    });
+
+    const streamer = makeStreamer();
+    // Pre-seed: simulate handleMetadataTimeout having already fired.
+    streamer.__citation_metadata = null; // callLLM will overwrite with a fresh envelope
+
+    // Wrap callLLM so we can intercept the envelope and force DEGRADED_NO_METADATA
+    // before the catch block runs.  We use a Proxy on the streamer to flip the
+    // state the moment callLLM attaches the envelope.
+    const captured = {};
+    const intercepting = new Proxy(streamer, {
+      set(target, prop, value) {
+        target[prop] = value;
+        if (prop === '__citation_metadata' && value) {
+          // Drop into DEGRADED_NO_METADATA via the public state machine.
+          value.finalize_state = 'degraded_no_metadata';
+          captured.envelope = value;
+        }
+        return true;
+      },
+    });
+
+    await expect(callLLM(intercepting, [{ role: 'user', content: 'hi' }], makeLogger())).rejects.toBe(llmError);
+    expect(captured.envelope.finalize_state).toBe('degraded_no_metadata');
+  });
+
+  it('rethrows the original LLM error when metadata is already READY_TO_FINALIZE', async () => {
+    const llmError = new Error('LLM stream aborted');
+    mockCreate.mockImplementation(async () => {
+      throw llmError;
+    });
+
+    const streamer = makeStreamer();
+    const captured = {};
+    const intercepting = new Proxy(streamer, {
+      set(target, prop, value) {
+        target[prop] = value;
+        if (prop === '__citation_metadata' && value) {
+          value.finalize_state = 'ready_to_finalize';
+          captured.envelope = value;
+        }
+        return true;
+      },
+    });
+
+    await expect(callLLM(intercepting, [{ role: 'user', content: 'hi' }], makeLogger())).rejects.toBe(llmError);
+    expect(captured.envelope.finalize_state).toBe('ready_to_finalize');
   });
 });

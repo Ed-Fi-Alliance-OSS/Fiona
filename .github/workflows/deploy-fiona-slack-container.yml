@@ -84,13 +84,6 @@ jobs:
             buildVersion=${{ steps.meta.outputs.build-version }} \
             slackBotToken="${{ secrets.SLACK_BOT_TOKEN }}" \
             slackAppToken="${{ secrets.SLACK_APP_TOKEN }}" \
-            llmProvider="${{ vars.LLM_PROVIDER || 'perplexity' }}" \
-            openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
-            azureOpenaiEndpoint="${{ vars.AZURE_OPENAI_ENDPOINT }}" \
-            azureOpenaiApiKey="${{ secrets.AZURE_OPENAI_API_KEY }}" \
-            azureOpenaiDeployment="${{ vars.AZURE_OPENAI_DEPLOYMENT }}" \
-            azureProjectEndpoint="${{ vars.AZURE_PROJECT_ENDPOINT }}" \
-            azureAgentId="${{ vars.AZURE_AGENT_ID }}" \
             perplexityApiKey="${{ secrets.PERPLEXITY_API_KEY }}" \
             cosmosConnectionString="${{ secrets.COSMOS_CONNECTION_STRING }}" \
             cosmosEndpoint="${{ vars.COSMOS_ENDPOINT }}" \
