@@ -102,7 +102,7 @@ jobs:
             --settings \
             REPORT_SCHEDULE='0 0 9 * * 1' \
             COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
-            COSMOS_DATABASE='fiona' \
+            COSMOS_DATABASE='chatbot' \
             COSMOS_INTERACTIONS_CONTAINER='interactions' \
             COSMOS_FEEDBACK_CONTAINER='feedback' \
             DEPLOYMENT_TYPE='production' \
