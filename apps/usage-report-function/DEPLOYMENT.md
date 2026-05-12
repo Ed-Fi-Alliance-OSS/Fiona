@@ -132,20 +132,51 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 
 The function is deployed automatically to Azure Functions via the `deploy-usage-report-function.yml` GitHub Actions workflow when commits are pushed to `main`.
 
+### Required GitHub Secrets
+
+Before deployment can succeed, configure these secrets in **repository Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|---|---|
+| `AZURE_CREDENTIALS` | JSON credentials for `az login` (service principal) |
+| `COSMOS_ENDPOINT` | Cosmos DB endpoint URL, e.g. `https://fiona.documents.azure.com:443/` |
+| `KEY_VAULT_URL` | Azure Key Vault URL, e.g. `https://fiona-kv.vault.azure.net/` |
+
+The workflow validates all three secrets are non-empty before attempting any Azure operations. Missing secrets cause an immediate failure with a clear error message.
+
 ### Deployment Process
 
 1. **Trigger:** Push to `main` branch or manual `workflow_dispatch`
-2. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
-3. **Package:** Create zip archive (excluding `node_modules` for server-side installation)
-4. **Deploy:** Use `az functionapp deployment source config-zip` to deploy to Azure Functions
-5. **Configure:** Set app settings and environment variables via Azure CLI
+2. **Validate:** Fail fast if any required secret is missing
+3. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
+4. **Package:** Create zip archive (excluding `node_modules`)
+5. **Deploy:** `az functionapp deployment source config-zip --build-remote true` — dependencies are restored server-side, not bundled in the zip
+6. **Configure:** Set app settings and environment variables via Azure CLI; non-secret values are echoed to workflow output for troubleshooting
+7. **Smoke test:** Trigger `WeeklyReportTrigger` via the admin endpoint and scan Application Insights logs for load errors
+
+### Why `--build-remote true`
+
+Deploying without `--build-remote true` ships a zip that excludes `node_modules`, leaving the runtime unable to find packages like `@azure/cosmos`. With remote build enabled, the Kudu build service runs `npm install` server-side after extraction, ensuring all production dependencies are present.
 
 ### Troubleshooting Deployment
+
+**Missing secrets — workflow fails at "Validate required secrets":**
+- Add the missing secret(s) listed in the error message to repository Settings → Secrets and variables → Actions
+- Re-run the workflow
 
 **Deployment timeout:**
 - Check Azure portal Function App deployment status
 - Review GitHub Actions workflow logs for error messages
 - Verify `AZURE_CREDENTIALS` secret is current and has necessary permissions
+
+**Smoke test fails — trigger returns non-202:**
+- The function app may still be restarting; wait a minute and manually re-run the workflow
+- Check Function App → Deployment Center → Logs in the Azure portal for build errors
+
+**Smoke test fails — load errors in logs:**
+- `Cannot find module` → remote build did not complete; verify `SCM_DO_BUILD_DURING_DEPLOYMENT=true` is set and the Kudu build succeeded
+- `Host initialization failed` → check app settings are all present: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
+- Test locally with `func start` to reproduce the error
 
 **Function app not responding:**
 - Verify app settings are correctly configured: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
