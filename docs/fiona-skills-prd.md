@@ -183,8 +183,7 @@ summary in the designated `#escalation` channel.
 
 - If the user invokes `/fiona escalate` in a DM (no channel thread to
   escalate), Fiona responds with an ephemeral message:
-  *"Escalation is available in channels where a conversation is in progress.
-  You can also reach the team directly in #escalation."*
+  *"✅ A team member will follow up shortly."*
 - If the escalation channel cannot be found or Fiona lacks permission to post,
   Fiona responds with an ephemeral error and logs the failure.
 
