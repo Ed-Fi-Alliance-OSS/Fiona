@@ -56,12 +56,12 @@ descriptions and example usage.
 >
 > **Slash commands:**
 >
-> | Command             | Description                                      |
-> | ------------------- | ------------------------------------------------ |
-> | `/fiona help`       | Show this usage guide                            |
-> | `/fiona ask <question>` | Ask Fiona a question privately              |
+> | Command                 | Description                                       |
+> | ----------------------- | ------------------------------------------------- |
+> | `/fiona help`           | Show this usage guide                             |
+> | `/fiona ask <question>` | Ask Fiona a question privately                    |
 > | `/fiona search <query>` | Search Ed-Fi sources without a synthesized answer |
-> | `/fiona escalate`   | Escalate the current conversation to a human     |
+> | `/fiona escalate`       | Escalate the current conversation to a human      |
 >
 > **You can also mention me directly:**
 > `@Fiona What is the Ed-Fi Data Standard?`
@@ -168,15 +168,17 @@ summary in the designated `#escalation` channel.
 
 1. The user types `/fiona escalate` in a channel where a conversation is
    occurring.
-2. Fiona posts a **public message** in the `#escalation` channel containing:
+2. Fiona posts a **private message** in the `#escalation` channel containing:
    - The name (display name) of the user who requested escalation.
    - A link back to the original channel and thread (if applicable).
    - A summary or transcript of the recent conversation history in the
      originating channel/thread.
-3. Fiona sends an **ephemeral confirmation** to the invoking user:
+3. Fiona records the escalation event in Cosmos DB with `interactionType: slash_escalate` and relevant metadata (user ID,
+   channel ID, timestamp) and writes the context into the `feedback` collection.
+4. Fiona sends an **ephemeral confirmation** to the invoking user:
    *"✅ Your conversation has been escalated to #escalation. A team member will
    follow up shortly."*
-4. The escalation channel name is configurable via environment variable
+5. The escalation channel name is configurable via environment variable
    (`ESCALATION_CHANNEL`, default: `#escalation`).
 
 **Edge cases:**
