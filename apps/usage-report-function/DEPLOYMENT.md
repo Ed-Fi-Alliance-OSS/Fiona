@@ -9,17 +9,22 @@
 
 ## Manual Setup Steps
 
-### 1. Create Function App
+### 1. Replace/Create Function App (Linux via Bicep)
 
 ```shell
-az functionapp create \
+# Delete existing app first when replacing a Windows app with the same name
+if az functionapp show --resource-group fiona-rg --name usage-report-function >/dev/null 2>&1; then
+  az functionapp delete \
+    --resource-group fiona-rg \
+    --name usage-report-function
+fi
+
+az deployment group create \
   --resource-group fiona-rg \
-  --consumption-plan-location eastus \
-  --runtime node \
-  --runtime-version 20 \
-  --functions-version 4 \
-  --name usage-report-function \
-  --storage-account fionastorage
+  --template-file "$(git rev-parse --show-toplevel)/infra/usage-report-function/main.bicep" \
+  --parameters \
+    functionAppName=usage-report-function \
+    storageAccountName=fionastorage
 ```
 
 ### 2. Configure Managed Identity
@@ -149,14 +154,17 @@ The workflow validates all three secrets are non-empty before attempting any Azu
 1. **Trigger:** Push to `main` branch or manual `workflow_dispatch`
 2. **Validate:** Fail fast if any required secret is missing
 3. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
-4. **Package:** Create zip archive (excluding `node_modules`)
-5. **Deploy:** `az functionapp deployment source config-zip --build-remote true` — dependencies are restored server-side, not bundled in the zip
+4. **Package:** Run `npm ci --omit=dev` and create zip archive (includes production `node_modules`)
+5. **Deploy:** `az functionapp deployment source config-zip --build-remote true`
 6. **Configure:** Set app settings and environment variables via Azure CLI; non-secret values are echoed to workflow output for troubleshooting
-7. **Smoke test:** Trigger `WeeklyReportTrigger` via the admin endpoint and scan Application Insights logs for load errors
+7. **Verify OS:** Fail deployment if the Function App is not Linux (`--os-type Linux` is required)
+8. **Smoke test:** Trigger `WeeklyReportTrigger` via the admin endpoint and scan Application Insights logs for load errors
 
-### Why `--build-remote true`
+### Function App OS Requirement (`--os-type Linux`)
 
-Deploying without `--build-remote true` ships a zip that excludes `node_modules`, leaving the runtime unable to find packages like `@azure/cosmos`. With remote build enabled, the Kudu build service runs `npm install` server-side after extraction, ensuring all production dependencies are present.
+The Function App must run on **Linux**. If created without `--os-type Linux`, Azure defaults to Windows and runtime paths/logs look like `C:\home\site\wwwroot\...`, which was a root cause of AI-115.
+
+If your app was created on Windows, recreate it with the command above (including `--os-type Linux`) before redeploying.
 
 ### Troubleshooting Deployment
 
@@ -174,7 +182,8 @@ Deploying without `--build-remote true` ships a zip that excludes `node_modules`
 - Check Function App → Deployment Center → Logs in the Azure portal for build errors
 
 **Smoke test fails — load errors in logs:**
-- `Cannot find module` → remote build did not complete; verify `SCM_DO_BUILD_DURING_DEPLOYMENT=true` is set and the Kudu build succeeded
+- `Cannot find module` → verify package step completed and `node_modules` was included in the zip; then check deployment/build logs
+- `imported from C:\home\site\wwwroot\...` → app is on Windows; recreate Function App with `--os-type Linux`
 - `Host initialization failed` → check app settings are all present: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
 - Test locally with `func start` to reproduce the error
 

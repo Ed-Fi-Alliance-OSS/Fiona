@@ -80,6 +80,20 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Validate Function App runs on Linux
+        run: |
+          IS_LINUX=$(az functionapp show \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --query "reserved" -o tsv)
+
+          if [ "${IS_LINUX}" != "true" ]; then
+            echo "::error::Function App '${{ env.AZURE_FUNCTIONAPP_NAME }}' is not Linux. Recreate it with '--os-type Linux' before deploying."
+            exit 1
+          fi
+
+          echo "Function App OS validated: Linux"
+
       - name: Package function app
         run: |
           cd apps/usage-report-function
@@ -114,7 +128,7 @@ jobs:
           echo "Deployed with the following non-secret settings:"
           echo "  AZURE_FUNCTIONAPP_NAME: ${{ env.AZURE_FUNCTIONAPP_NAME }}"
           echo "  AZURE_RESOURCE_GROUP:   ${{ env.AZURE_RESOURCE_GROUP }}"
-          echo "  COSMOS_DATABASE:        fiona"
+          echo "  COSMOS_DATABASE:        chatbot"
           echo "  COSMOS_INTERACTIONS_CONTAINER: interactions"
           echo "  COSMOS_FEEDBACK_CONTAINER:     feedback"
           echo "  DEPLOYMENT_TYPE:        production"
