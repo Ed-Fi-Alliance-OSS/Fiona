@@ -300,6 +300,24 @@ loading message:
 - *Polishing up the response just for you...*
 - *Convincing the AI to stop overthinking...*
 
+### 2.9 Fiona Skills (Slash Commands)
+
+Fiona exposes a set of **Skills** through the `/fiona` slash command, giving
+users quick access to structured actions without needing to @-mention Fiona or
+compose a conversational prompt. Skills complement the existing conversation
+entry points (§2.1) and are registered as a single Slack slash command with
+sub-command routing.
+
+**Available skills:** `/fiona help`, `/fiona ask`, `/fiona search`,
+`/fiona escalate`.
+
+**Escalation detection:** In addition to the explicit `/fiona escalate` command,
+Fiona monitors regular conversation for escalation intent (e.g., the word
+"escalate") and proactively offers to escalate via interactive buttons.
+
+> For full requirements, UX flows, and acceptance criteria see
+> **[Fiona Skills PRD](fiona-skills-prd.md)**.
+
 ## 3. Non-Functional Requirements
 
 ### 3.1 Implemented
@@ -449,6 +467,7 @@ See [Jira roadmap board](https://edfi.atlassian.net/jira/software/c/projects/AI/
 
 | Scope               | Purpose                                           |
 | ------------------- | ------------------------------------------------- |
+| `commands`          | Register and receive slash commands (`/fiona`)    |
 | `app_mentions:read` | Receive @mention events                           |
 | `assistant:write`   | Write to Assistant threads                        |
 | `channels:history`  | Read channel message history (for thread context) |
@@ -460,7 +479,7 @@ See [Jira roadmap board](https://edfi.atlassian.net/jira/software/c/projects/AI/
 ### 6.2 Event Subscriptions
 
 `app_mention`, `assistant_thread_started`,
-`assistant_thread_context_changed`, `message.im`
+`assistant_thread_context_changed`, `message.im`, `/fiona` (slash command)
 
 ### 6.3 Connection Mode
 
