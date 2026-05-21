@@ -172,5 +172,7 @@ backups/
 *.backup
 *.bak
 .claude/settings.local.json
+.superpowers/**/state/server.pid
+.superpowers/**/state/server-stopped
 infra/fiona-slack-container/main.json
 apps/usage-report-function/AzuriteConfig
