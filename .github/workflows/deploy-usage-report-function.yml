@@ -52,9 +52,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/usage-report-function/package-lock.json
 
-      - name: Install dependencies
+      - name: Install production dependencies
         working-directory: apps/usage-report-function
-        run: npm ci
+        run: npm ci --omit=dev
 
       - name: Azure Login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -65,7 +65,7 @@ jobs:
         run: |
           cd apps/usage-report-function
           rm -f function-app.zip
-          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*" "node_modules/*"
+          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*"
 
       - name: Deploy to Azure
         run: |
@@ -86,6 +86,5 @@ jobs:
             COSMOS_INTERACTIONS_CONTAINER='interactions' \
             COSMOS_FEEDBACK_CONTAINER='feedback' \
             DEPLOYMENT_TYPE='production' \
-            SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
             KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
             SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
