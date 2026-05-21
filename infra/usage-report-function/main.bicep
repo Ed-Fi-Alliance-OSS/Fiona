@@ -15,7 +15,7 @@ param storageAccountName string
   'Node|20'
   'Node|22'
 ])
-param linuxFxVersion string = 'Node|20'
+param linuxFxVersion string = 'Node|22'
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageAccountName
