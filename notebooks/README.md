@@ -59,6 +59,6 @@ The NotebookLM notebooks (11 subject-matter notebooks) serve as the evaluation r
 ## Data Notes
 
 - `data/raw/` and `data/processed/` are gitignored via the root `*.csv` rule. Regenerate from Cosmos DB or by re-running the notebooks.
-- `concepts/` files are committed — they are curated artifacts, not pipeline outputs.
+- `concepts/` files are currently committed as curated, work-in-progress artifacts; this area may be removed or restructured in the future.
 - `usage-analytics/` keeps the notebook and current executive PDF; transient generated files (for example `report_assets/`, markdown exports, and spreadsheet exports) should not be committed.
 - `question_bank/` entries will be committed once a storage format is decided (see AI-24 next steps).
