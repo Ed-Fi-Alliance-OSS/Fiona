@@ -56,10 +56,43 @@ jobs:
         working-directory: apps/usage-report-function
         run: npm ci --omit=dev
 
+      - name: Validate required secrets
+        run: |
+          missing=()
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            missing+=("AZURE_CREDENTIALS")
+          fi
+          if [ -z "${{ secrets.COSMOS_ENDPOINT }}" ]; then
+            missing+=("COSMOS_ENDPOINT")
+          fi
+          if [ -z "${{ secrets.KEY_VAULT_URL }}" ]; then
+            missing+=("KEY_VAULT_URL")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Required secrets are missing: ${missing[*]}"
+            echo "::error::Configure these secrets in repository Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
       - name: Azure Login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Validate Function App runs on Linux
+        run: |
+          IS_LINUX=$(az functionapp show \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --query "reserved" -o tsv)
+
+          if [ "${IS_LINUX}" != "true" ]; then
+            echo "::error::Function App '${{ env.AZURE_FUNCTIONAPP_NAME }}' is not Linux. Recreate it with '--os-type Linux' before deploying."
+            exit 1
+          fi
+
+          echo "Function App OS validated: Linux"
 
       - name: Package function app
         run: |
@@ -72,7 +105,8 @@ jobs:
           az functionapp deployment source config-zip \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --src function-app.zip
+            --src function-app.zip \
+            --build-remote true
 
       - name: Set app settings
         run: |
@@ -82,9 +116,61 @@ jobs:
             --settings \
             REPORT_SCHEDULE='0 0 9 * * 1' \
             COSMOS_ENDPOINT='${{ secrets.COSMOS_ENDPOINT }}' \
-            COSMOS_DATABASE='fiona' \
+            COSMOS_DATABASE='chatbot' \
             COSMOS_INTERACTIONS_CONTAINER='interactions' \
             COSMOS_FEEDBACK_CONTAINER='feedback' \
             DEPLOYMENT_TYPE='production' \
             KEY_VAULT_URL='${{ secrets.KEY_VAULT_URL }}' \
             SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook'
+
+      - name: Show non-secret app settings
+        run: |
+          echo "Deployed with the following non-secret settings:"
+          echo "  AZURE_FUNCTIONAPP_NAME: ${{ env.AZURE_FUNCTIONAPP_NAME }}"
+          echo "  AZURE_RESOURCE_GROUP:   ${{ env.AZURE_RESOURCE_GROUP }}"
+          echo "  COSMOS_DATABASE:        chatbot"
+          echo "  COSMOS_INTERACTIONS_CONTAINER: interactions"
+          echo "  COSMOS_FEEDBACK_CONTAINER:     feedback"
+          echo "  DEPLOYMENT_TYPE:        production"
+          echo "  REPORT_SCHEDULE:        0 0 9 * * 1"
+          echo "  SLACK_WEBHOOK_KEYVAULT_SECRET_NAME: slack-fiona-weekly-report-webhook"
+          echo "  COSMOS_ENDPOINT and KEY_VAULT_URL are set (values withheld)"
+
+      - name: Smoke test — trigger function and check for load errors
+        run: |
+          echo "Waiting 30s for function app to restart after deployment..."
+          sleep 30
+
+          MASTER_KEY=$(az functionapp keys list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --query "masterKey" -o tsv)
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/admin/functions/WeeklyReportTrigger" \
+            -H "Content-Type: application/json" \
+            -H "x-functions-key: ${MASTER_KEY}" \
+            -d '{"input":"smoke-test"}')
+
+          echo "Admin trigger HTTP status: ${HTTP_STATUS}"
+          if [ "${HTTP_STATUS}" != "202" ]; then
+            echo "::error::Smoke test trigger returned ${HTTP_STATUS} (expected 202). Check function app logs."
+            exit 1
+          fi
+
+          echo "Waiting 15s for function to initialize and log..."
+          sleep 15
+
+          LOG_OUTPUT=$(az monitor app-insights query \
+            --app ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --analytics-query "traces | where timestamp > ago(3m) | where message has_any('Cannot find module','Error loading','Host initialization failed') | take 5" \
+            --query "tables[0].rows" -o json 2>/dev/null || echo "[]")
+
+          if [ "${LOG_OUTPUT}" != "[]" ] && [ -n "${LOG_OUTPUT}" ]; then
+            echo "::error::Function load errors detected in logs after deployment:"
+            echo "${LOG_OUTPUT}"
+            exit 1
+          fi
+
+          echo "Smoke test passed — no load errors detected."
