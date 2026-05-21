@@ -70,6 +70,9 @@ param cosmosAccountName string
 @description('Cosmos DB container name for interaction/usage analytics storage')
 param interactionsContainerName string = 'interactions'
 
+@description('Cosmos DB container name for Slack workspace user cache')
+param usersContainerName string = 'slack-users'
+
 // --- Reference shared resources ---
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -198,6 +201,39 @@ resource feedbackContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
   }
 }
 
+// Slack Users Container — caches workspace member list for user lookups (e.g. escalation)
+resource usersContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  name: usersContainerName
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: usersContainerName
+      partitionKey: {
+        paths: [ '/id' ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+        ]
+        compositeIndexes: [
+          [
+            { path: '/teamId', order: 'ascending' }
+            { path: '/updatedAt', order: 'descending' }
+          ]
+        ]
+      }
+      // No TTL — user records are updated in place; deleted flag handles deactivations
+    }
+    options: {}
+  }
+}
+
 // --- Container App (Socket Mode -- no ingress, fixed 1 replica) ---
 
 resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
@@ -281,6 +317,10 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'COSMOS_CONTAINER'
               value: cosmosContainer
+            }
+            {
+              name: 'COSMOS_USERS_CONTAINER'
+              value: usersContainerName
             }
             {
               name: 'DEPLOYMENT_TYPE'

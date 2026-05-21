@@ -124,6 +124,29 @@ async function main() {
   });
   console.log(`Container '${INTERACTIONS_CONTAINER}' ready.`);
 
+  // --- slack-users container ---
+  const USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
+  await database.containers.createIfNotExists({
+    id: USERS_CONTAINER,
+    partitionKey: {
+      paths: ['/id'],
+      kind: 'Hash',
+      version: 2,
+    },
+    indexingPolicy: {
+      indexingMode: 'consistent',
+      includedPaths: [{ path: '/*' }],
+      excludedPaths: [{ path: '/"_etag"/?' }],
+      compositeIndexes: [
+        [
+          { path: '/teamId', order: 'ascending' },
+          { path: '/updatedAt', order: 'descending' },
+        ],
+      ],
+    },
+  });
+  console.log(`Container '${USERS_CONTAINER}' ready.`);
+
   if (!process.env.COSMOS_CONNECTION_STRING) {
     console.log('\nDone. Add this to your .env to connect the app:');
     console.log('COSMOS_CONNECTION_STRING=<copy from emulator system tray → "Copy Connection String">');
