@@ -160,6 +160,13 @@ coverage/
 *.csv
 junit.xml
 
+# Notebook-generated usage analytics artifacts
+notebooks/usage-analytics/report_assets/
+notebooks/usage-analytics/fiona-executive-report.md
+notebooks/usage-analytics/usage-analytics-export.xlsx
+notebooks/usage-analytics/chatbot_feedback_query_result*.csv
+notebooks/usage-analytics/chatbot_interactions_query_result*.csv
+
 # Backup files
 backups/
 *.backup

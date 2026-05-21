@@ -8,8 +8,9 @@ The notebooks are numbered to reflect the intended run order. Each stage feeds t
 
 | Notebook | Stage | Status | Description |
 |---|---|---|---|
-| `01_sitemap_analysis.ipynb` | Ingest | Done | Parses the Ed-Fi docs sitemap (local build or live site) and produces a tagged URL list by section and product. Output: `data/processed/edfi_doc_urls.csv` |
-| `02_feedback_ingestion.ipynb` | Ingest | TODO | Queries Cosmos DB for chatbot interactions and feedback records, normalizes them, and writes exports to `data/raw/`. Replaces the manual CSV export step. |
+| `concepts/01_sitemap_analysis.ipynb` | Ingest | Done | Parses the Ed-Fi docs sitemap (local build or live site) and produces a tagged URL list by section and product. Output: `data/processed/edfi_doc_urls.csv` |
+| `concepts/02_feedback_ingestion.ipynb` | Ingest | TODO | Queries Cosmos DB for chatbot interactions and feedback records, normalizes them, and writes exports to `data/raw/`. Replaces the manual CSV export step. |
+| `usage-analytics/usage-analytics.ipynb` | Reporting | Done | Builds usage, reliability, and feedback analytics views from interaction/feedback data and renders the executive report artifacts used for stakeholder review. |
 | `03_eval_comparison.ipynb` | Evaluate | Planned | For each question in the bank, queries the relevant NotebookLM / Gemini notebook and scores the result against the existing Fiona response on three dimensions: correctness, concept recall, and source recall. |
 | `04_doc_change_impact.ipynb` | Regression | Planned | Re-runs a subset of eval questions after a doc update and diffs the scores against the baseline. Answers: "did this doc change improve Fiona's answer quality?" |
 
@@ -17,8 +18,16 @@ The notebooks are numbered to reflect the intended run order. Each stage feeds t
 
 ```
 notebooks/
-  01_sitemap_analysis.ipynb       # Stage 1 — parse docs sitemap
-  02_feedback_ingestion.ipynb     # Stage 2 — pull from Cosmos DB (TODO)
+  concepts/
+    01_sitemap_analysis.ipynb     # Stage 1 — parse docs sitemap
+    02_feedback_ingestion.ipynb   # Stage 2 — pull from Cosmos DB (TODO)
+    concept_scan_results.md       # Curated concept artifacts
+    concept_faqs.md               # Curated concept artifacts
+
+  usage-analytics/
+    usage-analytics.ipynb         # Usage/reliability/feedback analytics + report generation
+    fiona-executive-report.pdf    # Committed executive report output
+
   03_eval_comparison.ipynb        # Stage 3 — score Fiona vs Gemini (planned)
   04_doc_change_impact.ipynb      # Stage 4 — regression after doc updates (planned)
 
@@ -28,10 +37,6 @@ notebooks/
       chatbot_interactions.csv    # Cosmos DB interactions export
     processed/                    # Notebook outputs — gitignored
       edfi_doc_urls.csv           # Sitemap URL list with section tags
-
-  concepts/                       # Curated knowledge artifacts — committed
-    concept_scan_results.md       # 38 canonical Ed-Fi concepts with confidence ratings and source paths
-    concept_faqs.md               # Persona-specific FAQs per concept — seeds the question bank
 
   question_bank/                  # Question bank entries (format TBD — see AI-24)
     eval_results/                 # Per-run evaluation outputs from 03_eval_comparison
@@ -55,4 +60,5 @@ The NotebookLM notebooks (11 subject-matter notebooks) serve as the evaluation r
 
 - `data/raw/` and `data/processed/` are gitignored via the root `*.csv` rule. Regenerate from Cosmos DB or by re-running the notebooks.
 - `concepts/` files are committed — they are curated artifacts, not pipeline outputs.
+- `usage-analytics/` keeps the notebook and current executive PDF; transient generated files (for example `report_assets/`, markdown exports, and spreadsheet exports) should not be committed.
 - `question_bank/` entries will be committed once a storage format is decided (see AI-24 next steps).
