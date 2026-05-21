@@ -16,7 +16,7 @@ az functionapp create \
   --resource-group fiona-rg \
   --consumption-plan-location eastus \
   --runtime node \
-  --runtime-version 20 \
+  --runtime-version 22 \
   --functions-version 4 \
   --name usage-report-function \
   --storage-account fionastorage
