@@ -26,8 +26,8 @@ export const fionaCommandCallback = async ({ command, ack, logger }) => {
   switch (subCommand) {
     case 'help':
     case '':
-    // Future slices add: case 'ask': ...; case 'search': ...;
     default:
+      // Future slices add: case 'ask': ...; case 'search': ...;
       await handleHelp({ command, ack, logger });
       break;
   }
