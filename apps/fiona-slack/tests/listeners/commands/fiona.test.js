@@ -6,14 +6,16 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock interaction-store before importing the module under test.
-// llm-caller is intentionally NOT mocked — if fiona.js ever imports it,
-// Jest will error loudly, enforcing the "no LLM call" requirement.
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
   recordInteraction: mockRecordInteraction,
 }));
 
+// Enforce the "no LLM call" requirement by failing if the handler imports llm-caller.
+jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
+  throw new Error('llm-caller must not be imported by /fiona slash command handlers');
+});
 const { fionaCommandCallback } = await import('../../../src/listeners/commands/fiona.js');
 
 describe('fionaCommandCallback', () => {
