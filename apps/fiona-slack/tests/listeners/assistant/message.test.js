@@ -11,7 +11,7 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 }));
 
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
-  callLLM: jest.fn().mockResolvedValue(undefined),
+  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
   CITATION_POLICY: {
@@ -374,9 +374,12 @@ describe('message (assistant thread handler)', () => {
 
   it('logs citation state and source count when metadata is present', async () => {
     callLLM.mockResolvedValueOnce({
-      finalize_state: 'ready_to_finalize',
-      sources: [{ url: 'https://a.com' }],
-      source_index_map: { 'https://a.com': 1 },
+      metadata: {
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://a.com' }],
+        source_index_map: { 'https://a.com': 1 },
+      },
+      botText: 'test response',
     });
 
     await messageHandler({
@@ -398,7 +401,7 @@ describe('message (assistant thread handler)', () => {
       sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
       source_index_map: { 'https://docs.ed-fi.org': 1 },
     };
-    callLLM.mockResolvedValueOnce(metadata);
+    callLLM.mockResolvedValueOnce({ metadata, botText: 'test response' });
 
     await messageHandler({
       client: mockClient,

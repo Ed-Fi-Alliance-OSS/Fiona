@@ -149,7 +149,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
       makeStream([{ text: 'Result [1].', citations: ['https://result.example.com'] }]),
     );
 
-    const citations = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+    const { citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
     expect(citations).toEqual(['https://result.example.com']);
   });
@@ -230,5 +230,21 @@ describe('callLLM error path does not mask original failure', () => {
 
     await expect(callLLM(intercepting, [{ role: 'user', content: 'hi' }], makeLogger())).rejects.toBe(llmError);
     expect(captured.envelope.finalize_state).toBe('ready_to_finalize');
+  });
+});
+
+describe('callLLM returns botText alongside metadata', () => {
+  it('returns botText alongside the metadata envelope', async () => {
+    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield { choices: [{ delta: { content: 'Hello world' } }] };
+      })(),
+    );
+
+    const result = await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], { error: jest.fn(), warn: jest.fn(), info: jest.fn() });
+
+    expect(result).toHaveProperty('metadata');
+    expect(result).toHaveProperty('botText', 'Hello world');
   });
 });

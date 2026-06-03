@@ -90,7 +90,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       const prompts = await buildThreadHistory(client, channel, thread_ts, { currentText: text, logger });
 
-      const metadata = await callLLM(streamer, prompts, logger);
+      const { metadata, botText } = await callLLM(streamer, prompts, logger);
 
       // Guard against duplicate finalization
       const responseId = generateResponseId(channel, thread_ts, event.ts);
