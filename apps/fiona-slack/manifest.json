@@ -20,11 +20,7 @@
         },
         "slash_commands": [
             {
-                "command": "/fiona",
-                "description": "Interact with Fiona, your Ed-Fi AI assistant",
-                "usage_hint": "[help | ask <question> | search <query>]",
-                "should_escape": false
-            }
+                "should_escape": true
         ]
     },
     "oauth_config": {
