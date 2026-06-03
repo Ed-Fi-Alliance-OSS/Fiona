@@ -136,6 +136,28 @@ describe('interaction-store - with connection string', () => {
     expect(doc.errorType).toBe('llm_error');
   });
 
+  it('supports slash_help interactions that use trigger_id identifiers', async () => {
+    mockUpsert.mockClear();
+
+    await recordInteraction({
+      userId: 'U555',
+      teamId: 'T555',
+      channelId: 'C555',
+      threadTs: '1334522466599.738474920.8088930838d88f008e0',
+      messageTs: '1334522466599.738474920.8088930838d88f008e0',
+      interactionType: 'slash_help',
+      status: 'success',
+      rateLimited: false,
+    });
+
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.id).toBe('U555_1334522466599.738474920.8088930838d88f008e0_1334522466599.738474920.8088930838d88f008e0');
+    expect(doc.interactionType).toBe('slash_help');
+    expect(doc.threadTs).toBe('1334522466599.738474920.8088930838d88f008e0');
+    expect(doc.messageTs).toBe('1334522466599.738474920.8088930838d88f008e0');
+  });
+
   it('logs a warning and does not throw when upsert fails', async () => {
     mockUpsert.mockRejectedValueOnce(new Error('Cosmos write failure'));
     const logger = { warn: jest.fn() };

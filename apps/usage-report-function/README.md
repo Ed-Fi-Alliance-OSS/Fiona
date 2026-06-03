@@ -6,7 +6,7 @@ An Azure Functions timer trigger that queries Cosmos DB for weekly usage analyti
 
 Every week it computes these KPIs from the `interactions` and `feedback` Cosmos DB containers and posts them as a formatted Slack message:
 
-- Distinct users and session count
+- Distinct users and session count (distinct interaction session identifiers)
 - Total interactions, error rate, and rate-limited requests
 - Good/bad feedback counts and response rate
 - Average interactions per user

@@ -253,9 +253,9 @@ Cosmos DB `interactions` container for long-term engagement analysis.
 | `userId`          | Slack user ID (opaque token, no PII)                                   |
 | `teamId`          | Slack team/workspace ID                                                |
 | `channelId`       | Slack channel ID                                                       |
-| `threadTs`        | Thread timestamp; doubles as session identifier                        |
-| `messageTs`       | Timestamp of the user's message                                        |
-| `interactionType` | `app_mention` or `assistant_message`                                   |
+| `threadTs`        | Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands) |
+| `messageTs`       | Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands) |
+| `interactionType` | `app_mention`, `assistant_message`, or `slash_help`                    |
 | `status`          | `success` or `error`                                                   |
 | `errorType`       | `rate_limited`, `llm_error`, `llm_rate_limited`, `cosmos_error`, `timeout`, `unknown` — only set when `status = error` |
 | `rateLimited`     | `true` if the rate limiter blocked this request                        |
@@ -277,7 +277,7 @@ to a Slack channel via incoming webhook.
 | Metric                  | Description                                              |
 | ----------------------- | -------------------------------------------------------- |
 | Distinct users          | Count of unique users with successful interactions       |
-| Sessions                | Count of distinct thread timestamps (proxy for sessions) |
+| Sessions                | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions |
 | Total interactions      | All interactions (success + error) in the window         |
 | Error count & rate      | Absolute count and percentage of errored interactions    |
 | Rate-limited hits       | Count of rate-limiter blocks                             |
