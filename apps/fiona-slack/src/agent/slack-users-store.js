@@ -6,12 +6,6 @@
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
-const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-const COSMOS_KEY = process.env.COSMOS_KEY;
-const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
-const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
-const COSMOS_USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
-
 let warnedMissingConfig = false;
 
 /** @type {import('@azure/cosmos').Container | null} */
@@ -23,6 +17,12 @@ let container = null;
  */
 async function getContainer(logger) {
   if (container) return container;
+
+  const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
+  const COSMOS_KEY = process.env.COSMOS_KEY;
+  const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
+  const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
+  const COSMOS_USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
 
   let client;
   if (COSMOS_CONNECTION_STRING) {
