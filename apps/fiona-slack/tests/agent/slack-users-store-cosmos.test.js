@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
+import { describe, it, expect, jest, beforeAll, afterAll, beforeEach } from '@jest/globals';
+
+const mockUpsert = jest.fn().mockResolvedValue({});
+const mockRead = jest.fn();
+const mockContainerObj = {
+  items: { upsert: mockUpsert },
+  item: jest.fn(() => ({ read: mockRead })),
+};
+const mockDatabase = { container: jest.fn().mockReturnValue(mockContainerObj) };
+const MockCosmosClient = jest.fn().mockImplementation(() => ({
+  database: jest.fn().mockReturnValue(mockDatabase),
+}));
+
+jest.unstable_mockModule('@azure/cosmos', () => ({ CosmosClient: MockCosmosClient }));
+jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
+
+// Set BEFORE import so getContainer() sees it on first call.
+process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==;';
+
+let upsertUser, getUser;
+
+beforeAll(async () => {
+  ({ upsertUser, getUser } = await import('../../src/agent/slack-users-store.js'));
+});
+
+afterAll(() => {
+  delete process.env.COSMOS_CONNECTION_STRING;
+});
+
+beforeEach(() => {
+  mockUpsert.mockClear();
+  mockRead.mockClear();
+});
+
+const mockUser = {
+  id: 'U12345',
+  userId: 'U12345',
+  teamId: 'T9999',
+  name: 'testuser',
+  realName: 'Test User',
+  displayName: 'Test',
+  email: 'test@example.com',
+  isBot: false,
+  isAdmin: false,
+  isOwner: false,
+  deleted: false,
+};
+
+describe('upsertUser — with connection string', () => {
+  it('returns true on success', async () => {
+    expect(await upsertUser(mockUser, null)).toBe(true);
+  });
+
+  it('calls upsert with all user fields plus updatedAt', async () => {
+    await upsertUser(mockUser, null);
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.id).toBe('U12345');
+    expect(doc.userId).toBe('U12345');
+    expect(doc.teamId).toBe('T9999');
+    expect(doc.name).toBe('testuser');
+    expect(doc.email).toBe('test@example.com');
+    expect(doc.isBot).toBe(false);
+    expect(doc.deleted).toBe(false);
+    expect(typeof doc.updatedAt).toBe('string');
+    expect(new Date(doc.updatedAt).toISOString()).toBe(doc.updatedAt);
+  });
+
+  it('uses the user id as partition key', async () => {
+    await upsertUser(mockUser, null);
+    const [, opts] = mockUpsert.mock.calls[0];
+    expect(opts).toEqual({ partitionKey: 'U12345' });
+  });
+
+  it('returns false and logs a warning when upsert throws', async () => {
+    mockUpsert.mockRejectedValueOnce(new Error('cosmos timeout'));
+    const logger = { warn: jest.fn() };
+    const result = await upsertUser(mockUser, logger);
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to upsert Slack user U12345'),
+    );
+  });
+
+  it('does not throw when upsert fails', async () => {
+    mockUpsert.mockRejectedValueOnce(new Error('cosmos timeout'));
+    await expect(upsertUser(mockUser, null)).resolves.toBe(false);
+  });
+});
+
+describe('getUser — with connection string', () => {
+  it('returns the stored resource on success', async () => {
+    mockRead.mockResolvedValueOnce({ resource: { id: 'U12345', name: 'testuser' } });
+    const result = await getUser('U12345', null);
+    expect(result).toEqual({ id: 'U12345', name: 'testuser' });
+  });
+
+  it('returns null on 404', async () => {
+    const err = Object.assign(new Error('Not Found'), { code: 404 });
+    mockRead.mockRejectedValueOnce(err);
+    expect(await getUser('U12345', null)).toBeNull();
+  });
+
+  it('returns null and warns on non-404 errors', async () => {
+    const err = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    mockRead.mockRejectedValueOnce(err);
+    const logger = { warn: jest.fn() };
+    const result = await getUser('U12345', logger);
+    expect(result).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to read Slack user U12345'),
+    );
+  });
+});
