@@ -24,10 +24,8 @@ export const fionaCommandCallback = async ({ command, ack, logger }) => {
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
 
   switch (subCommand) {
-    case 'help':
-    case '':
     default:
-      // Future slices add: case 'ask': ...; case 'search': ...;
+      // Future slices add: case 'help': ...; case 'ask': ...; case 'search': ...;
       await handleHelp({ command, ack, logger });
       break;
   }

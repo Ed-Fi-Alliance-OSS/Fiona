@@ -21,11 +21,10 @@
  *   --include-deleted    Also load deactivated accounts (skipped by default)
  */
 
-import { existsSync } from 'fs';
-import { createInterface } from 'readline';
-import { createReadStream } from 'fs';
-import { fileURLToPath } from 'node:url';
+import { createReadStream, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
 
 import { upsertUser } from '../src/agent/slack-users-store.js';
@@ -186,15 +185,15 @@ async function loadFromCsv(filePath) {
 function mapCsvRow(row) {
   // The Slack admin CSV export uses these column names (as of 2024):
   //   userid, username, fullname, displayname, email, status, billing-active
-  const deleted = row['status']?.toLowerCase() === 'deactivated';
+  const deleted = row.status?.toLowerCase() === 'deactivated';
   return {
-    id: row['userid'] ?? '',
-    userId: row['userid'] ?? '',
+    id: row.userid ?? '',
+    userId: row.userid ?? '',
     teamId: '', // Not present in CSV export; can be set separately if needed
-    name: row['username'] ?? '',
-    realName: row['fullname'] ?? '',
-    displayName: row['displayname'] ?? '',
-    email: row['email'] ?? '',
+    name: row.username ?? '',
+    realName: row.fullname ?? '',
+    displayName: row.displayname ?? '',
+    email: row.email ?? '',
     isBot: false, // Bot accounts are not included in the admin CSV export
     isAdmin: false, // Not reliably present in all export formats
     isOwner: false,
