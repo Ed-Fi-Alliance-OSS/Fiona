@@ -21,20 +21,12 @@
  *   --include-deleted    Also load deactivated accounts (skipped by default)
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { createInterface } from 'readline';
 import { createReadStream } from 'fs';
-
-// Load .env if present
-try {
-  const env = readFileSync(new URL('../.env', import.meta.url), 'utf8');
-  for (const line of env.split('\n')) {
-    const match = line.match(/^\s*([^#=\s][^=]*?)\s*=\s*(.*?)\s*$/);
-    if (match) process.env[match[1]] ??= match[2].replace(/^['"]|['"]$/g, '');
-  }
-} catch {
-  // .env not present — that's fine
-}
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { config as loadDotenv } from 'dotenv';
 
 import { upsertUser } from '../src/agent/slack-users-store.js';
 
@@ -65,6 +57,7 @@ const logger = { warn: (msg) => console.warn(`[WARN] ${msg}`) };
 let processed = 0;
 let upserted = 0;
 let skipped = 0;
+let failed = 0;
 
 async function processUser(user) {
   processed++;
@@ -80,8 +73,9 @@ async function processUser(user) {
     skipped++;
     return;
   }
-  await upsertUser(user, logger);
-  upserted++;
+  const ok = await upsertUser(user, logger);
+  if (ok) upserted++;
+  else failed++;
 }
 
 // --- API mode ---
@@ -242,9 +236,20 @@ function parseCsvLine(line) {
   return result;
 }
 
+// Exported for testing
+export { mapApiMember, mapCsvRow };
+export function _resetCounters() {
+  processed = 0;
+  upserted = 0;
+  skipped = 0;
+  failed = 0;
+}
+
 // --- Main ---
 
 async function main() {
+  loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
+
   if (source === 'api') {
     await loadFromApi();
   } else if (source === 'csv') {
@@ -263,9 +268,13 @@ async function main() {
   console.log(`   Processed : ${processed}`);
   console.log(`   Upserted  : ${upserted}`);
   console.log(`   Skipped   : ${skipped}`);
+  console.log(`   Failed    : ${failed}`);
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err.message);
-  process.exit(1);
-});
+const _isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (_isMain) {
+  main().catch((err) => {
+    console.error('Fatal error:', err.message);
+    process.exit(1);
+  });
+}
