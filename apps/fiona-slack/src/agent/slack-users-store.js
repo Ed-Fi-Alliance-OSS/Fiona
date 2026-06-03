@@ -66,17 +66,20 @@ async function getContainer(logger) {
  *
  * @param {SlackUser} user
  * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<boolean>} True if upsert succeeded, false if it failed or Cosmos is not configured
  */
 export async function upsertUser(user, logger) {
   const c = await getContainer(logger);
-  if (!c) return;
+  if (!c) return false;
 
   const doc = { ...user, updatedAt: new Date().toISOString() };
 
   try {
     await c.items.upsert(doc, { partitionKey: doc.id });
+    return true;
   } catch (error) {
     logger?.warn?.(`Failed to upsert Slack user ${user.id} to Cosmos DB: ${error.message}`);
+    return false;
   }
 }
 
