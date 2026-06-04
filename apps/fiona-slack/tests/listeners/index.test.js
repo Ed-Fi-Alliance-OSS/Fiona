@@ -9,6 +9,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 const mockActionsRegister = jest.fn();
 const mockEventsRegister = jest.fn();
 const mockAssistantRegister = jest.fn();
+const mockCommandsRegister = jest.fn();
 
 jest.unstable_mockModule('../../src/listeners/actions/index.js', () => ({
   register: mockActionsRegister,
@@ -22,6 +23,10 @@ jest.unstable_mockModule('../../src/listeners/assistant/index.js', () => ({
   register: mockAssistantRegister,
 }));
 
+jest.unstable_mockModule('../../src/listeners/commands/index.js', () => ({
+  register: mockCommandsRegister,
+}));
+
 const { registerListeners } = await import('../../src/listeners/index.js');
 
 describe('registerListeners', () => {
@@ -29,7 +34,7 @@ describe('registerListeners', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockApp = { action: jest.fn(), event: jest.fn(), assistant: jest.fn() };
+    mockApp = { action: jest.fn(), event: jest.fn(), assistant: jest.fn(), command: jest.fn() };
   });
 
   it('calls actions register with the app', () => {
@@ -47,10 +52,16 @@ describe('registerListeners', () => {
     expect(mockAssistantRegister).toHaveBeenCalledWith(mockApp);
   });
 
-  it('calls all three sub-registrations exactly once', () => {
+  it('calls commands register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockCommandsRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls all four sub-registrations exactly once', () => {
     registerListeners(mockApp);
     expect(mockActionsRegister).toHaveBeenCalledTimes(1);
     expect(mockEventsRegister).toHaveBeenCalledTimes(1);
     expect(mockAssistantRegister).toHaveBeenCalledTimes(1);
+    expect(mockCommandsRegister).toHaveBeenCalledTimes(1);
   });
 });

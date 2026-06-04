@@ -17,7 +17,15 @@
         },
         "assistant_view": {
             "assistant_description": "Ask Fiona anything about Ed-Fi, and she'll do her best to help you out!"
-        }
+        },
+        "slash_commands": [
+            {
+                "command": "/fiona",
+                "description": "Interact with Fiona, your Ed-Fi AI assistant",
+                "usage_hint": "[help | ask <question> | search <query>]",
+                "should_escape": false
+            }
+        ]
     },
     "oauth_config": {
         "scopes": {

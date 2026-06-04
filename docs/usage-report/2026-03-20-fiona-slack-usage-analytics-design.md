@@ -10,7 +10,7 @@
 
 This design specifies the implementation of a two-phase usage analytics system for the `fiona-slack` application. The system will:
 
-1. **Phase 1:** Record every user interaction (app mention or assistant message) to a new Cosmos DB `interactions` container, capturing both successful responses and errors
+1. **Phase 1:** Record every user interaction (app mention, assistant message, or slash help) to a new Cosmos DB `interactions` container, capturing both successful responses and errors
 2. **Phase 2:** Generate and post a weekly usage report to Slack, surfacing key engagement metrics
 
 The primary goal is **measuring user engagement**—how many people use Fiona, how frequently, how deeply, and their satisfaction level with responses.
@@ -52,7 +52,7 @@ The weekly report will surface:
   "channelId": "C1122334455",
   "threadTs": "1712345678.001234",
   "messageTs": "1712345678.123456",
-  "interactionType": "app_mention | assistant_message",
+  "interactionType": "app_mention | assistant_message | slash_help | slash_ask | slash_search | slash_unknown",
   "status": "success | error",
   "errorType": "rate_limited | llm_error | llm_rate_limited | cosmos_error | timeout | unknown",
   "rateLimited": false,
@@ -65,9 +65,9 @@ The weekly report will surface:
 
 - **id:** Composite key `<userId>_<threadTs>_<messageTs>` for idempotency on Slack event redelivery
 - **userId, teamId, channelId:** Slack identifiers (opaque tokens, no PII)
-- **threadTs:** Slack thread timestamp; doubles as session identifier
-- **messageTs:** Timestamp of the user's message
-- **interactionType:** Whether initiated via app mention or assistant thread
+- **threadTs:** Interaction session identifier (`thread_ts` for app mentions/assistant messages; `trigger_id` for slash commands)
+- **messageTs:** Interaction event identifier (`message_ts` for app mentions/assistant messages; `trigger_id` for slash commands)
+- **interactionType:** Entry point for the interaction — `app_mention`, `assistant_message`, `slash_help` (bare `/fiona` or `/fiona help`), `slash_ask` (`/fiona ask`), `slash_search` (`/fiona search`), or `slash_unknown` (unrecognized sub-command)
 - **status:** `"success"` if LLM response completed; `"error"` if any exception occurred during processing
 - **errorType:** Only populated when `status === "error"`. Categorizes error for analysis
 - **rateLimited:** `true` if rate-limiter blocked the request (status will also be `"error"`)
@@ -276,7 +276,7 @@ Secret name (default): `slack-fiona-weekly-report-webhook`
      AND i.status = 'success'
      AND i.rateLimited = false
    ```
-   Returns: count of distinct sessions
+   Returns: count of distinct session identifiers (`thread_ts` for message flows; `trigger_id` for slash commands)
 
 5. **Rate-limited hits:**
    ```sql
