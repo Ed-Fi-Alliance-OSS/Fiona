@@ -432,7 +432,7 @@ export async function callPerplexityChat(streamer, prompts) {
  * @param {Array} prompts - OpenAI-style message array
  * @param {import("@slack/logger").Logger} logger - Logger instance
  *
- * @returns {Promise<MetadataEnvelope>} Metadata envelope with citation metadata
+ * @returns {Promise<{ metadata: MetadataEnvelope, botText: string }>} Metadata envelope and full bot response text
  *
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */

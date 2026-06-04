@@ -196,4 +196,3 @@ describe('handleMetadataTimeout', () => {
     expect(() => handleMetadataTimeout(null)).not.toThrow();
   });
 });
-
