@@ -13,6 +13,8 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 }));
 
 // Enforce the "no LLM call" requirement by failing if the handler imports llm-caller.
+// This guard intercepts static imports only; dynamic import() calls would bypass it.
+// Acceptable trade-off: slash command handlers should never dynamically import the LLM.
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
   throw new Error('llm-caller must not be imported by /fiona slash command handlers');
 });
@@ -240,7 +242,7 @@ describe('fionaCommandCallback', () => {
       mockRecordInteraction.mockRejectedValueOnce(new Error('cosmos down'));
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('cosmos down'));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to record'));
     });
 
     it('does not throw when ack rejects', async () => {
@@ -253,7 +255,7 @@ describe('fionaCommandCallback', () => {
     it('logs an error when ack rejects', async () => {
       mockAck.mockRejectedValueOnce(new Error('slack timeout'));
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('slack timeout'));
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to acknowledge'));
     });
   });
 
@@ -304,6 +306,20 @@ describe('fionaCommandCallback', () => {
       const { trigger_id: _t, ...cmd } = mockCommand;
       await fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger });
       expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('required'));
+    });
+  });
+
+  describe('null or undefined command.text', () => {
+    it('treats null text the same as empty text', async () => {
+      mockCommand.text = null;
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+    });
+
+    it('treats undefined text the same as empty text', async () => {
+      delete mockCommand.text;
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
     });
   });
 });

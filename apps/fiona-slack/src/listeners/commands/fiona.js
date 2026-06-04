@@ -29,6 +29,7 @@ const SEARCH_NOT_YET_TEXT =
  * back to help for unrecognized / missing input. Never invokes the LLM.
  */
 export const fionaCommandCallback = async ({ command, ack, logger }) => {
+  logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
 
   switch (subCommand) {
@@ -83,15 +84,16 @@ function fireAndForgetRecord({ command, logger, interactionType }) {
     return;
   }
   recordInteraction({ ...slashInteractionRecord(command, interactionType), logger }).catch((err) =>
-    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.message}`),
+    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`),
   );
 }
 
 async function handleHelp({ command, ack, logger }) {
   try {
+    // ack(string) sends an immediate ephemeral response that only the invoking user sees
     await ack(HELP_TEXT);
   } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona help: ${err.message}`);
+    logger?.error?.(`Failed to acknowledge /fiona help: ${err.name}`);
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: 'slash_help' });
@@ -99,9 +101,10 @@ async function handleHelp({ command, ack, logger }) {
 
 async function handleComingSoon({ command, ack, logger, subCommand, text }) {
   try {
+    // ack(string) sends an immediate ephemeral response that only the invoking user sees
     await ack(text);
   } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona ${subCommand}: ${err.message}`);
+    logger?.error?.(`Failed to acknowledge /fiona ${subCommand}: ${err.name}`);
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
@@ -110,9 +113,10 @@ async function handleComingSoon({ command, ack, logger, subCommand, text }) {
 async function handleUnknown({ command, ack, logger, subCommand }) {
   logger?.warn?.(`Unrecognized /fiona sub-command: "${subCommand}"`);
   try {
+    // ack(string) sends an immediate ephemeral response that only the invoking user sees
     await ack(HELP_TEXT);
   } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona unknown command: ${err.message}`);
+    logger?.error?.(`Failed to acknowledge /fiona unknown command: ${err.name}`);
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: 'slash_unknown' });

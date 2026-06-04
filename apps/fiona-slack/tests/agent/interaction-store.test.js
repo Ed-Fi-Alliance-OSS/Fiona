@@ -176,6 +176,6 @@ describe('interaction-store - with connection string', () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Cosmos write failure'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to record interaction'));
   });
 });

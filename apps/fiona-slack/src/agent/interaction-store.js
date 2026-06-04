@@ -115,6 +115,6 @@ export async function recordInteraction({
       partitionKey: [doc.deploymentType, doc.userId],
     });
   } catch (error) {
-    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.message}`);
+    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.name}`);
   }
 }
