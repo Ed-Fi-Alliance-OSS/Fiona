@@ -68,16 +68,14 @@ describe('conversation-capture-store - Cosmos not configured', () => {
     delete process.env.CAPTURE_ALL_CONVERSATIONS;
   });
 
-  it('is a no-op and warns once when Cosmos is not configured', async () => {
+  it('warns exactly once per module lifetime when Cosmos is not configured', async () => {
     const logger = { warn: jest.fn() };
     await captureConversation({ ...VALID_CAPTURE, logger });
     expect(mockUpsert).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('CosmosDB not configured'));
-  });
 
-  it('warns only once across multiple calls', async () => {
-    const logger = { warn: jest.fn() };
-    await captureConversation({ ...VALID_CAPTURE, logger });
+    // Second call — same or different logger — flag is already set, no additional warning
     await captureConversation({ ...VALID_CAPTURE, logger });
     expect(logger.warn).toHaveBeenCalledTimes(1);
   });

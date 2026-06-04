@@ -20,11 +20,7 @@ const CONVERSATION_TTL_SECONDS = 31_104_000;
 /** @type {import('@azure/cosmos').Container | null} */
 let container = null;
 
-/** Tracks loggers that have already received the "not configured" warning. */
-const warnedLoggers = new WeakSet();
-
-/** Sentinel object used when no logger is supplied, to satisfy WeakSet's object requirement. */
-const nullLoggerSentinel = {};
+let warnedMissingConfig = false;
 
 /**
  * @param {{ warn?: (msg: string) => void } | null} [logger]
@@ -44,9 +40,8 @@ async function getContainer(logger) {
       aadCredentials: new DefaultAzureCredential(),
     });
   } else {
-    const key = logger ?? nullLoggerSentinel;
-    if (!warnedLoggers.has(key)) {
-      warnedLoggers.add(key);
+    if (!warnedMissingConfig) {
+      warnedMissingConfig = true;
       logger?.warn?.(
         'CosmosDB not configured — conversations will not be captured. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
       );
