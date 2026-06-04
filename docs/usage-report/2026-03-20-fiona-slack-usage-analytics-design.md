@@ -52,7 +52,7 @@ The weekly report will surface:
   "channelId": "C1122334455",
   "threadTs": "1712345678.001234",
   "messageTs": "1712345678.123456",
-  "interactionType": "app_mention | assistant_message | slash_help",
+  "interactionType": "app_mention | assistant_message | slash_help | slash_ask | slash_search | slash_unknown",
   "status": "success | error",
   "errorType": "rate_limited | llm_error | llm_rate_limited | cosmos_error | timeout | unknown",
   "rateLimited": false,
@@ -67,7 +67,7 @@ The weekly report will surface:
 - **userId, teamId, channelId:** Slack identifiers (opaque tokens, no PII)
 - **threadTs:** Interaction session identifier (`thread_ts` for app mentions/assistant messages; `trigger_id` for slash commands)
 - **messageTs:** Interaction event identifier (`message_ts` for app mentions/assistant messages; `trigger_id` for slash commands)
-- **interactionType:** Whether initiated via app mention, assistant thread message, or slash command help
+- **interactionType:** Entry point for the interaction — `app_mention`, `assistant_message`, `slash_help` (bare `/fiona` or `/fiona help`), `slash_ask` (`/fiona ask`), `slash_search` (`/fiona search`), or `slash_unknown` (unrecognized sub-command)
 - **status:** `"success"` if LLM response completed; `"error"` if any exception occurred during processing
 - **errorType:** Only populated when `status === "error"`. Categorizes error for analysis
 - **rateLimited:** `true` if rate-limiter blocked the request (status will also be `"error"`)

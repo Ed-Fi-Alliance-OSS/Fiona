@@ -16,6 +16,14 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 \`\`\`
 _Tip: You can also @-mention Fiona in any channel, or send her a direct message._`;
 
+const ASK_NOT_YET_TEXT =
+  `*/fiona ask* is not yet available. ` +
+  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
+
+const SEARCH_NOT_YET_TEXT =
+  `*/fiona search* is not yet available. ` +
+  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
+
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
  * back to help for unrecognized / missing input. Never invokes the LLM.
@@ -26,32 +34,86 @@ export const fionaCommandCallback = async ({ command, ack, logger }) => {
   switch (subCommand) {
     case 'help':
     case '':
-    default:
-      // Future slices add: case 'ask': ...; case 'search': ...;
       await handleHelp({ command, ack, logger });
+      break;
+    case 'ask':
+      await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
+      break;
+    case 'search':
+      await handleComingSoon({
+        command,
+        ack,
+        logger,
+        subCommand: 'search',
+        text: SEARCH_NOT_YET_TEXT,
+      });
+      break;
+    default:
+      await handleUnknown({ command, ack, logger, subCommand });
       break;
   }
 };
 
-async function handleHelp({ command, ack, logger }) {
-  const { user_id, team_id, channel_id, trigger_id } = command;
-
-  // ack(string) sends an immediate ephemeral response to the invoking user.
-  await ack(HELP_TEXT);
-
-  // Fire-and-forget — do not block ack on the Cosmos write.
-  // Slash commands have no thread_ts or message_ts; trigger_id is unique per
-  // invocation and serves as both identifiers for the Cosmos document ID.
-  recordInteraction({
-    userId: user_id,
-    teamId: team_id,
-    channelId: channel_id,
-    threadTs: trigger_id,
-    messageTs: trigger_id,
-    interactionType: 'slash_help',
+/**
+ * Builds a recordInteraction payload for slash commands.
+ * Slash commands have no thread_ts/message_ts; trigger_id is unique per
+ * invocation and serves as both identifiers for the Cosmos document ID.
+ */
+function slashInteractionRecord(command, interactionType) {
+  return {
+    userId: command.user_id,
+    teamId: command.team_id,
+    channelId: command.channel_id,
+    threadTs: command.trigger_id,
+    messageTs: command.trigger_id,
+    interactionType,
     status: 'success',
     errorType: null,
     rateLimited: false,
-    logger,
-  }).catch((err) => logger?.warn?.(`Failed to record slash_help interaction: ${err.message}`));
+  };
+}
+
+function hasRequiredFields(command) {
+  return Boolean(command.user_id && command.channel_id && command.trigger_id);
+}
+
+function fireAndForgetRecord({ command, logger, interactionType }) {
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping interaction record');
+    return;
+  }
+  recordInteraction({ ...slashInteractionRecord(command, interactionType), logger }).catch((err) =>
+    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.message}`),
+  );
+}
+
+async function handleHelp({ command, ack, logger }) {
+  try {
+    await ack(HELP_TEXT);
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona help: ${err.message}`);
+    return;
+  }
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_help' });
+}
+
+async function handleComingSoon({ command, ack, logger, subCommand, text }) {
+  try {
+    await ack(text);
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ${subCommand}: ${err.message}`);
+    return;
+  }
+  fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
+}
+
+async function handleUnknown({ command, ack, logger, subCommand }) {
+  logger?.warn?.(`Unrecognized /fiona sub-command: "${subCommand}"`);
+  try {
+    await ack(HELP_TEXT);
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona unknown command: ${err.message}`);
+    return;
+  }
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_unknown' });
 }

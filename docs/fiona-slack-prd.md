@@ -255,7 +255,7 @@ Cosmos DB `interactions` container for long-term engagement analysis.
 | `channelId`       | Slack channel ID                                                       |
 | `threadTs`        | Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands) |
 | `messageTs`       | Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands) |
-| `interactionType` | `app_mention`, `assistant_message`, or `slash_help`                    |
+| `interactionType` | `app_mention`, `assistant_message`, `slash_help`, `slash_ask`, `slash_search`, or `slash_unknown` |
 | `status`          | `success` or `error`                                                   |
 | `errorType`       | `rate_limited`, `llm_error`, `llm_rate_limited`, `cosmos_error`, `timeout`, `unknown` — only set when `status = error` |
 | `rateLimited`     | `true` if the rate limiter blocked this request                        |
