@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import https from 'node:https';
+
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
@@ -29,15 +31,17 @@ let warnedMissingConfig = false;
 async function getContainer(logger) {
   if (container) return container;
 
+  const tlsAgent = new https.Agent({ rejectUnauthorized: false });
   let client;
   if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
+    client = new CosmosClient(COSMOS_CONNECTION_STRING, { agent: tlsAgent });
   } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
+    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY, agent: tlsAgent });
   } else if (COSMOS_ENDPOINT) {
     client = new CosmosClient({
       endpoint: COSMOS_ENDPOINT,
       aadCredentials: new DefaultAzureCredential(),
+      agent: tlsAgent,
     });
   } else {
     if (!warnedMissingConfig) {
