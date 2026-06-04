@@ -4,11 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { handleInteractionWithTelemetry, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
-import { CITATION_POLICY, callLLM, finalizeMetadataEnvelope } from '../../agent/llm-caller.js';
+import { CITATION_POLICY, callLLM, finalizeMetadataEnvelope, LLM_MODEL } from '../../agent/llm-caller.js';
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { feedbackBlock } from '../views/feedback_block.js';
+import { captureConversation } from '../../agent/conversation-capture-store.js';
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation
@@ -109,6 +110,22 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       await streamer.stop({ blocks: [feedbackBlock] });
       finalizeMetadataEnvelope(metadata);
+
+      await captureConversation({
+        userId: user,
+        teamId: team,
+        channelId: channel,
+        threadTs: thread_ts,
+        messageTs,
+        entryPoint: 'app_mention',
+        userMessage: text,
+        botResponse: botText,
+        threadHistory: prompts,
+        llmProvider: metadata?.provider ?? 'perplexity',
+        llmModel: LLM_MODEL,
+        sources: metadata?.sources,
+        logger,
+      });
     },
   );
 };

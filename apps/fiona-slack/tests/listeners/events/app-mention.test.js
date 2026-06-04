@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
+  LLM_MODEL: 'sonar-pro',
   CITATION_POLICY: {
     citation_rendering_enabled: true,
     FEATURE_FLAG_EVIDENCE_ROW: false,
@@ -48,12 +49,17 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () => ({
+  captureConversation: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
 const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
 const { recordInteraction } = await import('../../../src/agent/interaction-store.js');
+const { captureConversation } = await import('../../../src/agent/conversation-capture-store.js');
 
 describe('appMentionCallback', () => {
   let mockSay;
@@ -288,5 +294,35 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(rollbackFinalization).not.toHaveBeenCalled();
+  });
+
+  describe('conversation capture', () => {
+    beforeEach(() => {
+      captureConversation.mockClear();
+      callLLM.mockResolvedValue({
+        metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://a.com' }], source_index_map: {}, provider: 'perplexity' },
+        botText: 'Bot answer here.',
+      });
+    });
+
+    it('calls captureConversation with correct fields after a successful LLM response', async () => {
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).toHaveBeenCalledTimes(1);
+      const call = captureConversation.mock.calls[0][0];
+      expect(call.userId).toBe(mockEvent.user);
+      expect(call.channelId).toBe(mockEvent.channel);
+      expect(call.entryPoint).toBe('app_mention');
+      expect(call.botResponse).toBe('Bot answer here.');
+      expect(call.llmProvider).toBe('perplexity');
+    });
+
+    it('does not call captureConversation when callLLM throws', async () => {
+      callLLM.mockRejectedValueOnce(new Error('LLM failure'));
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).not.toHaveBeenCalled();
+    });
   });
 });
