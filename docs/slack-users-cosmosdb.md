@@ -101,8 +101,10 @@ npm run setup:emulator
 
 # Run the load with the emulator connection string:
 COSMOS_CONNECTION_STRING="AccountEndpoint=https://localhost:8081/;AccountKey=C2y6y..." \
-  cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 node scripts/load-slack-users.js --source=csv members.csv
+  cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 node scripts/load-slack-users.js --source=csv members.csv --safe-emulator
 ```
+
+`--safe-emulator` enables warmup + conservative write settings (`batch-size=1`, `batch-delay=500`) to reduce transient emulator failures.
 
 ---
 

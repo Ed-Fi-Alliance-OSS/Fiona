@@ -22,7 +22,8 @@
  * Options:
  *   --include-bots           Also load bot user accounts (skipped by default)
  *   --include-deleted        Also load deactivated accounts (skipped by default)
- *   --batch-size=N           Users per batch   (default: 25 local / 100 production)
+ *   --safe-emulator          Force safest local write profile (batch-size=1, delay=500)
+ *   --batch-size=N           Users per batch   (default: 1 local / 100 production)
  *   --batch-delay=MS         Pause between batches in ms (default: 500 local / 0 production)
  */
 
@@ -32,7 +33,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
 
-import { upsertUser } from '../src/agent/slack-users-store.js';
+import { ensureStoreReady, upsertUser } from '../src/agent/slack-users-store.js';
 
 // --- Parse CLI args ---
 
@@ -53,16 +54,20 @@ function getArg(name) {
 const source = getArg('--source') ?? 'api';
 const includeBots = getFlag('--include-bots');
 const includeDeleted = getFlag('--include-deleted');
+const safeEmulator = getFlag('--safe-emulator');
 
 // Detect local emulator by inspecting the connection target before batching defaults are set.
 const cosmosTarget = process.env.COSMOS_CONNECTION_STRING ?? process.env.COSMOS_ENDPOINT ?? '';
 const isEmulator = cosmosTarget.includes('localhost') || cosmosTarget.includes('127.0.0.1');
+const useSafeEmulatorProfile = safeEmulator || isEmulator;
 
-const batchSize = parseInt(getArg('--batch-size') ?? '', 10) || (isEmulator ? 25 : 100);
-const batchDelay = parseInt(getArg('--batch-delay') ?? '', 10) || (isEmulator ? 500 : 0);
+const batchSizeArg = parseInt(getArg('--batch-size') ?? '', 10);
+const batchDelayArg = parseInt(getArg('--batch-delay') ?? '', 10);
+const batchSize = Number.isFinite(batchSizeArg) && batchSizeArg > 0 ? batchSizeArg : useSafeEmulatorProfile ? 1 : 100;
+const batchDelay = Number.isFinite(batchDelayArg) && batchDelayArg >= 0 ? batchDelayArg : useSafeEmulatorProfile ? 500 : 0;
 
-if (isEmulator) {
-  console.log(`[INFO] Emulator detected — using batch size ${batchSize}, delay ${batchDelay} ms`);
+if (useSafeEmulatorProfile) {
+  console.log(`[INFO] Safe upload profile enabled — using batch size ${batchSize}, delay ${batchDelay} ms`);
 }
 
 // --- Helpers ---
@@ -288,6 +293,12 @@ export function _resetCounters() {
 
 async function main() {
   loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
+
+  const cosmosReady = await ensureStoreReady(logger);
+  if (!cosmosReady) {
+    console.error('Cosmos warmup failed. Retry after emulator is healthy or use a production Cosmos endpoint.');
+    process.exit(1);
+  }
 
   if (source === 'api') {
     await loadFromApi();

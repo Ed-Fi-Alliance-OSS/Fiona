@@ -22,10 +22,10 @@ jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jes
 // Set BEFORE import so getContainer() sees it on first call.
 process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==;';
 
-let upsertUser, getUser;
+let upsertUser, getUser, ensureStoreReady;
 
 beforeAll(async () => {
-  ({ upsertUser, getUser } = await import('../../src/agent/slack-users-store.js'));
+  ({ upsertUser, getUser, ensureStoreReady } = await import('../../src/agent/slack-users-store.js'));
 });
 
 afterAll(() => {
@@ -33,6 +33,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  MockCosmosClient.mockClear();
   mockUpsert.mockClear();
   mockRead.mockClear();
 });
@@ -90,6 +91,28 @@ describe('upsertUser — with connection string', () => {
     mockUpsert.mockRejectedValueOnce(new Error('cosmos timeout'));
     await expect(upsertUser(mockUser, null)).resolves.toBe(false);
   });
+
+  it('retries transient upsert failures and succeeds', async () => {
+    const retryable = Object.assign(new Error('Too many requests'), { code: 429 });
+    mockUpsert.mockRejectedValueOnce(retryable).mockResolvedValueOnce({});
+    await expect(upsertUser(mockUser, null)).resolves.toBe(true);
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('rebuilds Cosmos client on reconnect-worthy failures', async () => {
+    jest.resetModules();
+    process.env.COSMOS_CONNECTION_STRING =
+      'AccountEndpoint=https://localhost:8081/;AccountKey=dGVzdA==;';
+    const mod = await import('../../src/agent/slack-users-store.js');
+    MockCosmosClient.mockClear();
+    mockUpsert.mockClear();
+
+    const reconnect = Object.assign(new Error('Partition moved'), { code: 410 });
+    mockUpsert.mockRejectedValueOnce(reconnect).mockResolvedValueOnce({});
+
+    await expect(mod.upsertUser(mockUser, null)).resolves.toBe(true);
+    expect(MockCosmosClient).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('getUser — with connection string', () => {
@@ -114,5 +137,13 @@ describe('getUser — with connection string', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Failed to read Slack user U12345'),
     );
+  });
+});
+
+describe('ensureStoreReady', () => {
+  it('returns true when warmup read returns 404', async () => {
+    const notFound = Object.assign(new Error('Not Found'), { code: 404 });
+    mockRead.mockRejectedValueOnce(notFound);
+    await expect(ensureStoreReady(null)).resolves.toBe(true);
   });
 });

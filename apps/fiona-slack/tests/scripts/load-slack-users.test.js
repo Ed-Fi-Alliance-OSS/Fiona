@@ -11,6 +11,7 @@ jest.unstable_mockModule('dotenv', () => ({ config: jest.fn() }));
 // Mock the store so processUser doesn't attempt real Cosmos writes
 const mockUpsertUser = jest.fn().mockResolvedValue(true);
 jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({
+  ensureStoreReady: jest.fn().mockResolvedValue(true),
   upsertUser: mockUpsertUser,
 }));
 

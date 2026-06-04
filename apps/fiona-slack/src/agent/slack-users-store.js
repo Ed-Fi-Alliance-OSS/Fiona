@@ -8,30 +8,64 @@ import { DefaultAzureCredential } from '@azure/identity';
 
 let warnedMissingConfig = false;
 
+/** @type {import('@azure/cosmos').CosmosClient | null} */
+let cosmosClient = null;
+
 /** @type {import('@azure/cosmos').Container | null} */
 let container = null;
 
+function getCosmosConfig() {
+  return {
+    endpoint: process.env.COSMOS_ENDPOINT,
+    key: process.env.COSMOS_KEY,
+    connectionString: process.env.COSMOS_CONNECTION_STRING,
+    database: process.env.COSMOS_DATABASE || 'chatbot',
+    usersContainer: process.env.COSMOS_USERS_CONTAINER || 'slack-users',
+  };
+}
+
+function isEmulatorTarget(config) {
+  const target = `${config.connectionString ?? ''} ${config.endpoint ?? ''}`.toLowerCase();
+  return target.includes('localhost') || target.includes('127.0.0.1');
+}
+
+function resetContainerCache() {
+  container = null;
+  cosmosClient = null;
+}
+
 /**
  * @param {{ warn?: (msg: string) => void }} [logger]
+ * @param {{ forceRefresh?: boolean }} [options]
  * @returns {Promise<import('@azure/cosmos').Container | null>}
  */
-async function getContainer(logger) {
+async function getContainer(logger, options = {}) {
+  if (options.forceRefresh) {
+    resetContainerCache();
+  }
   if (container) return container;
 
-  const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-  const COSMOS_KEY = process.env.COSMOS_KEY;
-  const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
-  const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
-  const COSMOS_USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
+  const config = getCosmosConfig();
 
-  let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, aadCredentials: new DefaultAzureCredential() });
-  } else {
+  if (!cosmosClient) {
+    if (config.connectionString) {
+      cosmosClient = new CosmosClient(config.connectionString);
+    } else if (config.endpoint && config.key) {
+      cosmosClient = new CosmosClient({ endpoint: config.endpoint, key: config.key });
+    } else if (config.endpoint) {
+      cosmosClient = new CosmosClient({ endpoint: config.endpoint, aadCredentials: new DefaultAzureCredential() });
+    } else {
+      if (!warnedMissingConfig) {
+        warnedMissingConfig = true;
+        logger?.warn?.(
+          'CosmosDB not configured — slack-users store unavailable. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
+        );
+      }
+      return null;
+    }
+  }
+
+  if (!cosmosClient) {
     if (!warnedMissingConfig) {
       warnedMissingConfig = true;
       logger?.warn?.(
@@ -41,7 +75,7 @@ async function getContainer(logger) {
     return null;
   }
 
-  container = client.database(COSMOS_DATABASE).container(COSMOS_USERS_CONTAINER);
+  container = cosmosClient.database(config.database).container(config.usersContainer);
   return container;
 }
 
@@ -68,31 +102,88 @@ async function getContainer(logger) {
  * @param {{ warn?: (msg: string) => void }} [logger]
  * @returns {Promise<boolean>} True if upsert succeeded, false if it failed or Cosmos is not configured
  */
-/** Retryable Cosmos status codes: 410 Gone (emulator restart), 429 Too Many Requests, 503 Unavailable */
-const RETRYABLE_CODES = new Set([410, 429, 503]);
+const RETRYABLE_CODES = new Set([410, 429, 449, 503]);
+const RECONNECT_CODES = new Set([410, 503]);
 
-async function withRetry(fn, maxAttempts = 3) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+function toNumericCode(error) {
+  const rawCode = error?.code;
+  const code = Number(rawCode);
+  return Number.isFinite(code) ? code : null;
+}
+
+function getRetryPolicy() {
+  const config = getCosmosConfig();
+  const isTest = process.env.NODE_ENV === 'test';
+  if (isTest) {
+    return { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 5 };
+  }
+
+  if (isEmulatorTarget(config)) {
+    return { maxAttempts: 8, baseDelayMs: 400, maxDelayMs: 5000 };
+  }
+
+  return { maxAttempts: 3, baseDelayMs: 150, maxDelayMs: 1200 };
+}
+
+function getDelayMs(policy, attempt) {
+  const baseDelay = Math.min(policy.baseDelayMs * 2 ** (attempt - 1), policy.maxDelayMs);
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(baseDelay * 0.2)));
+  return baseDelay + jitter;
+}
+
+async function executeWithRetry(operation, logger) {
+  const policy = getRetryPolicy();
+  let forceRefresh = false;
+
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
     try {
-      return await fn();
+      const c = await getContainer(logger, { forceRefresh });
+      if (!c) return false;
+      await operation(c);
+      return true;
     } catch (error) {
-      if (!RETRYABLE_CODES.has(error.code) || attempt === maxAttempts) throw error;
-      await new Promise((r) => setTimeout(r, 150 * 2 ** (attempt - 1)));
+      const code = toNumericCode(error);
+      if (!RETRYABLE_CODES.has(code) || attempt === policy.maxAttempts) throw error;
+      forceRefresh = RECONNECT_CODES.has(code);
+      if (forceRefresh) {
+        resetContainerCache();
+      }
+      const delayMs = getDelayMs(policy, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
+
+  return false;
 }
 
 export async function upsertUser(user, logger) {
-  const c = await getContainer(logger);
-  if (!c) return false;
-
   const doc = { ...user, updatedAt: new Date().toISOString() };
 
   try {
-    await withRetry(() => c.items.upsert(doc, { partitionKey: doc.id }));
-    return true;
+    return await executeWithRetry((c) => c.items.upsert(doc, { partitionKey: doc.id }), logger);
   } catch (error) {
     logger?.warn?.(`Failed to upsert Slack user ${user.id} to Cosmos DB: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Warm up Cosmos container connectivity before a bulk load.
+ *
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<boolean>}
+ */
+export async function ensureStoreReady(logger) {
+  try {
+    return await executeWithRetry(async (c) => {
+      try {
+        await c.item('__fiona_warmup__', '__fiona_warmup__').read();
+      } catch (error) {
+        if (toNumericCode(error) !== 404) throw error;
+      }
+    }, logger);
+  } catch (error) {
+    logger?.warn?.(`Cosmos DB warmup failed for slack-users store: ${error.message}`);
     return false;
   }
 }
