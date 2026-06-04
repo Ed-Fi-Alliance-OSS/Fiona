@@ -73,6 +73,12 @@ param interactionsContainerName string = 'interactions'
 @description('Cosmos DB container name for Slack workspace user cache')
 param usersContainerName string = 'slack-users'
 
+@description('Cosmos DB container name for full conversation capture')
+param conversationsContainerName string = 'conversations'
+
+@description('Enable capturing all conversations for human evaluation (default: false)')
+param captureAllConversations bool = false
+
 // --- Reference shared resources ---
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -234,6 +240,48 @@ resource usersContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
   }
 }
 
+// Conversations Container for human evaluation of full conversation history
+resource conversationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  name: conversationsContainerName
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: conversationsContainerName
+      partitionKey: {
+        paths: [ '/deploymentType', '/userId' ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+          // threadHistory and botResponse are large text blobs — exclude from index
+          { path: '/threadHistory/*' }
+          { path: '/botResponse/?' }
+          { path: '/userMessage/?' }
+        ]
+        compositeIndexes: [
+          [
+            { path: '/userId', order: 'ascending' }
+            { path: '/timestamp', order: 'descending' }
+          ]
+          [
+            { path: '/entryPoint', order: 'ascending' }
+            { path: '/timestamp', order: 'descending' }
+          ]
+        ]
+      }
+      // 360-day TTL — documents expire automatically; per-document ttl field overrides if needed
+      defaultTtl: 31104000
+    }
+    options: {}
+  }
+}
+
 // --- Container App (Socket Mode -- no ingress, fixed 1 replica) ---
 
 resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
@@ -326,6 +374,18 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
               name: 'DEPLOYMENT_TYPE'
               value: deploymentType
             }
+            {
+              name: 'COSMOS_CONVERSATIONS_CONTAINER'
+              value: conversationsContainerName
+            }
+            {
+              name: 'CAPTURE_ALL_CONVERSATIONS'
+              value: captureAllConversations ? 'true' : 'false'
+            }
+            {
+              name: 'COSMOS_INTERACTIONS_CONTAINER'
+              value: interactionsContainerName
+            }
           ]
           // No probes -- no ingress port for HTTP health checks
           // Container restart policy handles crash recovery
@@ -340,6 +400,8 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
   }
   dependsOn: [
     acrPullRoleAssignment
+    usersContainer
+    conversationsContainer
   ]
 }
 
