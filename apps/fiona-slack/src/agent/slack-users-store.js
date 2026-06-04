@@ -68,6 +68,20 @@ async function getContainer(logger) {
  * @param {{ warn?: (msg: string) => void }} [logger]
  * @returns {Promise<boolean>} True if upsert succeeded, false if it failed or Cosmos is not configured
  */
+/** Retryable Cosmos status codes: 410 Gone (emulator restart), 429 Too Many Requests, 503 Unavailable */
+const RETRYABLE_CODES = new Set([410, 429, 503]);
+
+async function withRetry(fn, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!RETRYABLE_CODES.has(error.code) || attempt === maxAttempts) throw error;
+      await new Promise((r) => setTimeout(r, 150 * 2 ** (attempt - 1)));
+    }
+  }
+}
+
 export async function upsertUser(user, logger) {
   const c = await getContainer(logger);
   if (!c) return false;
@@ -75,7 +89,7 @@ export async function upsertUser(user, logger) {
   const doc = { ...user, updatedAt: new Date().toISOString() };
 
   try {
-    await c.items.upsert(doc, { partitionKey: doc.id });
+    await withRetry(() => c.items.upsert(doc, { partitionKey: doc.id }));
     return true;
   } catch (error) {
     logger?.warn?.(`Failed to upsert Slack user ${user.id} to Cosmos DB: ${error.message}`);

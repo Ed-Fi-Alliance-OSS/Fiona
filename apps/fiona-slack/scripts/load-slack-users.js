@@ -16,9 +16,14 @@
  * Both modes require CosmosDB credentials (COSMOS_CONNECTION_STRING or
  * COSMOS_ENDPOINT) to be set in the environment or a local .env file.
  *
+ * When the endpoint contains "localhost" the script automatically uses
+ * conservative defaults suitable for the local Cosmos DB Emulator.
+ *
  * Options:
- *   --include-bots       Also load bot user accounts (skipped by default)
- *   --include-deleted    Also load deactivated accounts (skipped by default)
+ *   --include-bots           Also load bot user accounts (skipped by default)
+ *   --include-deleted        Also load deactivated accounts (skipped by default)
+ *   --batch-size=N           Users per batch   (default: 25 local / 100 production)
+ *   --batch-delay=MS         Pause between batches in ms (default: 500 local / 0 production)
  */
 
 import { createReadStream, existsSync } from 'node:fs';
@@ -49,6 +54,17 @@ const source = getArg('--source') ?? 'api';
 const includeBots = getFlag('--include-bots');
 const includeDeleted = getFlag('--include-deleted');
 
+// Detect local emulator by inspecting the connection target before batching defaults are set.
+const cosmosTarget = process.env.COSMOS_CONNECTION_STRING ?? process.env.COSMOS_ENDPOINT ?? '';
+const isEmulator = cosmosTarget.includes('localhost') || cosmosTarget.includes('127.0.0.1');
+
+const batchSize = parseInt(getArg('--batch-size') ?? '', 10) || (isEmulator ? 25 : 100);
+const batchDelay = parseInt(getArg('--batch-delay') ?? '', 10) || (isEmulator ? 500 : 0);
+
+if (isEmulator) {
+  console.log(`[INFO] Emulator detected — using batch size ${batchSize}, delay ${batchDelay} ms`);
+}
+
 // --- Helpers ---
 
 const logger = { warn: (msg) => console.warn(`[WARN] ${msg}`) };
@@ -58,23 +74,43 @@ let upserted = 0;
 let skipped = 0;
 let failed = 0;
 
+/** Pending users collected before the next batch flush. */
+const pending = [];
+
+function shouldSkip(user) {
+  if (!user.id) return true;
+  if (!includeBots && user.isBot) return true;
+  if (!includeDeleted && user.deleted) return true;
+  return false;
+}
+
+async function flushBatch(batch) {
+  await Promise.all(
+    batch.map(async (user) => {
+      const ok = await upsertUser(user, logger);
+      if (ok) upserted++;
+      else failed++;
+    }),
+  );
+}
+
 async function processUser(user) {
   processed++;
-  if (!user.id) {
+  if (shouldSkip(user)) {
     skipped++;
     return;
   }
-  if (!includeBots && user.isBot) {
-    skipped++;
-    return;
+  pending.push(user);
+  if (pending.length >= batchSize) {
+    await flushPending();
   }
-  if (!includeDeleted && user.deleted) {
-    skipped++;
-    return;
-  }
-  const ok = await upsertUser(user, logger);
-  if (ok) upserted++;
-  else failed++;
+}
+
+async function flushPending() {
+  if (pending.length === 0) return;
+  const batch = pending.splice(0, pending.length);
+  await flushBatch(batch);
+  if (batchDelay > 0) await new Promise((r) => setTimeout(r, batchDelay));
 }
 
 // --- API mode ---
@@ -116,6 +152,8 @@ async function loadFromApi() {
 
     cursor = data.response_metadata?.next_cursor || null;
   } while (cursor);
+
+  await flushPending();
 }
 
 /**
@@ -176,6 +214,8 @@ async function loadFromCsv(filePath) {
     const user = mapCsvRow(row);
     await processUser(user);
   }
+
+  await flushPending();
 }
 
 /**
