@@ -112,4 +112,48 @@ describe('recordFeedback - with connection string', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('persists reason when provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000010',
+      value: 'bad-feedback',
+      reason: 'The answer was factually wrong',
+      userMessage: 'What is 2+2?',
+      botResponse: '5',
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBe('The answer was factually wrong');
+  });
+
+  it('stores reason as null when not provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000011',
+      value: 'good-feedback',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
+  });
+
+  it('stores reason as null when empty string is provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000012',
+      value: 'good-feedback',
+      reason: '',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
+  });
 });

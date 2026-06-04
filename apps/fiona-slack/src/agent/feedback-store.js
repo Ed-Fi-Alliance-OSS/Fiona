@@ -56,11 +56,21 @@ async function getContainer(logger) {
  * @param {string} feedback.channelId - Slack channel ID
  * @param {string} feedback.messageTs - Timestamp of the bot message being rated
  * @param {string} feedback.value - 'good-feedback' or 'bad-feedback'
+ * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
-export async function recordFeedback({ userId, channelId, messageTs, value, userMessage, botResponse, logger }) {
+export async function recordFeedback({
+  userId,
+  channelId,
+  messageTs,
+  value,
+  reason,
+  userMessage,
+  botResponse,
+  logger,
+}) {
   const c = await getContainer(logger);
   if (!c) return;
 
@@ -70,6 +80,7 @@ export async function recordFeedback({ userId, channelId, messageTs, value, user
     channelId,
     messageTs,
     value,
+    reason: reason || null,
     userMessage,
     botResponse,
     deploymentType: DEPLOYMENT_TYPE,
