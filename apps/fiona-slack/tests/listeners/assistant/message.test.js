@@ -492,10 +492,27 @@ describe('message (assistant thread handler)', () => {
       expect(call.entryPoint).toBe('assistant_message');
       expect(call.botResponse).toBe('Bot answer here.');
       expect(call.llmProvider).toBe('perplexity');
+      expect(call.teamId).toBeDefined();
+      expect(call.llmModel).toBeDefined();
     });
 
     it('does not call captureConversation when callLLM throws', async () => {
       callLLM.mockRejectedValueOnce(new Error('LLM failure'));
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(captureConversation).not.toHaveBeenCalled();
+    });
+
+    it('does not call captureConversation when shouldFinalize returns false', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
 
       await messageHandler({
         client: mockClient,

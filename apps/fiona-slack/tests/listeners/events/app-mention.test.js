@@ -315,10 +315,20 @@ describe('appMentionCallback', () => {
       expect(call.entryPoint).toBe('app_mention');
       expect(call.botResponse).toBe('Bot answer here.');
       expect(call.llmProvider).toBe('perplexity');
+      expect(call.teamId).toBeDefined();
+      expect(call.llmModel).toBeDefined();
     });
 
     it('does not call captureConversation when callLLM throws', async () => {
       callLLM.mockRejectedValueOnce(new Error('LLM failure'));
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).not.toHaveBeenCalled();
+    });
+
+    it('does not call captureConversation when shouldFinalize returns false', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 

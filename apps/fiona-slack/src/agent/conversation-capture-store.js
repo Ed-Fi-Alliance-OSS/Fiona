@@ -89,36 +89,36 @@ export async function captureConversation({
 }) {
   if (!CAPTURE_ALL_CONVERSATIONS) return;
 
-  const c = await getContainer(logger);
-  if (!c) return;
-
-  if (!userId || !channelId || !threadTs || !messageTs || !entryPoint) {
-    logger?.warn?.(
-      `Missing required fields for capturing conversation: ${JSON.stringify({ userId, channelId, threadTs, messageTs, entryPoint })}`,
-    );
-    return;
-  }
-
-  const doc = {
-    id: `${userId}_${threadTs}_${messageTs}`,
-    userId,
-    teamId,
-    channelId,
-    threadTs,
-    messageTs,
-    entryPoint,
-    userMessage,
-    botResponse,
-    threadHistory,
-    llmProvider,
-    llmModel,
-    sources: sources ?? [],
-    deploymentType: DEPLOYMENT_TYPE,
-    timestamp: new Date().toISOString(),
-    ttl: CONVERSATION_TTL_SECONDS,
-  };
-
   try {
+    const c = await getContainer(logger);
+    if (!c) return;
+
+    if (!userId || !channelId || !threadTs || !messageTs || !entryPoint) {
+      logger?.warn?.(
+        `Missing required fields for capturing conversation: ${JSON.stringify({ userId, channelId, threadTs, messageTs, entryPoint })}`,
+      );
+      return;
+    }
+
+    const doc = {
+      id: `${userId}_${threadTs}_${messageTs}`,
+      userId,
+      teamId,
+      channelId,
+      threadTs,
+      messageTs,
+      entryPoint,
+      userMessage,
+      botResponse,
+      threadHistory,
+      llmProvider,
+      llmModel,
+      sources: sources ?? [],
+      deploymentType: DEPLOYMENT_TYPE,
+      timestamp: new Date().toISOString(),
+      ttl: CONVERSATION_TTL_SECONDS,
+    };
+
     await c.items.upsert(doc, {
       partitionKey: [doc.deploymentType, doc.userId],
     });
