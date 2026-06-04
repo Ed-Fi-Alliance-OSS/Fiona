@@ -8,14 +8,15 @@
  * positive and negative feedback icons. This block is attached to the bottom of LLM
  * responses using the `WebClient#chatStream.stop()` method.
  *
+ * Opens a modal so the user can optionally (thumbs-up) or mandatorily (thumbs-down)
+ * provide a reason. The modal submission is handled by `feedbackReasonViewCallback`.
+ *
  * @param {Object} params
  * @param {import("@slack/bolt").AckFn<any>} params.ack - Acknowledgement function.
  * @param {import("@slack/bolt").SlackAction} params.body - Action payload.
  * @param {import("@slack/web-api").WebClient} params.client - Slack web client.
  * @param {import("@slack/logger").Logger} params.logger - Logger instance.
  */
-import { recordFeedback } from '../../agent/feedback-store.js';
-
 export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
   try {
     await ack();
@@ -34,54 +35,53 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
     const user_id = body.user.id;
     const value = action.value;
 
-    if (value === 'good-feedback') {
-      await client.chat.postEphemeral({
-        channel: channel_id,
-        user: user_id,
-        thread_ts: message_ts,
-        text: "We're glad you found this useful.",
-      });
-    } else if (value === 'bad-feedback') {
-      await client.chat.postEphemeral({
-        channel: channel_id,
-        user: user_id,
-        thread_ts: message_ts,
-        text: "Sorry to hear that response wasn't up to par :slightly_frowning_face: Starting a new chat may help with AI mistakes and hallucinations.",
-      });
-    } else {
-      logger.warn('Received unexpected feedback value', {
-        value,
-        channel_id,
-        user_id,
-        message_ts,
-      });
+    if (value !== 'good-feedback' && value !== 'bad-feedback') {
+      logger.warn('Received unexpected feedback value', { value, channel_id, user_id, message_ts });
       return;
     }
 
-    try {
-      const botResponse = body.message.text ?? null;
+    const isGoodFeedback = value === 'good-feedback';
+    const thread_ts = body.message.thread_ts ?? message_ts;
 
-      let userMessage = null;
-      const thread_ts = body.message.thread_ts ?? message_ts;
-      const { messages } = await client.conversations.replies({ channel: channel_id, ts: thread_ts });
-      if (messages) {
-        const botIndex = messages.findIndex((m) => m.ts === message_ts);
-        const preceding = botIndex > 0 ? messages[botIndex - 1] : null;
-        if (preceding?.text) userMessage = preceding.text;
-      }
-
-      await recordFeedback({
-        userId: user_id,
-        channelId: channel_id,
-        messageTs: message_ts,
-        value,
-        userMessage,
-        botResponse,
-        logger,
-      });
-    } catch (e) {
-      logger.error('Failed to record feedback to Cosmos DB:', e);
-    }
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'feedback_reason',
+        title: {
+          type: 'plain_text',
+          text: isGoodFeedback ? 'Thanks for your feedback!' : 'Sorry to hear that!',
+        },
+        submit: { type: 'plain_text', text: 'Submit' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        private_metadata: JSON.stringify({
+          channelId: channel_id,
+          messageTs: message_ts,
+          userId: user_id,
+          value,
+          thread_ts,
+        }),
+        blocks: [
+          {
+            type: 'input',
+            optional: isGoodFeedback,
+            block_id: 'reason_block',
+            label: {
+              type: 'plain_text',
+              text: isGoodFeedback ? 'Why was this helpful?' : 'What could be better?',
+            },
+            element: {
+              type: 'plain_text_input',
+              action_id: 'reason_input',
+              placeholder: {
+                type: 'plain_text',
+                text: isGoodFeedback ? 'Optional: share what was helpful' : 'Please describe the issue',
+              },
+            },
+          },
+        ],
+      },
+    });
   } catch (error) {
     logger.error('Something went wrong while handling feedback action.', error);
   }
