@@ -17,7 +17,6 @@ describe('feedbackReasonViewCallback', () => {
   let mockAck;
   let mockLogger;
   let mockClient;
-  let mockBody;
   let mockView;
 
   beforeEach(() => {
@@ -49,11 +48,10 @@ describe('feedbackReasonViewCallback', () => {
         },
       },
     };
-    mockBody = { user: { id: 'U123' } };
   });
 
   it('calls ack immediately', async () => {
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
     expect(mockAck).toHaveBeenCalledTimes(1);
   });
 
@@ -64,7 +62,7 @@ describe('feedbackReasonViewCallback', () => {
     ];
     mockClient.conversations.replies.mockResolvedValueOnce({ messages });
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -82,7 +80,7 @@ describe('feedbackReasonViewCallback', () => {
   it('normalizes empty string reason to null', async () => {
     mockView.state.values.reason_block.reason_input.value = '';
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
   });
@@ -90,7 +88,7 @@ describe('feedbackReasonViewCallback', () => {
   it('normalizes whitespace-only reason to null', async () => {
     mockView.state.values.reason_block.reason_input.value = '   ';
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
   });
@@ -98,16 +96,16 @@ describe('feedbackReasonViewCallback', () => {
   it('normalizes null input value to null reason', async () => {
     mockView.state.values.reason_block.reason_input.value = null;
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
   });
 
   it('posts a positive ephemeral confirmation for good-feedback', async () => {
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'C456', user: 'U123', thread_ts: '1234567890.000001' }),
+      expect.objectContaining({ channel: 'C456', user: 'U123', thread_ts: '1234567890.000000' }),
     );
     const [{ text }] = mockClient.chat.postEphemeral.mock.calls[0];
     expect(text).toContain('glad');
@@ -123,7 +121,7 @@ describe('feedbackReasonViewCallback', () => {
     });
     mockView.state.values.reason_block.reason_input.value = 'Answer was wrong';
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     const [{ text }] = mockClient.chat.postEphemeral.mock.calls[0];
     expect(text).toContain('Sorry');
@@ -132,7 +130,7 @@ describe('feedbackReasonViewCallback', () => {
   it('records with userMessage and botResponse null when conversations.replies fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ userMessage: null, botResponse: null }),
@@ -143,7 +141,7 @@ describe('feedbackReasonViewCallback', () => {
   it('still posts ephemeral even when conversations.replies fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
   });
@@ -152,7 +150,7 @@ describe('feedbackReasonViewCallback', () => {
     mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
 
     await expect(
-      feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger }),
+      feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger }),
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalled();
@@ -161,7 +159,7 @@ describe('feedbackReasonViewCallback', () => {
   it('still posts ephemeral even when recordFeedback fails', async () => {
     mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
 
-    await feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger });
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
   });
@@ -170,7 +168,7 @@ describe('feedbackReasonViewCallback', () => {
     mockAck.mockRejectedValueOnce(new Error('ack failed'));
 
     await expect(
-      feedbackReasonViewCallback({ ack: mockAck, body: mockBody, view: mockView, client: mockClient, logger: mockLogger }),
+      feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger }),
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalled();

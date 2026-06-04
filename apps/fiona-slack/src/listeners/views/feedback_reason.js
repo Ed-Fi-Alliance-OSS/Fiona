@@ -50,7 +50,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
         ? "We're glad you found this useful."
         : "Sorry to hear that response wasn't up to par :slightly_frowning_face: Starting a new chat may help with AI mistakes and hallucinations.";
 
-    await client.chat.postEphemeral({ channel: channelId, user: userId, thread_ts: messageTs, text });
+    await client.chat.postEphemeral({ channel: channelId, user: userId, thread_ts, text });
   } catch (error) {
     logger.error('Something went wrong while handling feedback reason view.', error);
   }

@@ -73,6 +73,8 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
             element: {
               type: 'plain_text_input',
               action_id: 'reason_input',
+              multiline: true,
+              max_length: 500,
               placeholder: {
                 type: 'plain_text',
                 text: isGoodFeedback ? 'Optional: share what was helpful' : 'Please describe the issue',
