@@ -111,7 +111,8 @@ The `.slack/` directory holds configuration for the [Slack CLI](https://tools.sl
    ```
 
    > [!TIP]
-   > To connect to a local CosmosDB with self-signed certificate, execute `npm run slack:unsafe`.
+   > To connect to a local CosmosDB with self-signed certificate in PowerShell, run
+   > `$env:NODE_TLS_REJECT_UNAUTHORIZED=0; slack run`.
 
 ### `apps.json` for production/CI
 

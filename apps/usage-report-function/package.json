@@ -5,7 +5,7 @@
   "type": "module",
   "main": "WeeklyReportTrigger/index.js",
   "scripts": {
-    "start": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 func start",
+    "start": "func start",
     "lint": "npx @biomejs/biome check lib/ test/ WeeklyReportTrigger/",
     "lint:fix": "npx @biomejs/biome check --write lib/ test/ WeeklyReportTrigger/",
     "test": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js",

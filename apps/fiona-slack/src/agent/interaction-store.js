@@ -3,8 +3,6 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import https from 'node:https';
-
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
@@ -15,9 +13,71 @@ const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 
 let warnedMissingConfig = false;
+const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
+const RECONNECT_CODES = new Set([410, 503]);
 
 /** @type {import('@azure/cosmos').Container | null} */
 let container = null;
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function formatCosmosError(error) {
+  const fallback = error instanceof Error ? error.message : String(error);
+  const message = String(fallback || 'Unknown error')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const statusCode = Number(error?.statusCode);
+  const code = Number(error?.code);
+  const activityId = error?.activityId ?? error?.headers?.['x-ms-activity-id'];
+
+  const details = [
+    Number.isFinite(statusCode) ? `statusCode=${statusCode}` : null,
+    Number.isFinite(code) ? `code=${code}` : null,
+    activityId ? `activityId=${activityId}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return details ? `${message} (${details})` : message;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {number | null}
+ */
+function toNumericCode(error) {
+  const rawCode = error?.code ?? error?.statusCode;
+  const code = Number(rawCode);
+  if (Number.isFinite(code)) return code;
+
+  const message = String(error?.message ?? '').toLowerCase();
+  if (message.includes('410 response')) return 410;
+  if (message.includes('service is currently unavailable')) return 503;
+  return null;
+}
+
+function isEmulatorTarget() {
+  const target = `${COSMOS_CONNECTION_STRING ?? ''} ${COSMOS_ENDPOINT ?? ''}`.toLowerCase();
+  return target.includes('localhost') || target.includes('127.0.0.1');
+}
+
+function getRetryPolicy() {
+  if (process.env.NODE_ENV === 'test') {
+    return { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 5 };
+  }
+  if (isEmulatorTarget()) {
+    return { maxAttempts: 2, baseDelayMs: 200, maxDelayMs: 1000 };
+  }
+  return { maxAttempts: 3, baseDelayMs: 150, maxDelayMs: 800 };
+}
+
+function getDelayMs(policy, attempt) {
+  const baseDelay = Math.min(policy.baseDelayMs * 2 ** (attempt - 1), policy.maxDelayMs);
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(baseDelay * 0.2)));
+  return baseDelay + jitter;
+}
 
 /**
  * Get or initialize the Cosmos DB container for interactions.
@@ -33,17 +93,15 @@ export async function getContainer(logger) {
   const database = COSMOS_DATABASE;
   const cosmosContainer = COSMOS_CONTAINER;
 
-  const tlsAgent = new https.Agent({ rejectUnauthorized: false });
   let client;
   if (connectionString) {
-    client = new CosmosClient({ connectionString, agent: tlsAgent });
+    client = new CosmosClient({ connectionString });
   } else if (endpoint && key) {
-    client = new CosmosClient({ endpoint, key, agent: tlsAgent });
+    client = new CosmosClient({ endpoint, key });
   } else if (endpoint) {
     client = new CosmosClient({
       endpoint,
       aadCredentials: new DefaultAzureCredential(),
-      agent: tlsAgent,
     });
   } else {
     if (!warnedMissingConfig) {
@@ -129,11 +187,26 @@ export async function recordInteraction({
     timestamp: new Date().toISOString(),
   };
 
-  try {
-    await c.items.upsert(doc, {
-      partitionKey: [doc.deploymentType, doc.userId],
-    });
-  } catch (error) {
-    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.message}`);
+  const policy = getRetryPolicy();
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+    try {
+      const activeContainer = attempt === 1 ? c : await getContainer(logger);
+      if (!activeContainer) return;
+      await activeContainer.items.upsert(doc, {
+        partitionKey: [doc.deploymentType, doc.userId],
+      });
+      return;
+    } catch (error) {
+      const code = toNumericCode(error);
+      const retryable = RETRYABLE_CODES.has(code);
+      if (!retryable || attempt === policy.maxAttempts) {
+        logger?.warn?.(`Failed to record interaction to Cosmos DB: ${formatCosmosError(error)}`);
+        return;
+      }
+      if (RECONNECT_CODES.has(code)) {
+        container = null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, getDelayMs(policy, attempt)));
+    }
   }
 }

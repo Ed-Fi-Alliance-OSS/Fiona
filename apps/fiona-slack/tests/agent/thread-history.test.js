@@ -244,6 +244,34 @@ describe('buildThreadHistory', () => {
       const result = await buildThreadHistory(mockClient, 'C123', '123.456', { maxChars: 10 });
       expect(result).toHaveLength(1);
     });
+
+    it('falls back to currentText when truncation leaves only a lone assistant message', async () => {
+      // Truncation preserves at least one message (the assistant reply), then
+      // dropLeadingAssistantMessages removes it, leaving an empty array that
+      // triggers the currentText fallback.
+      mockClient.conversations.replies.mockResolvedValueOnce({
+        messages: [
+          { text: 'Hi', bot_id: undefined },
+          { text: 'A'.repeat(100), bot_id: 'B123', subtype: 'bot_message' },
+        ],
+      });
+      const result = await buildThreadHistory(mockClient, 'C123', '123.456', {
+        maxChars: 10,
+        currentText: 'New question',
+      });
+      expect(result).toEqual([{ role: 'user', content: 'New question' }]);
+    });
+
+    it('returns empty array when truncation leaves only a lone assistant message and no currentText', async () => {
+      mockClient.conversations.replies.mockResolvedValueOnce({
+        messages: [
+          { text: 'Hi', bot_id: undefined },
+          { text: 'A'.repeat(100), bot_id: 'B123', subtype: 'bot_message' },
+        ],
+      });
+      const result = await buildThreadHistory(mockClient, 'C123', '123.456', { maxChars: 10 });
+      expect(result).toEqual([]);
+    });
   });
 
   describe('error handling', () => {

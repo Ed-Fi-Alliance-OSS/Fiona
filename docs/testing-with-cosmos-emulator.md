@@ -46,8 +46,8 @@ npm run setup:emulator
 
 The emulator uses a self-signed TLS certificate, so you must bypass certificate validation:
 
-```bash
-NODE_TLS_REJECT_UNAUTHORIZED=0 slack run
+```pwsh
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; slack run
 ```
 
 ### 4. Trigger a message
