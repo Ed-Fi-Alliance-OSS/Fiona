@@ -348,7 +348,7 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer
  * @param {Array} prompts
- * @returns {Promise<string[]>} Citation URL strings (may be empty)
+ * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and citation URL strings
  */
 export async function callPerplexityChat(streamer, prompts) {
   if (!perplexityClient) {

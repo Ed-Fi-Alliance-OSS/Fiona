@@ -401,6 +401,8 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
   dependsOn: [
     acrPullRoleAssignment
     usersContainer
+    interactionsContainer
+    feedbackContainer
     conversationsContainer
   ]
 }

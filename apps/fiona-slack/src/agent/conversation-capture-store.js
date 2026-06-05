@@ -127,6 +127,7 @@ export async function captureConversation({
       partitionKey: [doc.deploymentType, doc.userId],
     });
   } catch (error) {
-    logger?.warn?.(`Failed to capture conversation to Cosmos DB: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger?.warn?.(`Failed to capture conversation to Cosmos DB: ${errorMessage}`);
   }
 }
