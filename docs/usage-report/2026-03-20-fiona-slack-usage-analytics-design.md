@@ -1,7 +1,7 @@
 # Fiona-Slack Usage Analytics Implementation Design
 
 **Date:** 2026-03-20
-**Scope:** Phase 1 (Cosmos DB `interactions` container) + Phase 2 (Weekly TimerTrigger function)
+**Scope:** Phase 1 (Cosmos DB `interactions` container) + Phase 2 (Weekly TimerTrigger function) — both phases implemented
 **Goal:** Measure user engagement through durable analytics
 
 ---
@@ -80,9 +80,6 @@ The weekly report will surface:
 {
   "compositeIndexes": [
     [
-      { "path": "/timestamp", "order": "descending" }
-    ],
-    [
       { "path": "/userId", "order": "ascending" },
       { "path": "/timestamp", "order": "descending" }
     ],
@@ -93,101 +90,116 @@ The weekly report will surface:
     [
       { "path": "/status", "order": "ascending" },
       { "path": "/timestamp", "order": "descending" }
+    ],
+    [
+      { "path": "/timestamp", "order": "descending" },
+      { "path": "/status", "order": "ascending" },
+      { "path": "/rateLimited", "order": "ascending" }
+    ],
+    [
+      { "path": "/timestamp", "order": "descending" },
+      { "path": "/rateLimited", "order": "ascending" }
     ]
   ]
 }
 ```
 
 **Notes on indexes:**
-- Partition key `/deploymentType` is automatically indexed
-- `/timestamp` descending is the primary filter for weekly lookback queries
+- Partition key fields `/deploymentType` and `/userId` are automatically indexed
 - `/userId` + `/timestamp` enables user-level trend analysis
 - `/threadTs` + `/messageTs` enables session reconstruction
 - `/status` + `/timestamp` enables efficient error rate queries
+- `/timestamp` + `/status` + `/rateLimited` covers analytics queries that filter by all three (e.g., successful non-rate-limited interactions)
+- `/timestamp` + `/rateLimited` covers rate-limited count queries
 
 ### Implementation
 
-#### New Module: `src/agent/interaction-store.js`
+#### New Modules
 
-Create a new module mirroring the pattern of `feedback-store.js`:
+**`src/agent/interaction-store.js`**
+
+Mirrors the pattern of `feedback-store.js`:
 
 - Lazy-initializes Cosmos DB connection (supports connection string, endpoint+key, or endpoint+Managed Identity)
 - Exports `recordInteraction(payload, logger)` function
+- Guards against missing required fields before writing to Cosmos (skips write and logs a warning if any required field is absent)
 - Upserts document with explicit `id` for idempotency
-- **Upsert call must specify partitionKey:** `await c.items.upsert(doc, { partitionKey: [doc.deploymentType, doc.userId] });`
+- **Upsert call specifies partitionKey:** `await c.items.upsert(doc, { partitionKey: [doc.deploymentType, doc.userId] });`
 - Silently no-ops if Cosmos is not configured (local development)
+
+**`src/agent/interaction-telemetry.js`**
+
+A reusable wrapper that centralizes the try-catch-finally telemetry pattern used by event handlers:
+
+- Exports `handleInteractionWithTelemetry({ userId, teamId, channelId, threadTs, messageTs, interactionType, logger, say }, fn)` — wraps the handler body `fn` in a try-catch-finally block
+- Classifies errors into `errorType` categories (see below) and records the interaction in the `finally` block via `recordInteraction`
+- Provides helper callbacks to the handler body: `claimResponseId(id)`, `markRateLimited()`, and `markInteractionRecorded()` for controlling recording behavior
+- Rolls back any claimed finalization slot on failure to allow retry
+
+**`src/agent/rate-limited-handler.js`**
+
+Centralizes rate-limit checking and early-return logic:
+
+- Exports `handleRateLimitedInteraction(params)` — checks the rate limiter for the user, records a `rate_limited` interaction fire-and-forget if blocked, and sends a user-facing error message
+- Returns `true` if the request was rate-limited (caller should return early), `false` otherwise
+- Note: `src/agent/rate-limiter.js` already existed before this feature and is used here without modification
 
 #### Code Changes in Event Handlers
 
 **`src/listeners/events/app_mention.js` and `src/listeners/assistant/message.js`:**
 
-1. Import `recordInteraction` from `interaction-store.js`
-2. Check rate-limiter **before** entering try-catch; if rate-limited, record interaction immediately and return early
-3. Wrap the LLM call and response sending in try-catch
-4. Call `recordInteraction()` in the finally block with:
-   - User/message metadata (userId, channelId, threadTs, messageTs)
-   - `status`: "success" if no exception thrown, "error" otherwise
-   - `errorType`: categorized error (see below)
-   - `rateLimited`: `true` if rate-limiter blocked request, `false` otherwise
-5. Ensure the function completes (don't rethrow after recording)
-
-**Error Type Categorization:**
+Both handlers delegate the try-catch-finally telemetry pattern to `handleInteractionWithTelemetry`:
 
 ```javascript
-// Pseudocode for error detection
-try {
-  const { allowed, retryAfterMs } = checkRateLimit(userId);
-  if (!allowed) {
-    // Record rate-limited interaction and return early
-    await recordInteraction({
-      status: 'error',
-      errorType: 'rate_limited',
-      rateLimited: true,
-      // ... other fields
-    });
-    return app.client.chat.postMessage({ /* friendly message */ });
-  }
+await handleInteractionWithTelemetry(
+  { userId, teamId, channelId, threadTs, messageTs, interactionType: 'app_mention', logger, say },
+  async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    // 1. Check rate limit — returns early if rate-limited
+    if (await handleRateLimitedInteraction({ ..., markRateLimited, markInteractionRecorded })) {
+      return;
+    }
 
-  const llmResponse = await callLLM(userMessage); // May throw
-  await app.client.chat.postMessage({ text: llmResponse });
-  // If here, success
-  status = 'success';
-  errorType = null;
-} catch (error) {
-  if (error.code === 'COSMOS_ERROR') {
-    errorType = 'cosmos_error';
-  } else if (error.name === 'TimeoutError') {
-    errorType = 'timeout';
-  } else if (error.code?.includes('429') || error.message?.includes('rate_limit')) {
-    errorType = 'llm_rate_limited'; // LLM provider rate-limit or quota error
-  } else if (error.code?.includes('openai') || error.name?.includes('APIError')) {
-    errorType = 'llm_error';
-  } else {
-    errorType = 'unknown';
-  }
-  status = 'error';
-} finally {
-  await recordInteraction({
-    userId, channelId, threadTs, messageTs,
-    status,
-    errorType: status === 'error' ? errorType : null,
-    rateLimited: !allowed,
-    // ... other fields
-  });
-}
+    // 2. Process the message and call LLM (exceptions propagate to wrapper)
+    // ...
+
+    // 3. On success, the wrapper records status='success' in the finally block
+  },
+);
 ```
 
-**Important note:** The `cosmos_error` in `recordInteraction()` itself should be logged separately and not returned to the user as a failed interaction (user may have seen the response). Wrap the `recordInteraction()` call in its own try-catch to avoid propagating Cosmos failures.
+**Error Type Categorization** (performed in `interaction-telemetry.js`):
 
-#### Environment Variables
+| Condition | `errorType` |
+|-----------|-------------|
+| Rate-limited by app rate limiter | `rate_limited` |
+| `error.code === 'COSMOS_ERROR'` | `cosmos_error` |
+| `error.name === 'TimeoutError'` | `timeout` |
+| `error.code` includes `'429'` or `error.message` includes `'rate_limit'` | `llm_rate_limited` |
+| `error.code` includes `'openai'` or `error.name` includes `'APIError'` | `llm_error` |
+| All other errors | `unknown` |
 
-Add to fiona-slack Bicep template:
+**Important note:** The `recordInteraction()` call in the `finally` block is wrapped in its own try-catch so Cosmos failures do not propagate to the user.
+
+**`src/listeners/commands/fiona.js`:**
+
+The `/fiona` slash command handler records interactions fire-and-forget (no LLM call, no async error path). For each sub-command route, it calls `recordInteraction` directly with `status: 'success'` after `ack()`-ing the request:
+
+- `/fiona help` or bare `/fiona` → `interactionType: 'slash_help'`
+- `/fiona ask` → `interactionType: 'slash_ask'`
+- `/fiona search` → `interactionType: 'slash_search'`
+- Unknown sub-command → `interactionType: 'slash_unknown'` (falls back to help text)
+
+Slash commands use `trigger_id` for both `threadTs` and `messageTs` (slash commands have no `thread_ts` or `message_ts`). If required fields (`user_id`, `channel_id`, `trigger_id`) are missing, the Cosmos write is skipped with a warning.
+
+#### Infrastructure
+
+The interactions container and all required environment variables are provisioned in `infra/fiona-slack-container/main.bicep`:
 
 ```
 COSMOS_INTERACTIONS_CONTAINER=interactions
 ```
 
-(Other Cosmos vars already exist: `COSMOS_ENDPOINT`, `COSMOS_DATABASE`)
+(Other Cosmos vars already present: `COSMOS_ENDPOINT`, `COSMOS_DATABASE`)
 
 ### Data Privacy & Security
 
@@ -433,18 +445,18 @@ az functionapp config appsettings set \
 
 ## Testing Strategy
 
-### Phase 1: `interaction-store.js`
+### Phase 1: `interaction-store.js` and telemetry modules
 
 - **Unit tests:**
-  - Connection initialization (connection string, endpoint+key, endpoint+MI)
-  - Document upsert with explicit ID
-  - No-op when Cosmos not configured
-  - Logger integration
+  - `interaction-store.js`: connection initialization (connection string, endpoint+key, endpoint+MI), document upsert with explicit ID, no-op when Cosmos not configured, missing-fields guard
+  - `interaction-telemetry.js`: error classification, recording on success and error, `markInteractionRecorded` prevents double-recording
+  - `rate-limited-handler.js`: rate-limit detection, interaction recording, user message
+  - `src/listeners/commands/fiona.js`: slash command routing for all sub-commands, ack failure resilience, missing-fields guard, correct `interactionType` for each route
 
 - **Integration tests:**
   - Cosmos DB emulator or test container
   - Verify document schema and partition key
-  - Verify TTL behavior (optional, time-consuming)
+  - Verify upsert idempotency (duplicate Slack events don't create duplicate records)
 
 ### Phase 2: TimerTrigger Function
 
@@ -475,15 +487,16 @@ az functionapp config appsettings set \
 
 ## Success Criteria
 
-✅ Phase 1:
-- Interactions recorded for 100% of app_mention and assistant_message events
+✅ Phase 1 — **Implemented**:
+- Interactions recorded for 100% of app_mention, assistant_message, and slash command events
 - Records persist in Cosmos DB with correct schema and partition key
 - Error types are categorized accurately (rate_limited, llm_error, llm_rate_limited, cosmos_error, timeout, unknown)
 - No performance degradation in message handling (<100ms overhead)
 - Records retained indefinitely (no TTL)
 - Upsert idempotency confirmed (duplicate Slack events don't create duplicate records)
+- Missing-fields guard prevents malformed documents from reaching Cosmos
 
-✅ Phase 2:
+✅ Phase 2 — **Implemented**:
 - Weekly report generated on schedule
 - All KPIs calculated correctly (verified via manual inspection)
 - Slack message formatted cleanly and posted to #ed-fi-tech-team
@@ -498,5 +511,3 @@ az functionapp config appsettings set \
 This design provides a complete analytics system for measuring user engagement in Fiona-Slack. Phase 1 creates a durable record of all interactions (success and error), enabling accurate engagement metrics. Phase 2 automates weekly reporting to keep stakeholders informed.
 
 The system prioritizes **privacy** (no message text stored), **reliability** (error handling and retry logic), and **actionability** (KPIs directly measure engagement).
-
-Implementation effort: ~6–8 hours total (3–4 hours Phase 1, 3–4 hours Phase 2).
