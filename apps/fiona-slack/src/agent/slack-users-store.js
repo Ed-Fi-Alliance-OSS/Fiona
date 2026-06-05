@@ -199,7 +199,7 @@ export async function getUser(userId, logger) {
     const { resource } = await c.item(userId, userId).read();
     return resource ?? null;
   } catch (error) {
-    if (error.code !== 404) {
+    if (toNumericCode(error) !== 404) {
       logger?.warn?.(`Failed to read Slack user ${userId} from Cosmos DB: ${error.message}`);
     }
     return null;
