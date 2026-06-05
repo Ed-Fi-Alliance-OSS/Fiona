@@ -93,6 +93,44 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
   });
 
+  it('returns validation error for bad-feedback with empty reason', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'bad-feedback',
+      thread_ts: '1234567890.000000',
+    });
+    mockView.state.values.reason_block.reason_input.value = '';
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockAck).toHaveBeenCalledWith({
+      response_action: 'errors',
+      errors: { reason_block: 'Please enter a reason.' },
+    });
+    expect(mockRecordFeedback).not.toHaveBeenCalled();
+  });
+
+  it('returns validation error for bad-feedback with whitespace-only reason', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'bad-feedback',
+      thread_ts: '1234567890.000000',
+    });
+    mockView.state.values.reason_block.reason_input.value = '   ';
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockAck).toHaveBeenCalledWith({
+      response_action: 'errors',
+      errors: { reason_block: 'Please enter a reason.' },
+    });
+    expect(mockRecordFeedback).not.toHaveBeenCalled();
+  });
+
   it('normalizes null input value to null reason', async () => {
     mockView.state.values.reason_block.reason_input.value = null;
 
