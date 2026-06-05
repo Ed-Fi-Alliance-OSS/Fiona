@@ -3,213 +3,190 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-/**
- * Loads the Slack workspace member list into CosmosDB.
- *
- * Usage:
- *   node scripts/load-slack-users.js --source=api
- *   node scripts/load-slack-users.js --source=csv path/to/members.csv
- *
- * API mode requires SLACK_BOT_TOKEN with scopes: users:read, users:read.email
- * CSV mode accepts the file exported from Slack admin → Members → Export.
- *
- * Both modes require CosmosDB credentials (COSMOS_CONNECTION_STRING or
- * COSMOS_ENDPOINT) to be set in the environment or a local .env file.
- *
- * When the endpoint contains "localhost" the script automatically uses
- * conservative defaults suitable for the local Cosmos DB Emulator.
- *
- * Options:
- *   --include-bots           Also load bot user accounts (skipped by default)
- *   --include-deleted        Also load deactivated accounts (skipped by default)
- *   --safe-emulator          Force safest local write profile (batch-size=1, delay=500)
- *   --batch-size=N           Users per batch   (default: 1 local / 100 production)
- *   --batch-delay=MS         Pause between batches in ms (default: 500 local / 0 production)
- */
-
 import { createReadStream, existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
-import { config as loadDotenv } from 'dotenv';
+import { config as loadDotenvConfig } from 'dotenv';
+import { upsertUser, ensureStoreReady } from '../src/agent/slack-users-store.js';
 
-import { ensureStoreReady, upsertUser } from '../src/agent/slack-users-store.js';
-
-// Load .env before reading any env vars so emulator detection is accurate when
-// COSMOS_CONNECTION_STRING/COSMOS_ENDPOINT live in .env rather than the shell.
-loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
-
-// --- Parse CLI args ---
-
-const args = process.argv.slice(2);
-
-function getFlag(name) {
-  return args.some((a) => a === name);
-}
-
-function getArg(name) {
-  const flag = args.find((a) => a.startsWith(`${name}=`));
-  if (flag) return flag.slice(name.length + 1);
-  const idx = args.indexOf(name);
-  if (idx !== -1 && args[idx + 1] && !args[idx + 1].startsWith('--')) return args[idx + 1];
-  return null;
-}
-
-const source = getArg('--source') ?? 'api';
-const includeBots = getFlag('--include-bots');
-const includeDeleted = getFlag('--include-deleted');
-const safeEmulator = getFlag('--safe-emulator');
-
-// Detect local emulator by inspecting the connection target before batching defaults are set.
-const cosmosTarget = process.env.COSMOS_CONNECTION_STRING ?? process.env.COSMOS_ENDPOINT ?? '';
-const isEmulator = cosmosTarget.includes('localhost') || cosmosTarget.includes('127.0.0.1');
-const useSafeEmulatorProfile = safeEmulator || isEmulator;
-
-const batchSizeArg = parseInt(getArg('--batch-size') ?? '', 10);
-const batchDelayArg = parseInt(getArg('--batch-delay') ?? '', 10);
-const batchSize = Number.isFinite(batchSizeArg) && batchSizeArg > 0 ? batchSizeArg : useSafeEmulatorProfile ? 1 : 100;
-const batchDelay = Number.isFinite(batchDelayArg) && batchDelayArg >= 0 ? batchDelayArg : useSafeEmulatorProfile ? 500 : 0;
-
-if (useSafeEmulatorProfile) {
-  console.log(`[INFO] Safe upload profile enabled — using batch size ${batchSize}, delay ${batchDelay} ms`);
-}
-
-// --- Helpers ---
-
-const logger = { warn: (msg) => console.warn(`[WARN] ${msg}`) };
-
-let processed = 0;
-let upserted = 0;
-let skipped = 0;
-let failed = 0;
-
-/** Pending users collected before the next batch flush. */
-const pending = [];
-
-function shouldSkip(user) {
-  if (!user.id) return true;
-  if (!includeBots && user.isBot) return true;
-  if (!includeDeleted && user.deleted) return true;
-  return false;
-}
-
-async function flushBatch(batch) {
-  await Promise.all(
-    batch.map(async (user) => {
-      const ok = await upsertUser(user, logger);
-      if (ok) upserted++;
-      else failed++;
-    }),
-  );
-}
-
-async function processUser(user) {
-  processed++;
-  if (shouldSkip(user)) {
-    skipped++;
-    return;
-  }
-  pending.push(user);
-  if (pending.length >= batchSize) {
-    await flushPending();
-  }
-}
-
-async function flushPending() {
-  if (pending.length === 0) return;
-  const batch = pending.splice(0, pending.length);
-  await flushBatch(batch);
-  if (batchDelay > 0) await new Promise((r) => setTimeout(r, batchDelay));
-}
-
-// --- API mode ---
-
-async function loadFromApi() {
-  const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) {
-    console.error('SLACK_BOT_TOKEN is required for --source=api');
-    process.exit(1);
-  }
-
-  console.log('Fetching users from Slack API…');
-
-  let cursor;
-  do {
-    const params = new URLSearchParams({ limit: '200' });
-    if (cursor) params.set('cursor', cursor);
-
-    const res = await fetch(`https://slack.com/api/users.list?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      console.error(`Slack API HTTP error: ${res.status}`);
-      process.exit(1);
-    }
-
-    const data = await res.json();
-
-    if (!data.ok) {
-      console.error(`Slack API error: ${data.error}`);
-      process.exit(1);
-    }
-
-    for (const member of data.members ?? []) {
-      const user = mapApiMember(member);
-      await processUser(user);
-    }
-
-    cursor = data.response_metadata?.next_cursor || null;
-  } while (cursor);
-
-  await flushPending();
-}
+export const counters = { processed: 0, upserted: 0, skipped: 0, failed: 0 };
 
 /**
- * @param {Record<string, unknown>} member - Raw member object from Slack API
- * @returns {import('../src/agent/slack-users-store.js').SlackUser}
+ * @typedef {Object} SlackUserRecord
+ * @property {string} id
+ * @property {string} userId
+ * @property {string} teamId
+ * @property {string} name
+ * @property {string} realName
+ * @property {string} displayName
+ * @property {string} email
+ * @property {boolean} isBot
+ * @property {boolean} isAdmin
+ * @property {boolean} isOwner
+ * @property {boolean} deleted
+ * @property {string} updatedAt
  */
-function mapApiMember(member) {
-  const profile = member.profile ?? {};
+
+export function loadDotenv() {
+  // Load .env from current working directory first (common for script execution),
+  // then from the app root as fallback for tests and alternative invocation paths.
+  loadDotenvConfig();
+  loadDotenvConfig({ path: path.resolve(import.meta.dirname, '..', '.env') });
+}
+
+function getArg(name, fallback = undefined) {
+  const idx = process.argv.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+  if (idx === -1) return fallback;
+  const token = process.argv[idx];
+  if (token.includes('=')) return token.split('=').slice(1).join('=');
+  const next = process.argv[idx + 1];
+  if (!next || next.startsWith('--')) return true;
+  return next;
+}
+
+export const source = getArg('source', 'api');
+export const includeBots = Boolean(getArg('include-bots', false));
+export const includeDeleted = Boolean(getArg('include-deleted', false));
+export const csvPath = getArg('csv', process.argv[3]); // convenience for positional csv file
+export const safeEmulator = Boolean(getArg('safe-emulator', false));
+
+function isEmulatorTarget() {
+  const target = `${process.env.COSMOS_CONNECTION_STRING ?? ''} ${process.env.COSMOS_ENDPOINT ?? ''}`.toLowerCase();
+  return target.includes('localhost') || target.includes('127.0.0.1');
+}
+
+function getBatchDefaults() {
+  const isEmulator = isEmulatorTarget();
   return {
-    id: String(member.id ?? ''),
-    userId: String(member.id ?? ''),
-    teamId: String(member.team_id ?? ''),
-    name: String(member.name ?? ''),
-    realName: String(profile.real_name ?? member.real_name ?? ''),
-    displayName: String(profile.display_name ?? ''),
-    email: String(profile.email ?? ''),
-    isBot: Boolean(member.is_bot),
-    isAdmin: Boolean(member.is_admin),
-    isOwner: Boolean(member.is_owner),
-    deleted: Boolean(member.deleted),
+    batchSize: safeEmulator || isEmulator ? 1 : 10,
+    batchDelayMs: safeEmulator || isEmulator ? 500 : 50,
   };
 }
 
-// --- CSV mode ---
+function getBatchConfig() {
+  const defaults = getBatchDefaults();
+  return {
+    batchSize: Number(getArg('batch-size', defaults.batchSize)),
+    batchDelayMs: Number(getArg('batch-delay', defaults.batchDelayMs)),
+  };
+}
+
+/** @type {SlackUserRecord[]} */
+let pendingBatch = [];
+
+export async function flushPending() {
+  if (!pendingBatch.length) return;
+  const batch = pendingBatch;
+  pendingBatch = [];
+  const results = await Promise.all(batch.map((u) => upsertUser(u)));
+  for (const ok of results) {
+    if (ok) counters.upserted++;
+    else counters.failed++;
+  }
+}
 
 /**
- * Parse a Slack admin member export CSV.
- *
- * The Slack admin export ("Members" → "Export") produces a CSV with headers
- * such as: username, email, status, billing-active, has-2fa, has-sso,
- * userid, fullname, displayname, expiration-timestamp
- *
- * Column names are normalised to lowercase and trimmed.
+ * @param {SlackUserRecord} user
+ * @returns {Promise<void>}
  */
-async function loadFromCsv(filePath) {
-  if (!existsSync(filePath)) {
-    console.error(`CSV file not found: ${filePath}`);
-    process.exit(1);
+export async function processUser(user) {
+  counters.processed++;
+  if (!user.id) {
+    counters.skipped++;
+    return;
   }
+  if (!includeBots && user.isBot) {
+    counters.skipped++;
+    return;
+  }
+  if (!includeDeleted && user.deleted) {
+    counters.skipped++;
+    return;
+  }
+  pendingBatch.push(user);
+  const { batchSize, batchDelayMs } = getBatchConfig();
+  if (pendingBatch.length >= batchSize) {
+    await flushPending();
+    if (batchDelayMs > 0) await new Promise((r) => setTimeout(r, batchDelayMs));
+  }
+}
 
-  console.log(`Reading CSV: ${filePath}`);
+/**
+ * @param {Record<string, unknown>} m
+ * @returns {SlackUserRecord}
+ */
+export function mapApiMember(m) {
+  const p = m.profile ?? {};
+  return {
+    id: String(m.id ?? ''),
+    userId: String(m.id ?? ''),
+    teamId: String(m.team_id ?? ''),
+    name: String(m.name ?? ''),
+    realName: String(p.real_name ?? m.real_name ?? ''),
+    displayName: String(p.display_name ?? ''),
+    email: String(p.email ?? ''),
+    isBot: Boolean(m.is_bot),
+    isAdmin: Boolean(m.is_admin),
+    isOwner: Boolean(m.is_owner),
+    deleted: Boolean(m.deleted),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * @param {Record<string, string>} r
+ * @returns {SlackUserRecord}
+ */
+export function mapCsvRow(r) {
+  const status = String(r.status ?? '').toLowerCase();
+  const deleted = status === 'deactivated' || status === 'deleted';
+  return {
+    id: r.userid || '',
+    userId: r.userid || '',
+    teamId: '',
+    name: r.username || '',
+    realName: r.fullname || '',
+    displayName: r.displayname || '',
+    email: r.email || '',
+    isBot: false,
+    isAdmin: false,
+    isOwner: false,
+    deleted,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function loadFromApi() {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) throw new Error('SLACK_BOT_TOKEN is required for --source=api');
+  let cursor = '';
+  do {
+    const url = new URL('https://slack.com/api/users.list');
+    if (cursor) url.searchParams.set('cursor', cursor);
+    url.searchParams.set('limit', '200');
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    if (!json.ok) throw new Error(`Slack API users.list failed: ${json.error || 'unknown_error'}`);
+
+    for (const member of json.members || []) {
+      await processUser(mapApiMember(member));
+    }
+    cursor = json.response_metadata?.next_cursor || '';
+  } while (cursor);
+}
+
+export async function loadFromCsv(file) {
+  if (!file) throw new Error('CSV file path required for --source=csv');
+  const abs = path.resolve(process.cwd(), file);
+  if (!existsSync(abs)) throw new Error(`CSV file not found: ${abs}`);
 
   const rl = createInterface({
-    input: createReadStream(filePath),
+    input: createReadStream(abs),
     crlfDelay: Infinity,
   });
 
+  /** @type {string[] | null} */
   let headers = null;
 
   for await (const line of rl) {
@@ -220,34 +197,8 @@ async function loadFromCsv(filePath) {
     }
 
     const row = Object.fromEntries(headers.map((h, i) => [h, cols[i] ?? '']));
-    const user = mapCsvRow(row);
-    await processUser(user);
+    await processUser(mapCsvRow(row));
   }
-
-  await flushPending();
-}
-
-/**
- * @param {Record<string, string>} row
- * @returns {import('../src/agent/slack-users-store.js').SlackUser}
- */
-function mapCsvRow(row) {
-  // The Slack admin CSV export uses these column names (as of 2024):
-  //   userid, username, fullname, displayname, email, status, billing-active
-  const deleted = row.status?.toLowerCase() === 'deactivated';
-  return {
-    id: row.userid ?? '',
-    userId: row.userid ?? '',
-    teamId: '', // Not present in CSV export; can be set separately if needed
-    name: row.username ?? '',
-    realName: row.fullname ?? '',
-    displayName: row.displayname ?? '',
-    email: row.email ?? '',
-    isBot: false, // Bot accounts are not included in the admin CSV export
-    isAdmin: false, // Not reliably present in all export formats
-    isOwner: false,
-    deleted,
-  };
 }
 
 /**
@@ -284,52 +235,54 @@ function parseCsvLine(line) {
   return result;
 }
 
-// Exported for testing
-export { mapApiMember, mapCsvRow, processUser, flushPending };
-export function _resetCounters() {
-  processed = 0;
-  upserted = 0;
-  skipped = 0;
-  failed = 0;
-}
-export function _getCounters() {
-  return { processed, upserted, skipped, failed };
-}
+export async function main() {
+  loadDotenv();
 
-// --- Main ---
-
-async function main() {
-  const cosmosReady = await ensureStoreReady(logger);
-  if (!cosmosReady) {
-    console.error('Cosmos warmup failed. Retry after emulator is healthy or use a production Cosmos endpoint.');
-    process.exit(1);
+  const { batchSize, batchDelayMs } = getBatchConfig();
+  if (safeEmulator || isEmulatorTarget()) {
+    console.log(`Safe upload profile enabled — batch size ${batchSize}, delay ${batchDelayMs}ms`);
   }
+
+  const storeReady = await ensureStoreReady(console);
+  if (!storeReady) {
+    throw new Error('Slack users store unavailable. Check Cosmos configuration and connectivity.');
+  }
+
+  console.log(`Loading Slack users from ${source}...`);
 
   if (source === 'api') {
     await loadFromApi();
   } else if (source === 'csv') {
-    const filePath = args.find((a) => !a.startsWith('--') && a !== 'csv') ?? getArg('--file');
-    if (!filePath) {
-      console.error('Usage: node scripts/load-slack-users.js --source=csv <path/to/members.csv>');
-      process.exit(1);
-    }
-    await loadFromCsv(filePath);
+    await loadFromCsv(csvPath);
   } else {
-    console.error(`Unknown source: ${source}. Use --source=api or --source=csv`);
-    process.exit(1);
+    throw new Error(`Unsupported --source: ${source} (expected "api" or "csv")`);
   }
 
-  console.log('\n✅ Done.');
-  console.log(`   Processed : ${processed}`);
-  console.log(`   Upserted  : ${upserted}`);
-  console.log(`   Skipped   : ${skipped}`);
-  console.log(`   Failed    : ${failed}`);
+  await flushPending();
+
+  console.log('✅ Done.');
+  console.log(`   Processed : ${counters.processed}`);
+  console.log(`   Upserted  : ${counters.upserted}`);
+  console.log(`   Skipped   : ${counters.skipped}`);
+  console.log(`   Failed    : ${counters.failed}`);
 }
 
-const _isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (_isMain) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => {
-    console.error('Fatal error:', err.message);
+    console.error(err?.message || err);
     process.exit(1);
   });
+}
+
+// Test-only helpers
+export function _resetCounters() {
+  counters.processed = 0;
+  counters.upserted = 0;
+  counters.skipped = 0;
+  counters.failed = 0;
+  pendingBatch = [];
+}
+
+export function _getCounters() {
+  return { ...counters };
 }

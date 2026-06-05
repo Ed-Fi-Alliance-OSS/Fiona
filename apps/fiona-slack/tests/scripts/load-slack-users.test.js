@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeAll, beforeEach, afterAll } from '@jest/globals';
 
 // Mock dotenv so the test file's CWD doesn't need a real .env
 jest.unstable_mockModule('dotenv', () => ({ config: jest.fn() }));
@@ -16,10 +16,16 @@ jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({
 }));
 
 let mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters;
+const originalArgv = [...process.argv];
 
 beforeAll(async () => {
+  process.argv = [...originalArgv, '--batch-size=2', '--batch-delay=0'];
   ({ mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters } =
     await import('../../scripts/load-slack-users.js'));
+});
+
+afterAll(() => {
+  process.argv = originalArgv;
 });
 
 beforeEach(() => {
@@ -209,5 +215,21 @@ describe('processUser + flushPending — success and failure counters', () => {
     await flushPending();
     expect(mockUpsertUser).not.toHaveBeenCalled();
     expect(_getCounters()).toEqual({ processed: 0, upserted: 0, skipped: 0, failed: 0 });
+  });
+
+  it('flushes automatically at batchSize boundary and flushes remainder at end', async () => {
+    await processUser(activeUser);
+    expect(mockUpsertUser).not.toHaveBeenCalled();
+
+    await processUser({ ...activeUser, id: 'U22222', userId: 'U22222' });
+    expect(mockUpsertUser).toHaveBeenCalledTimes(2);
+    expect(_getCounters()).toEqual({ processed: 2, upserted: 2, skipped: 0, failed: 0 });
+
+    await processUser({ ...activeUser, id: 'U33333', userId: 'U33333' });
+    expect(mockUpsertUser).toHaveBeenCalledTimes(2);
+
+    await flushPending();
+    expect(mockUpsertUser).toHaveBeenCalledTimes(3);
+    expect(_getCounters()).toEqual({ processed: 3, upserted: 3, skipped: 0, failed: 0 });
   });
 });
