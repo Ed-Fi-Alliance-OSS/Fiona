@@ -80,7 +80,25 @@ npm run load:slack-users -- --source=csv path/to/members.csv
 
 # Include bots and deactivated accounts
 npm run load:slack-users -- --source=api --include-bots --include-deleted
+
+# Target a specific env file (e.g. to avoid editing .env for a production run)
+npm run load:slack-users -- --source=csv path/to/members.csv --env-file .env.prod
 ```
+
+### Using a separate env file for production
+
+Create `.env.prod` (it is gitignored by default) with your production credentials:
+
+```env
+COSMOS_CONNECTION_STRING=AccountEndpoint=https://YOUR_ACCOUNT.documents.azure.com:443/;AccountKey=...
+COSMOS_DATABASE=chatbot
+COSMOS_USERS_CONTAINER=slack-users
+DEPLOYMENT_TYPE=production
+```
+
+Then pass `--env-file .env.prod` to any `load:slack-users` invocation. When this flag
+is set, the default `.env` file is ignored entirely, so your local emulator config
+is never touched.
 
 The script prints a summary on completion:
 

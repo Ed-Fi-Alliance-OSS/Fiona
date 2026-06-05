@@ -28,6 +28,13 @@ export const counters = { processed: 0, upserted: 0, skipped: 0, failed: 0 };
  */
 
 export function loadDotenv() {
+  // If --env-file is specified, load that file exclusively (skips default .env).
+  const envFile = getArg('env-file');
+  if (envFile) {
+    const resolved = path.resolve(process.cwd(), envFile);
+    loadDotenvConfig({ path: resolved });
+    return;
+  }
   // Load .env from current working directory first (common for script execution),
   // then from the app root as fallback for tests and alternative invocation paths.
   loadDotenvConfig();
@@ -252,6 +259,9 @@ export async function main() {
     console.log(`Safe upload profile enabled — batch size ${batchSize}, delay ${batchDelayMs}ms`);
   }
 
+  const target = process.env.COSMOS_CONNECTION_STRING ?? process.env.COSMOS_ENDPOINT ?? '(not set)';
+  console.log(`Connecting to CosmosDB: ${target.slice(0, 60)}...`);
+
   const storeReady = await ensureStoreReady(console);
   if (!storeReady) {
     throw new Error('Slack users store unavailable. Check Cosmos configuration and connectivity.');
@@ -276,7 +286,8 @@ export async function main() {
   console.log(`   Failed    : ${counters.failed}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { pathToFileURL } from 'node:url';
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(err?.message || err);
     process.exit(1);
