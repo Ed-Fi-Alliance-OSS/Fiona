@@ -202,7 +202,7 @@ export async function loadFromCsv(file) {
 }
 
 /**
- * Minimal RFC 4180-compatible CSV line parser (handles quoted fields).
+ * Minimal CSV line parser that handles quoted fields and escaped quotes (does not support embedded newlines).
  * @param {string} line
  * @returns {string[]}
  */
