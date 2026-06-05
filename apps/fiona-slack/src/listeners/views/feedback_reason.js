@@ -17,12 +17,17 @@ import { recordFeedback } from '../../agent/feedback-store.js';
  */
 export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) => {
   try {
-    await ack();
-
     const { channelId, messageTs, userId, value, thread_ts } = JSON.parse(view.private_metadata);
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
-    const reason = rawReason?.trim() || null;
+    const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
+    const reason = trimmedReason || null;
 
+    if (value === 'bad-feedback' && !trimmedReason) {
+      await ack({ response_action: 'errors', errors: { reason_block: 'Please enter a reason.' } });
+      return;
+    }
+
+    await ack();
     let userMessage = null;
     let botResponse = null;
     try {
