@@ -35,6 +35,10 @@ import { config as loadDotenv } from 'dotenv';
 
 import { ensureStoreReady, upsertUser } from '../src/agent/slack-users-store.js';
 
+// Load .env before reading any env vars so emulator detection is accurate when
+// COSMOS_CONNECTION_STRING/COSMOS_ENDPOINT live in .env rather than the shell.
+loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
+
 // --- Parse CLI args ---
 
 const args = process.argv.slice(2);
@@ -281,19 +285,20 @@ function parseCsvLine(line) {
 }
 
 // Exported for testing
-export { mapApiMember, mapCsvRow };
+export { mapApiMember, mapCsvRow, processUser, flushPending };
 export function _resetCounters() {
   processed = 0;
   upserted = 0;
   skipped = 0;
   failed = 0;
 }
+export function _getCounters() {
+  return { processed, upserted, skipped, failed };
+}
 
 // --- Main ---
 
 async function main() {
-  loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
-
   const cosmosReady = await ensureStoreReady(logger);
   if (!cosmosReady) {
     console.error('Cosmos warmup failed. Retry after emulator is healthy or use a production Cosmos endpoint.');

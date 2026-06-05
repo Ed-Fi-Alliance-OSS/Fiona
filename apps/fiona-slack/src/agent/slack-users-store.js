@@ -11,8 +11,8 @@ let warnedMissingConfig = false;
 /** @type {import('@azure/cosmos').CosmosClient | null} */
 let cosmosClient = null;
 
-/** @type {import('@azure/cosmos').Container | null} */
-let container = null;
+/** @type {Promise<import('@azure/cosmos').Container | null> | null} */
+let containerPromise = null;
 
 function getCosmosConfig() {
   return {
@@ -30,23 +30,12 @@ function isEmulatorTarget(config) {
 }
 
 function resetContainerCache() {
-  container = null;
+  containerPromise = null;
   cosmosClient = null;
 }
 
-/**
- * @param {{ warn?: (msg: string) => void }} [logger]
- * @param {{ forceRefresh?: boolean }} [options]
- * @returns {Promise<import('@azure/cosmos').Container | null>}
- */
-async function getContainer(logger, options = {}) {
-  if (options.forceRefresh) {
-    resetContainerCache();
-  }
-  if (container) return container;
-
+async function _buildContainer(logger) {
   const config = getCosmosConfig();
-
   if (!cosmosClient) {
     if (config.connectionString) {
       cosmosClient = new CosmosClient(config.connectionString);
@@ -64,19 +53,25 @@ async function getContainer(logger, options = {}) {
       return null;
     }
   }
+  return cosmosClient.database(config.database).container(config.usersContainer);
+}
 
-  if (!cosmosClient) {
-    if (!warnedMissingConfig) {
-      warnedMissingConfig = true;
-      logger?.warn?.(
-        'CosmosDB not configured — slack-users store unavailable. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
-      );
-    }
-    return null;
+/**
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @param {{ forceRefresh?: boolean }} [options]
+ * @returns {Promise<import('@azure/cosmos').Container | null>}
+ */
+function getContainer(logger, options = {}) {
+  if (options.forceRefresh) {
+    resetContainerCache();
   }
-
-  container = cosmosClient.database(config.database).container(config.usersContainer);
-  return container;
+  if (!containerPromise) {
+    containerPromise = _buildContainer(logger).catch((err) => {
+      containerPromise = null;
+      throw err;
+    });
+  }
+  return containerPromise;
 }
 
 /**
@@ -106,7 +101,7 @@ const RETRYABLE_CODES = new Set([410, 429, 449, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
 function toNumericCode(error) {
-  const rawCode = error?.code;
+  const rawCode = error?.code ?? error?.statusCode;
   const code = Number(rawCode);
   return Number.isFinite(code) ? code : null;
 }

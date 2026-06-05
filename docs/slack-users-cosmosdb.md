@@ -89,6 +89,7 @@ The script prints a summary on completion:
    Processed : 312
    Upserted  : 305
    Skipped   : 7
+   Failed    : 0
 ```
 
 ### Local emulator

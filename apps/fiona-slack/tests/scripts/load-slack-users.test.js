@@ -15,10 +15,11 @@ jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({
   upsertUser: mockUpsertUser,
 }));
 
-let mapApiMember, mapCsvRow, _resetCounters;
+let mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters;
 
 beforeAll(async () => {
-  ({ mapApiMember, mapCsvRow, _resetCounters } = await import('../../scripts/load-slack-users.js'));
+  ({ mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters } =
+    await import('../../scripts/load-slack-users.js'));
 });
 
 beforeEach(() => {
@@ -124,5 +125,89 @@ describe('mapCsvRow', () => {
 
   it('sets teamId to empty string (not present in CSV exports)', () => {
     expect(mapCsvRow(row).teamId).toBe('');
+  });
+});
+
+// ── processUser / counters ────────────────────────────────────────────────
+
+const activeUser = {
+  id: 'U11111',
+  userId: 'U11111',
+  teamId: 'T1',
+  name: 'alice',
+  realName: 'Alice',
+  displayName: 'alice',
+  email: 'alice@example.com',
+  isBot: false,
+  isAdmin: false,
+  isOwner: false,
+  deleted: false,
+};
+
+describe('processUser — skipped users', () => {
+  it('increments skipped (not processed) for users with no id', async () => {
+    await processUser({ ...activeUser, id: '' });
+    const c = _getCounters();
+    expect(c.processed).toBe(1);
+    expect(c.skipped).toBe(1);
+    expect(c.upserted).toBe(0);
+    expect(c.failed).toBe(0);
+    expect(mockUpsertUser).not.toHaveBeenCalled();
+  });
+
+  it('increments skipped for bot users (bots excluded by default)', async () => {
+    await processUser({ ...activeUser, isBot: true });
+    const c = _getCounters();
+    expect(c.skipped).toBe(1);
+    expect(c.upserted).toBe(0);
+  });
+
+  it('increments skipped for deleted users (deleted excluded by default)', async () => {
+    await processUser({ ...activeUser, deleted: true });
+    const c = _getCounters();
+    expect(c.skipped).toBe(1);
+    expect(c.upserted).toBe(0);
+  });
+});
+
+describe('processUser + flushPending — success and failure counters', () => {
+  it('increments upserted when upsertUser returns true', async () => {
+    await processUser(activeUser);
+    await flushPending();
+    const c = _getCounters();
+    expect(c.processed).toBe(1);
+    expect(c.upserted).toBe(1);
+    expect(c.failed).toBe(0);
+    expect(c.skipped).toBe(0);
+  });
+
+  it('increments failed when upsertUser returns false', async () => {
+    mockUpsertUser.mockResolvedValueOnce(false);
+    await processUser(activeUser);
+    await flushPending();
+    const c = _getCounters();
+    expect(c.processed).toBe(1);
+    expect(c.upserted).toBe(0);
+    expect(c.failed).toBe(1);
+  });
+
+  it('accumulates upserted and failed across multiple users in one flush', async () => {
+    mockUpsertUser
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    await processUser(activeUser);
+    await processUser({ ...activeUser, id: 'U22222', userId: 'U22222' });
+    await processUser({ ...activeUser, id: 'U33333', userId: 'U33333' });
+    await flushPending();
+    const c = _getCounters();
+    expect(c.upserted).toBe(2);
+    expect(c.failed).toBe(1);
+  });
+
+  it('flushPending is a no-op when nothing is pending', async () => {
+    await flushPending();
+    expect(mockUpsertUser).not.toHaveBeenCalled();
+    expect(_getCounters()).toEqual({ processed: 0, upserted: 0, skipped: 0, failed: 0 });
   });
 });
