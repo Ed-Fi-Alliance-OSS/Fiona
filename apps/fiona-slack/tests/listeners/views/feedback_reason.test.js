@@ -212,3 +212,73 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockLogger.error).toHaveBeenCalled();
   });
 });
+
+describe('feedbackReasonClosedCallback', () => {
+  let mockAck;
+  let mockLogger;
+  let mockView;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn() };
+    mockView = {
+      private_metadata: JSON.stringify({
+        channelId: 'C456',
+        messageTs: '1234567890.000001',
+        userId: 'U123',
+        value: 'good-feedback',
+        thread_ts: '1234567890.000000',
+      }),
+    };
+  });
+
+  it('calls ack', async () => {
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    expect(mockAck).toHaveBeenCalledTimes(1);
+  });
+
+  it('records good-feedback with reason null when modal is dismissed', async () => {
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'U123',
+        channelId: 'C456',
+        messageTs: '1234567890.000001',
+        value: 'good-feedback',
+        reason: null,
+        userMessage: null,
+        botResponse: null,
+      }),
+    );
+  });
+
+  it('does NOT record feedback when bad-feedback modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'bad-feedback',
+      thread_ts: '1234567890.000000',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+
+    expect(mockRecordFeedback).not.toHaveBeenCalled();
+  });
+
+  it('logs error but does not throw when recordFeedback throws', async () => {
+    mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await expect(
+      feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger }),
+    ).resolves.toBeUndefined();
+
+    expect(mockLogger.error).toHaveBeenCalled();
+  });
+});

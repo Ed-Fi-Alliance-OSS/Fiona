@@ -65,3 +65,33 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     logger.error('Something went wrong while handling feedback reason view.', error);
   }
 };
+
+/**
+ * Handles `view_closed` for the `feedback_reason` modal.
+ * Records thumbs-up feedback with no reason when the user dismisses the modal.
+ * Thumbs-down close is ignored — the user did not intend to submit feedback.
+ *
+ * @param {Object} params
+ * @param {import("@slack/bolt").AckFn<any>} params.ack
+ * @param {import("@slack/bolt").ViewOutput} params.view
+ * @param {import("@slack/logger").Logger} params.logger
+ */
+export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
+  try {
+    await ack();
+    const { channelId, messageTs, userId, value } = JSON.parse(view.private_metadata);
+    if (value !== 'good-feedback') return;
+    await recordFeedback({
+      userId,
+      channelId,
+      messageTs,
+      value,
+      reason: null,
+      userMessage: null,
+      botResponse: null,
+      logger,
+    });
+  } catch (error) {
+    logger.error('Something went wrong while handling feedback reason modal close.', error);
+  }
+};

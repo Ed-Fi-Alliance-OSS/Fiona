@@ -48,6 +48,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
       view: {
         type: 'modal',
         callback_id: 'feedback_reason',
+        notify_on_close: true,
         title: {
           type: 'plain_text',
           text: isGoodFeedback ? 'Thanks for the feedback!' : 'Sorry to hear that!',
