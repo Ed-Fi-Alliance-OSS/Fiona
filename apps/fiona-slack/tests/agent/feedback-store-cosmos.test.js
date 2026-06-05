@@ -55,6 +55,7 @@ describe('recordFeedback - with connection string', () => {
 
     expect(mockUpsert).toHaveBeenCalledTimes(1);
     const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.id).toBe('U123_1234567890.000001');
     expect(doc.feedbackId).toBe('U123_1234567890.000001');
   });
 
@@ -157,6 +158,21 @@ describe('recordFeedback - with connection string', () => {
       messageTs: '1234567890.000012',
       value: 'good-feedback',
       reason: '',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
+  });
+
+  it('stores reason as null when only whitespace is provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000013',
+      value: 'good-feedback',
+      reason: '   ',
       userMessage: null,
       botResponse: null,
     });

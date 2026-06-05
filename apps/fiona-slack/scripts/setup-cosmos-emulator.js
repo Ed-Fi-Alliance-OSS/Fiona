@@ -14,7 +14,6 @@
  * Download: https://aka.ms/cosmosdb-emulator
  */
 
-import https from 'https';
 import { readFileSync } from 'fs';
 import { CosmosClient } from '@azure/cosmos';
 
@@ -35,13 +34,11 @@ const INTERACTIONS_CONTAINER = 'interactions';
 
 // Build CosmosClient from connection string if available, otherwise fall back
 // to the well-known emulator endpoint + key.
-const tlsAgent = new https.Agent({ rejectUnauthorized: false });
 let client;
 
 if (process.env.COSMOS_CONNECTION_STRING) {
   client = new CosmosClient({
     connectionString: process.env.COSMOS_CONNECTION_STRING,
-    agent: tlsAgent,
   });
   console.log('Using COSMOS_CONNECTION_STRING from environment.');
 } else {
@@ -53,7 +50,7 @@ if (process.env.COSMOS_CONNECTION_STRING) {
   const key =
     process.env.COSMOS_KEY ||
     'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
-  client = new CosmosClient({ endpoint, key, agent: tlsAgent });
+  client = new CosmosClient({ endpoint, key });
   console.log(`Using endpoint ${endpoint} (set COSMOS_CONNECTION_STRING in .env to override).`);
 }
 
