@@ -45,14 +45,18 @@ export async function getContainer(logger) {
     return null;
   }
 
-  const { database: db } = await client.databases.createIfNotExists({ id: database });
-  const { container: c } = await db.containers.createIfNotExists({
-    id: cosmosContainer,
-    partitionKey: { paths: ['/deploymentType', '/userId'], kind: 'MultiHash', version: 2 },
-  });
-  container = c;
-  return container;
-}
+  try {
+    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { container: c } = await db.containers.createIfNotExists({
+      id: cosmosContainer,
+      partitionKey: { paths: ['/deploymentType', '/userId'], kind: 'MultiHash', version: 2 },
+    });
+    container = c;
+    return container;
+  } catch (error) {
+    logger?.warn?.(`Failed to initialize Cosmos DB interactions container: ${error.message}`);
+    return null;
+  }
 
 /**
  * Record a user interaction to Cosmos DB. No-ops silently if Cosmos is not configured.
