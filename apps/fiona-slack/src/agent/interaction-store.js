@@ -57,6 +57,7 @@ export async function getContainer(logger) {
     logger?.warn?.(`Failed to initialize Cosmos DB interactions container: ${error.message}`);
     return null;
   }
+}
 
 /**
  * Record a user interaction to Cosmos DB. No-ops silently if Cosmos is not configured.
