@@ -44,11 +44,20 @@ function getArg(name, fallback = undefined) {
   return next;
 }
 
+function getBoolArg(name, fallback = false) {
+  const v = getArg(name, fallback);
+  if (v === true || v === false) return v;
+  const s = String(v).toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'n', 'off'].includes(s)) return false;
+  return Boolean(v);
+}
+
 export const source = getArg('source', 'api');
-export const includeBots = Boolean(getArg('include-bots', false));
-export const includeDeleted = Boolean(getArg('include-deleted', false));
+export const includeBots = getBoolArg('include-bots', false);
+export const includeDeleted = getBoolArg('include-deleted', false);
 export const csvPath = getArg('csv', process.argv[3]); // convenience for positional csv file
-export const safeEmulator = Boolean(getArg('safe-emulator', false));
+export const safeEmulator = getBoolArg('safe-emulator', false);
 
 function isEmulatorTarget() {
   const target = `${process.env.COSMOS_CONNECTION_STRING ?? ''} ${process.env.COSMOS_ENDPOINT ?? ''}`.toLowerCase();
