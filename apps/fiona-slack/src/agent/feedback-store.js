@@ -40,13 +40,18 @@ async function getContainer(logger) {
     return null;
   }
 
-  const { database: db } = await client.databases.createIfNotExists({ id: database });
-  const { container: c } = await db.containers.createIfNotExists({
-    id: cosmosContainer,
-    partitionKey: { paths: ['/deploymentType', '/feedbackId'], kind: 'MultiHash', version: 2 },
-  });
-  container = c;
-  return container;
+  try {
+    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { container: c } = await db.containers.createIfNotExists({
+      id: cosmosContainer,
+      partitionKey: { paths: ['/deploymentType', '/feedbackId'], kind: 'MultiHash', version: 2 },
+    });
+    container = c;
+    return container;
+  } catch (error) {
+    logger?.warn?.(`Failed to initialize Cosmos DB feedback container: ${error.message}`);
+    return null;
+  }
 }
 
 /**
