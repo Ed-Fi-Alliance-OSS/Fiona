@@ -50,7 +50,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
         callback_id: 'feedback_reason',
         title: {
           type: 'plain_text',
-          text: isGoodFeedback ? 'Thanks for your feedback!' : 'Sorry to hear that!',
+          text: isGoodFeedback ? 'Thanks for the feedback!' : 'Sorry to hear that!',
         },
         submit: { type: 'plain_text', text: 'Submit' },
         close: { type: 'plain_text', text: 'Cancel' },
