@@ -101,6 +101,9 @@ describe('upsertUser — with connection string', () => {
 
   it('rebuilds Cosmos client on reconnect-worthy failures', async () => {
     jest.resetModules();
+    // Re-register ESM mocks after resetModules so the fresh import stays fully mocked.
+    jest.unstable_mockModule('@azure/cosmos', () => ({ CosmosClient: MockCosmosClient }));
+    jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
     process.env.COSMOS_CONNECTION_STRING =
       'AccountEndpoint=https://localhost:8081/;AccountKey=dGVzdA==;';
     const mod = await import('../../src/agent/slack-users-store.js');
