@@ -21,7 +21,7 @@ This spec describes adding a Slack modal that prompts the user for a short reaso
 5. A confirmation ephemeral message is posted to the channel thread:
    - Thumbs-up: "We're glad you found this useful."
    - Thumbs-down: "Sorry to hear that response wasn't up to par 🙁 Starting a new chat may help with AI mistakes and hallucinations."
-6. If the user cancels (only possible on thumbs-up, since thumbs-down has a required field), no feedback is recorded.
+6. If the user cancels or closes the modal, no feedback is recorded.
 
 ## Architecture
 
