@@ -57,6 +57,11 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
 
     await client.chat.postEphemeral({ channel: channelId, user: userId, thread_ts, text });
   } catch (error) {
+    try {
+      await ack();
+    } catch {
+      // ignore ack failures (e.g., already acked)
+    }
     logger.error('Something went wrong while handling feedback reason view.', error);
   }
 };
