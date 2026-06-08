@@ -54,7 +54,7 @@ axiosInstance.interceptors.response.use(
 );
 
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'fiona';
+const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feedback';
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
