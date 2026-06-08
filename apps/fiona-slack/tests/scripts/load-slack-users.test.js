@@ -15,12 +15,12 @@ jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({
   upsertUser: mockUpsertUser,
 }));
 
-let mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters;
+let mapApiMember, mapCsvRow, parseCsvLine, processUser, flushPending, _resetCounters, _getCounters;
 const originalArgv = [...process.argv];
 
 beforeAll(async () => {
   process.argv = [...originalArgv, '--batch-size=2', '--batch-delay=0'];
-  ({ mapApiMember, mapCsvRow, processUser, flushPending, _resetCounters, _getCounters } =
+  ({ mapApiMember, mapCsvRow, parseCsvLine, processUser, flushPending, _resetCounters, _getCounters } =
     await import('../../scripts/load-slack-users.js'));
 });
 
@@ -231,5 +231,37 @@ describe('processUser + flushPending — success and failure counters', () => {
     await flushPending();
     expect(mockUpsertUser).toHaveBeenCalledTimes(3);
     expect(_getCounters()).toEqual({ processed: 3, upserted: 3, skipped: 0, failed: 0 });
+  });
+});
+
+// ── parseCsvLine ──────────────────────────────────────────────────────────
+
+describe('parseCsvLine', () => {
+  it('splits simple comma-separated values', () => {
+    expect(parseCsvLine('a,b,c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handles quoted fields containing commas', () => {
+    expect(parseCsvLine('"Smith, Jane",jsmith,active')).toEqual(['Smith, Jane', 'jsmith', 'active']);
+  });
+
+  it('unescapes doubled quotes inside quoted fields', () => {
+    expect(parseCsvLine('"say ""hello""",world')).toEqual(['say "hello"', 'world']);
+  });
+
+  it('returns empty string for empty fields', () => {
+    expect(parseCsvLine('a,,c')).toEqual(['a', '', 'c']);
+  });
+
+  it('returns empty string for trailing comma', () => {
+    expect(parseCsvLine('a,b,')).toEqual(['a', 'b', '']);
+  });
+
+  it('returns single-element array for a line with no commas', () => {
+    expect(parseCsvLine('hello')).toEqual(['hello']);
+  });
+
+  it('returns one empty string for an empty line', () => {
+    expect(parseCsvLine('')).toEqual(['']);
   });
 });

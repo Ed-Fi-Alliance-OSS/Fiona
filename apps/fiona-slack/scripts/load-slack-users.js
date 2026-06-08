@@ -226,7 +226,7 @@ export async function loadFromCsv(file) {
  * @param {string} line
  * @returns {string[]}
  */
-function parseCsvLine(line) {
+export function parseCsvLine(line) {
   const result = [];
   let field = '';
   let inQuotes = false;
