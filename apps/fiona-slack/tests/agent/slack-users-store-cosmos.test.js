@@ -149,4 +149,30 @@ describe('ensureStoreReady', () => {
     mockRead.mockRejectedValueOnce(notFound);
     await expect(ensureStoreReady(null)).resolves.toBe(true);
   });
+
+  it('returns true when warmup read succeeds (resource found)', async () => {
+    mockRead.mockResolvedValueOnce({ resource: { id: '__fiona_warmup__' } });
+    await expect(ensureStoreReady(null)).resolves.toBe(true);
+  });
+
+  it('returns false and logs warning when warmup fails with non-retryable error', async () => {
+    const err = Object.assign(new Error('Bad Gateway'), { code: 502 });
+    mockRead.mockRejectedValue(err);
+    const logger = { warn: jest.fn() };
+    const result = await ensureStoreReady(logger);
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Cosmos DB warmup failed'));
+    mockRead.mockReset();
+  });
+
+  it('retries on 429 and returns false after exhausting all attempts', async () => {
+    const tooMany = Object.assign(new Error('Too Many Requests'), { code: 429 });
+    mockRead.mockRejectedValue(tooMany);
+    const logger = { warn: jest.fn() };
+    const result = await ensureStoreReady(logger);
+    expect(result).toBe(false);
+    expect(mockRead).toHaveBeenCalledTimes(3); // maxAttempts in test env
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Cosmos DB warmup failed'));
+    mockRead.mockReset();
+  });
 });
