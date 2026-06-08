@@ -9,17 +9,22 @@
 
 ## Manual Setup Steps
 
-### 1. Create Function App
+### 1. Replace/Create Function App (Linux via Bicep)
 
 ```shell
-az functionapp create \
+# Delete existing app first when replacing a Windows app with the same name
+if az functionapp show --resource-group fiona-rg --name usage-report-function >/dev/null 2>&1; then
+  az functionapp delete \
+    --resource-group fiona-rg \
+    --name usage-report-function
+fi
+
+az deployment group create \
   --resource-group fiona-rg \
-  --consumption-plan-location eastus \
-  --runtime node \
-  --runtime-version 20 \
-  --functions-version 4 \
-  --name usage-report-function \
-  --storage-account fionastorage
+  --template-file "$(git rev-parse --show-toplevel)/infra/usage-report-function/main.bicep" \
+  --parameters \
+    functionAppName=usage-report-function \
+    storageAccountName=fionastorage
 ```
 
 ### 2. Configure Managed Identity
@@ -69,7 +74,7 @@ az functionapp config appsettings set \
   --settings \
     REPORT_SCHEDULE='0 0 9 * * 1' \
     COSMOS_ENDPOINT='https://fiona.documents.azure.com:443/' \
-    COSMOS_DATABASE='fiona' \
+    COSMOS_DATABASE='chatbot' \
     COSMOS_INTERACTIONS_CONTAINER='interactions' \
     COSMOS_FEEDBACK_CONTAINER='feedback' \
     DEPLOYMENT_TYPE='production' \
@@ -132,20 +137,55 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 
 The function is deployed automatically to Azure Functions via the `deploy-usage-report-function.yml` GitHub Actions workflow when commits are pushed to `main`.
 
+### Required GitHub Secrets
+
+Before deployment can succeed, configure these secrets in **repository Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|---|---|
+| `AZURE_CREDENTIALS` | JSON credentials for `az login` (service principal) |
+| `COSMOS_ENDPOINT` | Cosmos DB endpoint URL, e.g. `https://fiona.documents.azure.com:443/` |
+| `KEY_VAULT_URL` | Azure Key Vault URL, e.g. `https://fiona-kv.vault.azure.net/` |
+
+The workflow validates all three secrets are non-empty before attempting any Azure operations. Missing secrets cause an immediate failure with a clear error message.
+
 ### Deployment Process
 
 1. **Trigger:** Push to `main` branch or manual `workflow_dispatch`
-2. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
-3. **Package:** Create zip archive (excluding `node_modules` for server-side installation)
-4. **Deploy:** Use `az functionapp deployment source config-zip` to deploy to Azure Functions
-5. **Configure:** Set app settings and environment variables via Azure CLI
+2. **Validate:** Fail fast if any required secret is missing
+3. **Build:** Run linting and tests via `on-pullrequest-usage-report.yml`
+4. **Package:** Run `npm ci --omit=dev` and create zip archive (includes production `node_modules`)
+5. **Deploy:** `az functionapp deployment source config-zip --build-remote true`
+6. **Configure:** Set app settings and environment variables via Azure CLI; non-secret values are echoed to workflow output for troubleshooting
+7. **Verify OS:** Fail deployment if the Function App is not Linux (`--os-type Linux` is required)
+8. **Smoke test:** Trigger `WeeklyReportTrigger` via the admin endpoint and scan Application Insights logs for load errors
+
+### Function App OS Requirement (`--os-type Linux`)
+
+The Function App must run on **Linux**. If created without `--os-type Linux`, Azure defaults to Windows and runtime paths/logs look like `C:\home\site\wwwroot\...`, which was a root cause of AI-115.
+
+If your app was created on Windows, recreate it with the command above (including `--os-type Linux`) before redeploying.
 
 ### Troubleshooting Deployment
+
+**Missing secrets — workflow fails at "Validate required secrets":**
+- Add the missing secret(s) listed in the error message to repository Settings → Secrets and variables → Actions
+- Re-run the workflow
 
 **Deployment timeout:**
 - Check Azure portal Function App deployment status
 - Review GitHub Actions workflow logs for error messages
 - Verify `AZURE_CREDENTIALS` secret is current and has necessary permissions
+
+**Smoke test fails — trigger returns non-202:**
+- The function app may still be restarting; wait a minute and manually re-run the workflow
+- Check Function App → Deployment Center → Logs in the Azure portal for build errors
+
+**Smoke test fails — load errors in logs:**
+- `Cannot find module` → verify package step completed and `node_modules` was included in the zip; then check deployment/build logs
+- `imported from C:\home\site\wwwroot\...` → app is on Windows; recreate Function App with `--os-type Linux`
+- `Host initialization failed` → check app settings are all present: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
+- Test locally with `func start` to reproduce the error
 
 **Function app not responding:**
 - Verify app settings are correctly configured: `az functionapp config appsettings list --resource-group fiona-rg --name usage-report-function`
