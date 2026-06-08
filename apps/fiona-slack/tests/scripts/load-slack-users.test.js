@@ -15,12 +15,12 @@ jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({
   upsertUser: mockUpsertUser,
 }));
 
-let mapApiMember, mapCsvRow, parseCsvLine, processUser, flushPending, _resetCounters, _getCounters;
+let mapApiMember, mapCsvRow, parseCsvLine, loadFromApi, processUser, flushPending, _resetCounters, _getCounters;
 const originalArgv = [...process.argv];
 
 beforeAll(async () => {
   process.argv = [...originalArgv, '--batch-size=2', '--batch-delay=0'];
-  ({ mapApiMember, mapCsvRow, parseCsvLine, processUser, flushPending, _resetCounters, _getCounters } =
+  ({ mapApiMember, mapCsvRow, parseCsvLine, loadFromApi, processUser, flushPending, _resetCounters, _getCounters } =
     await import('../../scripts/load-slack-users.js'));
 });
 
@@ -263,5 +263,107 @@ describe('parseCsvLine', () => {
 
   it('returns one empty string for an empty line', () => {
     expect(parseCsvLine('')).toEqual(['']);
+  });
+});
+
+// ── loadFromApi ───────────────────────────────────────────────────────────
+
+describe('loadFromApi', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn();
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    _resetCounters();
+    mockUpsertUser.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    delete process.env.SLACK_BOT_TOKEN;
+  });
+
+  it('processes all members on a single page', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        members: [
+          { id: 'UA001', team_id: 'T1', name: 'alice', is_bot: false, deleted: false, profile: {} },
+          { id: 'UA002', team_id: 'T1', name: 'bob', is_bot: false, deleted: false, profile: {} },
+        ],
+        response_metadata: { next_cursor: '' },
+      }),
+    });
+
+    await loadFromApi();
+    await flushPending();
+
+    expect(_getCounters().processed).toBe(2);
+    expect(mockUpsertUser).toHaveBeenCalledTimes(2);
+  });
+
+  it('follows cursor pagination across multiple pages', async () => {
+    global.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          members: [{ id: 'UP001', team_id: 'T1', name: 'p1', is_bot: false, deleted: false, profile: {} }],
+          response_metadata: { next_cursor: 'cursor-abc' },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          members: [{ id: 'UP002', team_id: 'T1', name: 'p2', is_bot: false, deleted: false, profile: {} }],
+          response_metadata: { next_cursor: '' },
+        }),
+      });
+
+    await loadFromApi();
+    await flushPending();
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const secondCallUrl = global.fetch.mock.calls[1][0].toString();
+    expect(secondCallUrl).toContain('cursor=cursor-abc');
+    expect(_getCounters().processed).toBe(2);
+  });
+
+  it('throws when Slack returns a non-2xx HTTP status', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+    });
+
+    await expect(loadFromApi()).rejects.toThrow('Slack API HTTP 401: Unauthorized');
+  });
+
+  it('throws when Slack returns ok=false in JSON body', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: false, error: 'invalid_auth' }),
+    });
+
+    await expect(loadFromApi()).rejects.toThrow('Slack API users.list failed: invalid_auth');
+  });
+
+  it('processes zero members when members array is empty', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        members: [],
+        response_metadata: { next_cursor: '' },
+      }),
+    });
+
+    await loadFromApi();
+    await flushPending();
+
+    expect(_getCounters().processed).toBe(0);
+    expect(mockUpsertUser).not.toHaveBeenCalled();
   });
 });
