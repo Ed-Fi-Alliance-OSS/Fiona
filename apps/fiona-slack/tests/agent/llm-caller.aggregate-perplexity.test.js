@@ -246,5 +246,6 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
+    expect(result).toHaveProperty('systemPromptVersion', 'v1');
   });
 });

@@ -4,6 +4,8 @@
 
 **Goal:** Capture all Fiona conversations (user message + bot response + thread history + metadata) to a new Cosmos DB `conversations` container for human evaluation, gated by a `CAPTURE_ALL_CONVERSATIONS` env var.
 
+> **Implementation update (2026-06-08):** The merged implementation uses a **180-day TTL** (not 360) and includes `systemPromptVersion` in captured conversation records. Follow-up hardening/refactor work is tracked separately in issue #57.
+
 **Architecture:** A new `conversation-capture-store.js` module (following the existing `interaction-store.js` / `feedback-store.js` pattern) writes to a dedicated Cosmos container. `callLLM` is modified to return the accumulated bot response text alongside the metadata envelope, so listeners can pass both to the store after a successful LLM call. Infrastructure provisioning adds the container via Bicep. All changes are independent of the slash command work (AI-119) and will compose cleanly after that PR merges.
 
 **Tech Stack:** Node.js (ESM), `@azure/cosmos`, `@azure/identity`, Jest (`jest.unstable_mockModule`), Azure Bicep

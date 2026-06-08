@@ -16,6 +16,7 @@ import { normalizeSources } from './utils/source-normalizer.js';
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
+export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
   ? process.env.PERPLEXITY_DOMAIN_FILTER.split(',').map((d) => d.trim())
   : ['www.ed-fi.org', 'docs.ed-fi.org'];
@@ -432,7 +433,7 @@ export async function callPerplexityChat(streamer, prompts) {
  * @param {Array} prompts - OpenAI-style message array
  * @param {import("@slack/logger").Logger} logger - Logger instance
  *
- * @returns {Promise<{ metadata: MetadataEnvelope, botText: string }>} Metadata envelope and full bot response text
+ * @returns {Promise<{ metadata: MetadataEnvelope, botText: string, systemPromptVersion: string }>} Metadata envelope and full bot response text
  *
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */
@@ -481,5 +482,5 @@ export async function callLLM(streamer, prompts, logger) {
     throw error;
   }
 
-  return { metadata, botText };
+  return { metadata, botText, systemPromptVersion: SYSTEM_PROMPT_VERSION };
 }

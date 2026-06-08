@@ -11,10 +11,11 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 }));
 
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
-  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '' }),
+  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
   LLM_MODEL: 'sonar-pro',
+  SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
     citation_rendering_enabled: true,
     FEATURE_FLAG_EVIDENCE_ROW: false,
@@ -251,6 +252,7 @@ describe('appMentionCallback', () => {
         source_index_map: { 'https://a.com': 1 },
       },
       botText: 'test response',
+      systemPromptVersion: 'v1',
     });
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
@@ -265,7 +267,7 @@ describe('appMentionCallback', () => {
       sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs' }],
       source_index_map: { 'https://docs.ed-fi.org': 1 },
     };
-    callLLM.mockResolvedValueOnce({ metadata, botText: 'test response' });
+    callLLM.mockResolvedValueOnce({ metadata, botText: 'test response', systemPromptVersion: 'v1' });
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
@@ -302,6 +304,7 @@ describe('appMentionCallback', () => {
       callLLM.mockResolvedValue({
         metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://a.com' }], source_index_map: {}, provider: 'perplexity' },
         botText: 'Bot answer here.',
+        systemPromptVersion: 'v1',
       });
     });
 
@@ -317,6 +320,7 @@ describe('appMentionCallback', () => {
       expect(call.llmProvider).toBe('perplexity');
       expect(call.teamId).toBeDefined();
       expect(call.llmModel).toBeDefined();
+      expect(call.systemPromptVersion).toBe('v1');
     });
 
     it('does not call captureConversation when callLLM throws', async () => {

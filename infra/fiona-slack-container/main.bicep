@@ -275,8 +275,8 @@ resource conversationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
           ]
         ]
       }
-      // 360-day TTL — documents expire automatically; per-document ttl field overrides if needed
-      defaultTtl: 31104000
+      // 180-day TTL — documents expire automatically; per-document ttl field overrides if needed
+      defaultTtl: 15552000
     }
     options: {}
   }

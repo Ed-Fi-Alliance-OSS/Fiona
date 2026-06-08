@@ -70,4 +70,4 @@ Confirm a document exists containing:
 | `threadHistory` | Array of `{role, content}` objects |
 | `entryPoint` | `app_mention` or `assistant_message` |
 | `deploymentType` | `local` |
-| `ttl` | `31104000` |
+| `ttl` | `15552000` |

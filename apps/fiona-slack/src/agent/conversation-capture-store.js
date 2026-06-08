@@ -14,13 +14,14 @@ const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONVERSATIONS_CONTAINER = process.env.COSMOS_CONVERSATIONS_CONTAINER || 'conversations';
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
 
-// 360 days in seconds for per-document TTL
-const CONVERSATION_TTL_SECONDS = 31_104_000;
+// 180 days in seconds for per-document TTL
+const CONVERSATION_TTL_SECONDS = 15_552_000;
 
 /** @type {import('@azure/cosmos').Container | null} */
 let container = null;
 
 let warnedMissingConfig = false;
+let warnedInsecureProductionCosmosKey = false;
 const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
@@ -95,6 +96,15 @@ async function getContainer(logger) {
   if (COSMOS_CONNECTION_STRING) {
     client = new CosmosClient(COSMOS_CONNECTION_STRING);
   } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
+    if (DEPLOYMENT_TYPE === 'production') {
+      if (!warnedInsecureProductionCosmosKey) {
+        warnedInsecureProductionCosmosKey = true;
+        logger?.warn?.(
+          'Conversation capture does not support COSMOS_KEY auth in production. Use COSMOS_CONNECTION_STRING or managed identity (COSMOS_ENDPOINT only).',
+        );
+      }
+      return null;
+    }
     client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
   } else if (COSMOS_ENDPOINT) {
     client = new CosmosClient({
@@ -131,6 +141,7 @@ async function getContainer(logger) {
  * @param {Array<{role: string, content: string}>} capture.threadHistory - Full thread context sent to LLM
  * @param {string} capture.llmProvider - LLM provider name (e.g. 'perplexity')
  * @param {string} capture.llmModel - LLM model name (e.g. 'sonar')
+ * @param {string} [capture.systemPromptVersion] - System prompt version identifier
  * @param {Array} [capture.sources] - Citation sources from metadata
  * @param {{ warn?: (msg: string) => void }} [capture.logger] - Optional logger
  */
@@ -146,6 +157,7 @@ export async function captureConversation({
   threadHistory,
   llmProvider,
   llmModel,
+  systemPromptVersion,
   sources,
   logger,
 }) {
@@ -156,9 +168,16 @@ export async function captureConversation({
     if (!c) return;
 
     if (!userId || !channelId || !threadTs || !messageTs || !entryPoint) {
-      logger?.warn?.(
-        `Missing required fields for capturing conversation: ${JSON.stringify({ userId, channelId, threadTs, messageTs, entryPoint })}`,
-      );
+      const missingFields = [
+        ['userId', userId],
+        ['channelId', channelId],
+        ['threadTs', threadTs],
+        ['messageTs', messageTs],
+        ['entryPoint', entryPoint],
+      ]
+        .filter(([, value]) => !value)
+        .map(([name]) => name);
+      logger?.warn?.(`Missing required fields for capturing conversation: ${missingFields.join(', ')}`);
       return;
     }
 
@@ -175,6 +194,7 @@ export async function captureConversation({
       threadHistory: Array.isArray(threadHistory) ? threadHistory : [],
       llmProvider,
       llmModel,
+      systemPromptVersion: systemPromptVersion ?? 'unknown',
       sources: sources ?? [],
       deploymentType: DEPLOYMENT_TYPE,
       timestamp: new Date().toISOString(),

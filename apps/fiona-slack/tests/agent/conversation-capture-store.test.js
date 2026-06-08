@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 
 const mockUpsert = jest.fn().mockResolvedValue({});
 const mockContainerObj = { items: { upsert: mockUpsert } };
@@ -32,6 +32,7 @@ const VALID_CAPTURE = {
   threadHistory: [{ role: 'user', content: 'What is Ed-Fi?' }],
   llmProvider: 'perplexity',
   llmModel: 'sonar',
+  systemPromptVersion: 'v1',
   sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs', index: 1 }],
 };
 
@@ -48,6 +49,16 @@ describe('conversation-capture-store - CAPTURE_ALL_CONVERSATIONS disabled', () =
 
   it('is a no-op when CAPTURE_ALL_CONVERSATIONS is not set', async () => {
     await captureConversation(VALID_CAPTURE);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when CAPTURE_ALL_CONVERSATIONS is set to 'false'", async () => {
+    process.env.CAPTURE_ALL_CONVERSATIONS = 'false';
+    jest.resetModules();
+    const { captureConversation: captureConversationWithFalseFlag } = await import(
+      '../../src/agent/conversation-capture-store.js'
+    );
+    await captureConversationWithFalseFlag(VALID_CAPTURE);
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 });
@@ -103,6 +114,16 @@ describe('conversation-capture-store - Cosmos configured via connection string',
 
   beforeEach(() => {
     mockUpsert.mockClear();
+    mockDatabase.container.mockClear();
+    MockCosmosClient.mockClear();
+    jest.spyOn(global, 'setTimeout').mockImplementation((fn) => {
+      fn();
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('upserts a document with all required fields', async () => {
@@ -122,9 +143,10 @@ describe('conversation-capture-store - Cosmos configured via connection string',
     expect(doc.threadHistory).toEqual([{ role: 'user', content: 'What is Ed-Fi?' }]);
     expect(doc.llmProvider).toBe('perplexity');
     expect(doc.llmModel).toBe('sonar');
+    expect(doc.systemPromptVersion).toBe('v1');
     expect(doc.sources).toEqual([{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs', index: 1 }]);
     expect(doc.deploymentType).toBe('local');
-    expect(doc.ttl).toBe(31_104_000);
+    expect(doc.ttl).toBe(15_552_000);
     expect(doc.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
@@ -140,6 +162,12 @@ describe('conversation-capture-store - Cosmos configured via connection string',
     expect(doc.sources).toEqual([]);
   });
 
+  it('defaults systemPromptVersion to unknown when not provided', async () => {
+    await captureConversation({ ...VALID_CAPTURE, systemPromptVersion: undefined });
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.systemPromptVersion).toBe('unknown');
+  });
+
   it('silently swallows Cosmos write errors and warns', async () => {
     mockUpsert.mockRejectedValueOnce(new Error('cosmos timeout'));
     const logger = { warn: jest.fn() };
@@ -151,6 +179,81 @@ describe('conversation-capture-store - Cosmos configured via connection string',
     const logger = { warn: jest.fn() };
     await captureConversation({ ...VALID_CAPTURE, userId: undefined, logger });
     expect(mockUpsert).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Missing required fields'));
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Missing required fields for capturing conversation: userId',
+    );
+  });
+
+  it('retries once for retryable 429 responses and then succeeds', async () => {
+    mockUpsert.mockRejectedValueOnce({ statusCode: 429 }).mockResolvedValueOnce({});
+
+    await captureConversation(VALID_CAPTURE);
+
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry for non-retryable responses', async () => {
+    mockUpsert.mockRejectedValueOnce({ statusCode: 400 });
+    const logger = { warn: jest.fn() };
+
+    await captureConversation({ ...VALID_CAPTURE, logger });
+
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('statusCode=400'));
+  });
+
+  it('retries up to max attempts for retryable failures', async () => {
+    mockUpsert.mockRejectedValue({ statusCode: 503 });
+    const logger = { warn: jest.fn() };
+
+    await captureConversation({ ...VALID_CAPTURE, logger });
+
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('statusCode=503'));
+  });
+
+  it('resets cached container and reconnects on 410 before retry', async () => {
+    mockUpsert.mockRejectedValueOnce({ statusCode: 410 }).mockResolvedValueOnce({});
+    const containerCallsBefore = mockDatabase.container.mock.calls.length;
+    const clientCallsBefore = MockCosmosClient.mock.calls.length;
+
+    await captureConversation(VALID_CAPTURE);
+
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+    expect(mockDatabase.container.mock.calls.length).toBeGreaterThan(containerCallsBefore);
+    expect(MockCosmosClient.mock.calls.length).toBeGreaterThan(clientCallsBefore);
+  });
+});
+
+describe('conversation-capture-store - production auth guard', () => {
+  let captureConversation;
+
+  beforeAll(async () => {
+    process.env.CAPTURE_ALL_CONVERSATIONS = 'true';
+    process.env.COSMOS_ENDPOINT = 'https://prod.documents.azure.com:443/';
+    process.env.COSMOS_KEY = 'secret-key';
+    process.env.DEPLOYMENT_TYPE = 'production';
+    delete process.env.COSMOS_CONNECTION_STRING;
+    jest.resetModules();
+    mockUpsert.mockClear();
+    ({ captureConversation } = await import('../../src/agent/conversation-capture-store.js'));
+  });
+
+  afterAll(() => {
+    delete process.env.CAPTURE_ALL_CONVERSATIONS;
+    delete process.env.COSMOS_ENDPOINT;
+    delete process.env.COSMOS_KEY;
+    delete process.env.DEPLOYMENT_TYPE;
+  });
+
+  it('warns and skips writes when COSMOS_KEY auth is configured in production', async () => {
+    const logger = { warn: jest.fn() };
+
+    await captureConversation({ ...VALID_CAPTURE, logger });
+
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('does not support COSMOS_KEY auth in production'),
+    );
   });
 });

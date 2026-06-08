@@ -153,7 +153,7 @@ async function main() {
       kind: 'MultiHash',
       version: 2,
     },
-    defaultTtl: 31104000, // 360 days in seconds
+    defaultTtl: 15552000, // 180 days in seconds
     indexingPolicy: {
       indexingMode: 'consistent',
       includedPaths: [{ path: '/*' }],

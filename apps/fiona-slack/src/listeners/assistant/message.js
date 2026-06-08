@@ -5,7 +5,13 @@
 
 import { captureConversation } from '../../agent/conversation-capture-store.js';
 import { handleInteractionWithTelemetry, sleep, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
-import { CITATION_POLICY, callLLM, finalizeMetadataEnvelope, LLM_MODEL } from '../../agent/llm-caller.js';
+import {
+  CITATION_POLICY,
+  callLLM,
+  finalizeMetadataEnvelope,
+  LLM_MODEL,
+  SYSTEM_PROMPT_VERSION,
+} from '../../agent/llm-caller.js';
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
@@ -208,7 +214,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
         const prompts = await buildThreadHistory(client, channel, thread_ts, { currentText: text, logger });
 
-        const { metadata, botText } = await callLLM(streamer, prompts, logger);
+        const { metadata, botText, systemPromptVersion } = await callLLM(streamer, prompts, logger);
 
         // Guard against duplicate finalization
         const responseId = generateResponseId(channel, thread_ts, message.ts);
@@ -240,6 +246,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           threadHistory: prompts,
           llmProvider: metadata?.provider ?? 'perplexity',
           llmModel: LLM_MODEL,
+          systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
           sources: metadata?.sources,
           logger,
         });
