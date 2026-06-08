@@ -141,6 +141,30 @@ describe('getUser — with connection string', () => {
       expect.stringContaining('Failed to read Slack user U12345'),
     );
   });
+
+  it('returns null for empty string userId without throwing', async () => {
+    mockRead.mockResolvedValueOnce({ resource: undefined });
+    await expect(getUser('', null)).resolves.toBeNull();
+  });
+
+  it('returns null for null userId without throwing', async () => {
+    mockRead.mockResolvedValueOnce({ resource: undefined });
+    await expect(getUser(null, null)).resolves.toBeNull();
+  });
+});
+
+describe('upsertUser — max retries exceeded', () => {
+  it('returns false and logs warning after exhausting all retry attempts', async () => {
+    const tooMany = Object.assign(new Error('Too Many Requests'), { code: 429 });
+    mockUpsert.mockRejectedValue(tooMany);
+    const logger = { warn: jest.fn() };
+    const result = await upsertUser(mockUser, logger);
+    expect(result).toBe(false);
+    expect(mockUpsert).toHaveBeenCalledTimes(3); // maxAttempts in test env
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to upsert Slack user U12345'));
+    mockUpsert.mockReset();
+    mockUpsert.mockResolvedValue({});
+  });
 });
 
 describe('ensureStoreReady', () => {
