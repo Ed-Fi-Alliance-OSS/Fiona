@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { config as loadDotenvConfig } from 'dotenv';
 import { upsertUser, ensureStoreReady } from '../src/agent/slack-users-store.js';
+import { isEmulatorTarget } from '../src/agent/cosmos-utils.js';
 
 export const counters = { processed: 0, upserted: 0, skipped: 0, failed: 0 };
 
@@ -66,13 +67,9 @@ export const includeDeleted = getBoolArg('include-deleted', false);
 export const csvPath = getArg('csv', process.argv[3]); // convenience for positional csv file
 export const safeEmulator = getBoolArg('safe-emulator', false);
 
-function isEmulatorTarget() {
-  const target = `${process.env.COSMOS_CONNECTION_STRING ?? ''} ${process.env.COSMOS_ENDPOINT ?? ''}`.toLowerCase();
-  return target.includes('localhost') || target.includes('127.0.0.1');
-}
 
 function getBatchDefaults() {
-  const isEmulator = isEmulatorTarget();
+  const isEmulator = isEmulatorTarget(process.env.COSMOS_CONNECTION_STRING, process.env.COSMOS_ENDPOINT);
   return {
     batchSize: safeEmulator || isEmulator ? 1 : 10,
     batchDelayMs: safeEmulator || isEmulator ? 500 : 50,
@@ -81,10 +78,17 @@ function getBatchDefaults() {
 
 function getBatchConfig() {
   const defaults = getBatchDefaults();
-  return {
-    batchSize: Number(getArg('batch-size', defaults.batchSize)),
-    batchDelayMs: Number(getArg('batch-delay', defaults.batchDelayMs)),
-  };
+  const batchSize = Number(getArg('batch-size', defaults.batchSize));
+  const batchDelayMs = Number(getArg('batch-delay', defaults.batchDelayMs));
+
+  if (!Number.isFinite(batchSize) || batchSize < 1) {
+    throw new Error('--batch-size must be a positive integer');
+  }
+  if (!Number.isFinite(batchDelayMs) || batchDelayMs < 0) {
+    throw new Error('--batch-delay must be a non-negative integer');
+  }
+
+  return { batchSize, batchDelayMs };
 }
 
 /** @type {SlackUserRecord[]} */
@@ -174,7 +178,6 @@ export function mapCsvRow(r) {
 
 export async function loadFromApi() {
   const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) throw new Error('SLACK_BOT_TOKEN is required for --source=api');
   let cursor = '';
   do {
     const url = new URL('https://slack.com/api/users.list');
@@ -182,6 +185,7 @@ export async function loadFromApi() {
     url.searchParams.set('limit', '200');
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Slack API HTTP ${res.status}: ${res.statusText}`);
     const json = await res.json();
     if (!json.ok) throw new Error(`Slack API users.list failed: ${json.error || 'unknown_error'}`);
 
@@ -254,13 +258,23 @@ function parseCsvLine(line) {
 export async function main() {
   loadDotenv();
 
+  if (source === 'api' && !process.env.SLACK_BOT_TOKEN) {
+    throw new Error('SLACK_BOT_TOKEN is required for --source=api');
+  }
+  if (source === 'csv' && !csvPath) {
+    throw new Error('CSV file path required for --source=csv (use --source=csv path/to/file.csv)');
+  }
+  if (source !== 'api' && source !== 'csv') {
+    throw new Error(`Unsupported --source: ${source} (expected "api" or "csv")`);
+  }
+
   const { batchSize, batchDelayMs } = getBatchConfig();
   if (safeEmulator || isEmulatorTarget()) {
     console.log(`Safe upload profile enabled — batch size ${batchSize}, delay ${batchDelayMs}ms`);
   }
 
-  const target = process.env.COSMOS_CONNECTION_STRING ?? process.env.COSMOS_ENDPOINT ?? '(not set)';
-  console.log(`Connecting to CosmosDB: ${target.slice(0, 60)}...`);
+  const endpoint = process.env.COSMOS_ENDPOINT ?? process.env.COSMOS_CONNECTION_STRING?.match(/https:\/\/([^:]+)/)?.[1] ?? '(not set)';
+  console.log(`Connecting to CosmosDB: ${endpoint}`);
 
   const storeReady = await ensureStoreReady(console);
   if (!storeReady) {
@@ -271,10 +285,8 @@ export async function main() {
 
   if (source === 'api') {
     await loadFromApi();
-  } else if (source === 'csv') {
-    await loadFromCsv(csvPath);
   } else {
-    throw new Error(`Unsupported --source: ${source} (expected "api" or "csv")`);
+    await loadFromCsv(csvPath);
   }
 
   await flushPending();

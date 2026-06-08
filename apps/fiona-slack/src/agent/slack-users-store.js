@@ -5,6 +5,7 @@
 
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
+import { isEmulatorTarget } from './cosmos-utils.js';
 
 let warnedMissingConfig = false;
 
@@ -22,11 +23,6 @@ function getCosmosConfig() {
     database: process.env.COSMOS_DATABASE || 'chatbot',
     usersContainer: process.env.COSMOS_USERS_CONTAINER || 'slack-users',
   };
-}
-
-function isEmulatorTarget(config) {
-  const target = `${config.connectionString ?? ''} ${config.endpoint ?? ''}`.toLowerCase();
-  return target.includes('localhost') || target.includes('127.0.0.1');
 }
 
 function resetContainerCache() {
@@ -113,7 +109,7 @@ function getRetryPolicy() {
     return { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 5 };
   }
 
-  if (isEmulatorTarget(config)) {
+  if (isEmulatorTarget(config.connectionString, config.endpoint)) {
     return { maxAttempts: 8, baseDelayMs: 400, maxDelayMs: 5000 };
   }
 
