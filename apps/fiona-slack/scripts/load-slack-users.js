@@ -269,7 +269,7 @@ export async function main() {
   }
 
   const { batchSize, batchDelayMs } = getBatchConfig();
-  if (safeEmulator || isEmulatorTarget()) {
+  if (safeEmulator || isEmulatorTarget(process.env.COSMOS_CONNECTION_STRING, process.env.COSMOS_ENDPOINT)) {
     console.log(`Safe upload profile enabled — batch size ${batchSize}, delay ${batchDelayMs}ms`);
   }
 
