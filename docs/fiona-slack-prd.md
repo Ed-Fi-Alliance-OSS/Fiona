@@ -230,7 +230,21 @@ Cosmos DB supports three authentication methods (in priority order):
 If Cosmos DB is not configured, feedback is acknowledged to the user but not
 persisted.
 
-### 2.6 Interaction Analytics
+### 2.6 Slack Users Store
+
+Fiona resolves Slack user IDs to human-readable names and email addresses by
+querying the `slack-users` CosmosDB container. This enables features like
+`/fiona escalate` to display user names in escalation messages and provide
+meaningful context to users.
+
+The `slack-users` container is populated via `scripts/load-slack-users.js`, which
+ingests the Slack workspace member list from either the Slack API or an Admin CSV
+export. Records include user ID, name, real name, email, and account status.
+
+For detailed instructions on loading and refreshing the Slack user list, see
+[Slack Users → CosmosDB](slack-users-cosmosdb.md).
+
+### 2.7 Interaction Analytics
 
 Every `app_mention` and assistant thread `message` event is recorded to an Azure
 Cosmos DB `interactions` container for long-term engagement analysis.
@@ -266,7 +280,7 @@ Cosmos DB `interactions` container for long-term engagement analysis.
 > Message content is deliberately excluded from interaction records. Only
 > metadata is stored, preserving user privacy.
 
-### 2.7 Weekly Usage Report
+### 2.8 Weekly Usage Report
 
 A separate Azure Function (`apps/usage-report-function`) runs on a configurable
 cron schedule (default: 9 AM UTC every Monday) and posts an engagement summary
@@ -289,7 +303,7 @@ to a Slack channel via incoming webhook.
 The lookback window defaults to the past 7 days. The webhook URL is retrieved
 from Azure Key Vault at runtime using Managed Identity.
 
-### 2.8 Loading / Status Messages
+### 2.9 Loading / Status Messages
 
 While processing, Fiona sets a "thinking..." status with a randomly selected
 loading message:
@@ -300,7 +314,7 @@ loading message:
 - *Polishing up the response just for you...*
 - *Convincing the AI to stop overthinking...*
 
-### 2.9 Fiona Skills (Slash Commands)
+### 2.10 Fiona Skills (Slash Commands)
 
 Fiona exposes a set of **Skills** through the `/fiona` slash command, giving
 users quick access to structured actions without needing to @-mention Fiona or
@@ -498,7 +512,7 @@ documentation. Key groups:
 | LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
 | Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
-| Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER` |
+| Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
 
 ### 7.2 Usage Report Function (`apps/usage-report-function`)
