@@ -255,8 +255,44 @@ export function parseCsvLine(line) {
   return result;
 }
 
+export function printUsage() {
+  console.log(`
+Usage: node load-slack-users.js --source=<api|csv> [options]
+
+Sources:
+  --source=api          Load users from Slack API (requires SLACK_BOT_TOKEN)
+  --source=csv <file>   Load users from a CSV file
+  --csv=<path>          CSV file path (alternative to positional argument)
+
+Filters:
+  --include-bots        Include bot users (default: false)
+  --include-deleted     Include deactivated users (default: false)
+
+Batching:
+  --batch-size=<n>      Records per batch (default: 10, emulator: 1)
+  --batch-delay=<ms>    Delay between batches in ms (default: 50, emulator: 500)
+  --safe-emulator       Force single-record batching for emulator stability
+
+Environment:
+  --env-file=<path>     Load environment variables from a specific .env file
+                        (skips default .env search)
+
+Cosmos DB (via environment variables):
+  COSMOS_CONNECTION_STRING   Full Cosmos DB connection string
+  COSMOS_ENDPOINT            Cosmos DB endpoint URL (used with COSMOS_KEY or managed identity)
+  COSMOS_KEY                 Cosmos DB account key
+  COSMOS_DATABASE            Database name (default: chatbot)
+  COSMOS_USERS_CONTAINER     Container name (default: slack-users)
+`.trim());
+}
+
 export async function main() {
   loadDotenv();
+
+  if (getArg('help') === true || process.argv.includes('--help')) {
+    printUsage();
+    process.exit(0);
+  }
 
   if (source === 'api' && !process.env.SLACK_BOT_TOKEN) {
     throw new Error('SLACK_BOT_TOKEN is required for --source=api');
