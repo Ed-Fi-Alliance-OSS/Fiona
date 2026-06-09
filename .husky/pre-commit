@@ -10,7 +10,7 @@ if git diff --cached --name-only | grep -q "^apps/fiona-slack/"; then
   echo "Running Biome lint check..."
   npx @biomejs/biome check src/
   echo "Running tests..."
-  npm test
+  npm test -- --forceExit
   cd "$REPO_ROOT"
 fi
 
@@ -20,7 +20,7 @@ if git diff --cached --name-only | grep -q "^apps/usage-report-function/"; then
   echo "Running lint..."
   npm run lint
   echo "Running tests..."
-  npm test
+  npm test -- --forceExit
   cd "$REPO_ROOT"
 fi
 
