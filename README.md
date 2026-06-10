@@ -79,6 +79,25 @@ cd apps/fiona-slack
 npm test
 ```
 
+### Loading Slack Users
+
+Fiona uses a `slack-users` Cosmos DB container to resolve Slack user IDs to
+names and email addresses (used by features like `/fiona escalate`).
+
+**Quick start:**
+
+```bash
+cd apps/fiona-slack
+npm run load:slack-users -- --source=api
+```
+
+The script safely uses upsert, so you can run it at any time. By default, bots
+and deactivated accounts are skipped.
+
+**How often:** Run weekly (automated via GitHub Actions) or manually when the
+workspace membership changes significantly. For detailed instructions, setup
+options, and CSV import guidance, see [`docs/slack-users-cosmosdb.md`](docs/slack-users-cosmosdb.md).
+
 ## Deployment
 
 Fiona deploys to **Azure Container Apps** via GitHub Actions. Two workflows are

@@ -14,8 +14,8 @@
  * Download: https://aka.ms/cosmosdb-emulator
  */
 
-import https from 'https';
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
+import https from 'node:https';
 import { CosmosClient } from '@azure/cosmos';
 
 // Load .env if present so COSMOS_CONNECTION_STRING etc. are available
@@ -51,8 +51,7 @@ if (process.env.COSMOS_CONNECTION_STRING) {
   // system tray icon → "Copy Connection String", then set COSMOS_CONNECTION_STRING
   // in your .env.
   const key =
-    process.env.COSMOS_KEY ||
-    'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
+    process.env.COSMOS_KEY || 'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
   client = new CosmosClient({ endpoint, key, agent: tlsAgent });
   console.log(`Using endpoint ${endpoint} (set COSMOS_CONNECTION_STRING in .env to override).`);
 }
@@ -123,6 +122,29 @@ async function main() {
     },
   });
   console.log(`Container '${INTERACTIONS_CONTAINER}' ready.`);
+
+  // --- slack-users container ---
+  const USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
+  await database.containers.createIfNotExists({
+    id: USERS_CONTAINER,
+    partitionKey: {
+      paths: ['/id'],
+      kind: 'Hash',
+      version: 2,
+    },
+    indexingPolicy: {
+      indexingMode: 'consistent',
+      includedPaths: [{ path: '/*' }],
+      excludedPaths: [{ path: '/"_etag"/?' }],
+      compositeIndexes: [
+        [
+          { path: '/teamId', order: 'ascending' },
+          { path: '/updatedAt', order: 'descending' },
+        ],
+      ],
+    },
+  });
+  console.log(`Container '${USERS_CONTAINER}' ready.`);
 
   if (!process.env.COSMOS_CONNECTION_STRING) {
     console.log('\nDone. Add this to your .env to connect the app:');
