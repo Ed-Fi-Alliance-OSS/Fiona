@@ -1,6 +1,5 @@
 # Feedback Reason Collection — Design Spec
 
-**Jira:** AI-112  
 **Date:** 2026-06-04  
 **Status:** Approved
 
@@ -41,19 +40,6 @@ modal submit
             ├── recordFeedback({ ..., reason })
             └── client.chat.postEphemeral(confirmation)
 ```
-
-## Files
-
-| File | Change |
-|------|--------|
-| `apps/fiona-slack/src/listeners/actions/feedback.js` | Replace ephemeral+record with `client.views.open()` |
-| `apps/fiona-slack/src/listeners/views/feedback_reason.js` | New — `feedbackReasonViewCallback` |
-| `apps/fiona-slack/src/listeners/views/index.js` | New — registers `app.view('feedback_reason', ...)` |
-| `apps/fiona-slack/src/listeners/index.js` | Import and call `views.register(app)` |
-| `apps/fiona-slack/src/agent/feedback-store.js` | Add optional `reason` param to `recordFeedback` |
-| `apps/fiona-slack/tests/listeners/actions/feedback.test.js` | Update: verify `views.open` called, not `postEphemeral` |
-| `apps/fiona-slack/tests/listeners/views/feedback_reason.test.js` | New — view submission handler tests |
-| `apps/fiona-slack/tests/agent/feedback-store.test.js` | Update: includes `reason` field assertions |
 
 ## Modal View Definition
 

@@ -194,13 +194,22 @@ A per-user sliding-window rate limiter prevents abuse.
 ### 2.5 User Feedback
 
 Each LLM response includes "Good Response" and "Bad Response" buttons. Clicking
-a button:
+a button opens a modal to collect optional (thumbs-up) or required (thumbs-down)
+feedback reasons.
 
-1. Sends an ephemeral confirmation message to the user.
-1. Optionally records the feedback to Azure Cosmos DB (if configured).
+**Feedback workflow:**
 
-Feedback records capture the complete interaction—user request and AI
-response—to enable analysis and continuous improvement of Fiona's guidance
+1. User clicks "Good Response" or "Bad Response" on a Fiona message.
+2. A Slack modal opens:
+   - **Thumbs-up:** title "Thanks for your feedback!", reason input is optional
+   - **Thumbs-down:** title "Sorry to hear that!", reason input is required
+3. User submits the modal (or cancels/closes without submitting).
+4. If submitted, an ephemeral confirmation is posted and feedback is optionally
+   recorded to Azure Cosmos DB (if configured).
+5. If cancelled/closed without submitting, no feedback is recorded.
+
+Feedback records capture the complete interaction—user request, AI response, and
+optional reason—to enable analysis and continuous improvement of Fiona's guidance
 quality. Records are automatically purged after 90 days.
 
 **Feedback document schema:**
@@ -212,6 +221,7 @@ quality. Records are automatically purged after 90 days.
 | `channelId`      | Slack channel ID                                                 |
 | `messageTs`      | Message timestamp                                                |
 | `value`          | `good-feedback` or `bad-feedback`                                |
+| `reason`         | User-provided reason (string or null)                            |
 | `userMessage`    | The user's original prompt (retrieved from thread history)       |
 | `botResponse`    | Fiona's response text                                            |
 | `deploymentType` | `local`, `insiders`, or `production`                             |
