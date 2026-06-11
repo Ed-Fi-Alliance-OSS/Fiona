@@ -85,6 +85,8 @@ export async function recordFeedback({
 
   const doc = {
     id: `${userId}_${messageTs}`,
+    // feedbackId duplicates id because the partition key path requires /feedbackId;
+    // removing it would silently break upsert routing.
     feedbackId: `${userId}_${messageTs}`,
     userId,
     channelId,

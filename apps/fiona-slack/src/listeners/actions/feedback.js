@@ -54,7 +54,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
           text: isGoodFeedback ? 'Thanks for the feedback!' : 'Sorry to hear that!',
         },
         submit: { type: 'plain_text', text: 'Submit' },
-        close: { type: 'plain_text', text: 'Cancel' },
+        close: { type: 'plain_text', text: isGoodFeedback ? 'Skip' : 'Cancel' },
         private_metadata: JSON.stringify({
           channelId: channel_id,
           messageTs: message_ts,

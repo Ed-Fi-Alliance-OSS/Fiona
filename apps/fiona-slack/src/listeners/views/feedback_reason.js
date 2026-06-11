@@ -20,7 +20,6 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     const { channelId, messageTs, userId, value, thread_ts } = JSON.parse(view.private_metadata);
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
-    const reason = trimmedReason || null;
 
     if (value === 'bad-feedback' && !trimmedReason) {
       await ack({ response_action: 'errors', errors: { reason_block: 'Please enter a reason.' } });
@@ -45,7 +44,16 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     try {
-      await recordFeedback({ userId, channelId, messageTs, value, reason, userMessage, botResponse, logger });
+      await recordFeedback({
+        userId,
+        channelId,
+        messageTs,
+        value,
+        reason: rawReason,
+        userMessage,
+        botResponse,
+        logger,
+      });
     } catch (e) {
       logger.error('Failed to record feedback to Cosmos DB:', e);
     }

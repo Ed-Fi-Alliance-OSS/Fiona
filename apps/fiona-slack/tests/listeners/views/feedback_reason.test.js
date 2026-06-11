@@ -77,20 +77,20 @@ describe('feedbackReasonViewCallback', () => {
     );
   });
 
-  it('normalizes empty string reason to null', async () => {
+  it('passes empty string reason through to store (store normalizes)', async () => {
     mockView.state.values.reason_block.reason_input.value = '';
 
     await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
-    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: '' }));
   });
 
-  it('normalizes whitespace-only reason to null', async () => {
+  it('passes whitespace-only reason through to store (store normalizes)', async () => {
     mockView.state.values.reason_block.reason_input.value = '   ';
 
     await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
-    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ reason: '   ' }));
   });
 
   it('returns validation error for bad-feedback with empty reason', async () => {
