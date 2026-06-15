@@ -6,13 +6,6 @@
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
-const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-const COSMOS_KEY = process.env.COSMOS_KEY;
-const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
-const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
-const COSMOS_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
-const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
-
 let warnedMissingConfig = false;
 
 /** @type {import('@azure/cosmos').Container | null} */
@@ -24,13 +17,19 @@ let container = null;
 async function getContainer(logger) {
   if (container) return container;
 
+  const connectionString = process.env.COSMOS_CONNECTION_STRING;
+  const endpoint = process.env.COSMOS_ENDPOINT;
+  const key = process.env.COSMOS_KEY;
+  const database = process.env.COSMOS_DATABASE || 'chatbot';
+  const cosmosContainer = process.env.COSMOS_CONTAINER || 'feedback';
+
   let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, aadCredentials: new DefaultAzureCredential() });
+  if (connectionString) {
+    client = new CosmosClient({ connectionString });
+  } else if (endpoint && key) {
+    client = new CosmosClient({ endpoint, key });
+  } else if (endpoint) {
+    client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() });
   } else {
     if (!warnedMissingConfig) {
       warnedMissingConfig = true;
@@ -41,8 +40,18 @@ async function getContainer(logger) {
     return null;
   }
 
-  container = client.database(COSMOS_DATABASE).container(COSMOS_CONTAINER);
-  return container;
+  try {
+    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { container: c } = await db.containers.createIfNotExists({
+      id: cosmosContainer,
+      partitionKey: { paths: ['/deploymentType', '/feedbackId'], kind: 'MultiHash', version: 2 },
+    });
+    container = c;
+    return container;
+  } catch (error) {
+    logger?.warn?.(`Failed to initialize Cosmos DB feedback container: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -56,27 +65,45 @@ async function getContainer(logger) {
  * @param {string} feedback.channelId - Slack channel ID
  * @param {string} feedback.messageTs - Timestamp of the bot message being rated
  * @param {string} feedback.value - 'good-feedback' or 'bad-feedback'
+ * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
-export async function recordFeedback({ userId, channelId, messageTs, value, userMessage, botResponse, logger }) {
+export async function recordFeedback({
+  userId,
+  channelId,
+  messageTs,
+  value,
+  reason,
+  userMessage,
+  botResponse,
+  logger,
+}) {
   const c = await getContainer(logger);
   if (!c) return;
 
   const doc = {
+    id: `${userId}_${messageTs}`,
+    // feedbackId duplicates id because the partition key path requires /feedbackId;
+    // removing it would silently break upsert routing.
     feedbackId: `${userId}_${messageTs}`,
     userId,
     channelId,
     messageTs,
     value,
+    reason: reason?.trim() ? reason.trim() : null,
     userMessage,
     botResponse,
-    deploymentType: DEPLOYMENT_TYPE,
+    deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),
   };
 
-  await c.items.upsert(doc, {
-    partitionKey: [doc.deploymentType, doc.feedbackId],
-  });
+  try {
+    await c.items.upsert(doc, {
+      partitionKey: [doc.deploymentType, doc.feedbackId],
+    });
+  } catch (error) {
+    logger?.warn?.(`Failed to record feedback to Cosmos DB: ${error.message}`);
+  }
 }

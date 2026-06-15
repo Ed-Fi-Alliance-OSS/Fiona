@@ -6,13 +6,6 @@
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
-const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-const COSMOS_KEY = process.env.COSMOS_KEY;
-const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
-const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'fiona';
-const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
-const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
-
 let warnedMissingConfig = false;
 
 /** @type {import('@azure/cosmos').Container | null} */
@@ -26,14 +19,20 @@ let container = null;
 export async function getContainer(logger) {
   if (container) return container;
 
+  const connectionString = process.env.COSMOS_CONNECTION_STRING;
+  const endpoint = process.env.COSMOS_ENDPOINT;
+  const key = process.env.COSMOS_KEY;
+  const database = process.env.COSMOS_DATABASE || 'fiona';
+  const cosmosContainer = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
+
   let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
+  if (connectionString) {
+    client = new CosmosClient({ connectionString });
+  } else if (endpoint && key) {
+    client = new CosmosClient({ endpoint, key });
+  } else if (endpoint) {
     client = new CosmosClient({
-      endpoint: COSMOS_ENDPOINT,
+      endpoint,
       aadCredentials: new DefaultAzureCredential(),
     });
   } else {
@@ -46,8 +45,18 @@ export async function getContainer(logger) {
     return null;
   }
 
-  container = client.database(COSMOS_DATABASE).container(COSMOS_CONTAINER);
-  return container;
+  try {
+    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { container: c } = await db.containers.createIfNotExists({
+      id: cosmosContainer,
+      partitionKey: { paths: ['/deploymentType', '/userId'], kind: 'MultiHash', version: 2 },
+    });
+    container = c;
+    return container;
+  } catch (error) {
+    logger?.warn?.(`Failed to initialize Cosmos DB interactions container: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -106,7 +115,7 @@ export async function recordInteraction({
     status,
     errorType: status === 'error' ? (errorType ?? null) : null,
     rateLimited,
-    deploymentType: DEPLOYMENT_TYPE,
+    deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),
   };
 
@@ -115,6 +124,6 @@ export async function recordInteraction({
       partitionKey: [doc.deploymentType, doc.userId],
     });
   } catch (error) {
-    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.name}`);
+    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.message}`);
   }
 }

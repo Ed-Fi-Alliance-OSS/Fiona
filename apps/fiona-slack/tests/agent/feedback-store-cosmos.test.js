@@ -11,9 +11,17 @@ process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.a
 
 const mockUpsert = jest.fn().mockResolvedValue({});
 const mockContainerObj = { items: { upsert: mockUpsert } };
-const mockDatabase = { container: jest.fn().mockReturnValue(mockContainerObj) };
+const mockDatabase = {
+  container: jest.fn().mockReturnValue(mockContainerObj),
+  containers: {
+    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj })
+  }
+};
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
   database: jest.fn().mockReturnValue(mockDatabase),
+  databases: {
+    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase })
+  }
 }));
 
 jest.unstable_mockModule('@azure/cosmos', () => ({
@@ -47,6 +55,7 @@ describe('recordFeedback - with connection string', () => {
 
     expect(mockUpsert).toHaveBeenCalledTimes(1);
     const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.id).toBe('U123_1234567890.000001');
     expect(doc.feedbackId).toBe('U123_1234567890.000001');
   });
 
@@ -111,5 +120,64 @@ describe('recordFeedback - with connection string', () => {
         botResponse: null,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('persists reason when provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000010',
+      value: 'bad-feedback',
+      reason: 'The answer was factually wrong',
+      userMessage: 'What is 2+2?',
+      botResponse: '5',
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBe('The answer was factually wrong');
+  });
+
+  it('stores reason as null when not provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000011',
+      value: 'good-feedback',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
+  });
+
+  it('stores reason as null when empty string is provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000012',
+      value: 'good-feedback',
+      reason: '',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
+  });
+
+  it('stores reason as null when only whitespace is provided', async () => {
+    await recordFeedback({
+      userId: 'U123',
+      channelId: 'C456',
+      messageTs: '1234567890.000013',
+      value: 'good-feedback',
+      reason: '   ',
+      userMessage: null,
+      botResponse: null,
+    });
+
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.reason).toBeNull();
   });
 });
