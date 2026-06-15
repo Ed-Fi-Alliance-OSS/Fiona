@@ -11,7 +11,6 @@ const COSMOS_KEY = process.env.COSMOS_KEY;
 const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
-const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
 
 let warnedMissingConfig = false;
 
