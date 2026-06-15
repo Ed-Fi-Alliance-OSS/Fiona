@@ -6,6 +6,12 @@
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
+const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
+const COSMOS_KEY = process.env.COSMOS_KEY;
+const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
+const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
+const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
+
 let warnedMissingConfig = false;
 
 /** @type {import('@azure/cosmos').Container | null} */
@@ -19,11 +25,11 @@ let container = null;
 export async function getContainer(logger) {
   if (container) return container;
 
-  const connectionString = process.env.COSMOS_CONNECTION_STRING;
-  const endpoint = process.env.COSMOS_ENDPOINT;
-  const key = process.env.COSMOS_KEY;
-  const database = process.env.COSMOS_DATABASE || 'fiona';
-  const cosmosContainer = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
+  const connectionString = COSMOS_CONNECTION_STRING;
+  const endpoint = COSMOS_ENDPOINT;
+  const key = COSMOS_KEY;
+  const database = COSMOS_DATABASE;
+  const cosmosContainer = COSMOS_CONTAINER;
 
   let client;
   if (connectionString) {
