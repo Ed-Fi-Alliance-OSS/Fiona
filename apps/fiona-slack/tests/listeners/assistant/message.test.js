@@ -530,4 +530,89 @@ describe('message (assistant thread handler)', () => {
       expect(captureConversation).not.toHaveBeenCalled();
     });
   });
+
+  describe('keyword command routing', () => {
+    it('responds with help text when message is exactly "help"', async () => {
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('is case-insensitive for the help keyword', async () => {
+      mockMessage.text = 'HELP';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('passes "help me understand X" to the LLM, not treated as command', async () => {
+      mockMessage.text = 'help me understand the ODS API';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(callLLM).toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when message starts with "ask "', async () => {
+      mockMessage.text = 'ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when message starts with "search "', async () => {
+      mockMessage.text = 'search Data Standard 6.0';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+  });
 });

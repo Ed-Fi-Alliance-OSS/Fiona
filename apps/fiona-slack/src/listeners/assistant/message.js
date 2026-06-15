@@ -15,6 +15,13 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
+import {
+  ASK_NOT_YET_TEXT,
+  handleComingSoonViaSay,
+  handleHelpViaSay,
+  parseCommandKeyword,
+  SEARCH_NOT_YET_TEXT,
+} from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -54,6 +61,19 @@ export const message = async ({ client, context, logger, message, say, setStatus
     await say(
       "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
     );
+    return;
+  }
+
+  // Route command keywords (help, ask, search) before invoking the LLM.
+  // Only exact "help" matches; "help me with X" falls through to the LLM.
+  const cmd = parseCommandKeyword(text);
+  if (cmd) {
+    if (cmd.keyword === 'help') {
+      await handleHelpViaSay(say, logger);
+    } else {
+      const notYetText = cmd.keyword === 'ask' ? ASK_NOT_YET_TEXT : SEARCH_NOT_YET_TEXT;
+      await handleComingSoonViaSay(say, logger, cmd.keyword, notYetText);
+    }
     return;
   }
 
