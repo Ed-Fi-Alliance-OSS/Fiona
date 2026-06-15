@@ -66,6 +66,47 @@ describe('parseCommandKeyword', () => {
     });
   });
 
+  describe('fiona <command> two-word prefix', () => {
+    it('returns help keyword for "fiona help"', () => {
+      expect(parseCommandKeyword('fiona help')).toEqual({ keyword: 'help', args: '' });
+    });
+
+    it('is case-insensitive for the fiona prefix', () => {
+      expect(parseCommandKeyword('Fiona Help')).toEqual({ keyword: 'help', args: '' });
+      expect(parseCommandKeyword('FIONA HELP')).toEqual({ keyword: 'help', args: '' });
+    });
+
+    it('returns null for "fiona help me with X" — trailing text after help is a query', () => {
+      expect(parseCommandKeyword('fiona help me with X')).toBeNull();
+    });
+
+    it('returns ask keyword with args for "fiona ask <question>"', () => {
+      expect(parseCommandKeyword('fiona ask how do I configure ODS?')).toEqual({
+        keyword: 'ask',
+        args: 'how do I configure ODS?',
+      });
+    });
+
+    it('returns search keyword with args for "fiona search <query>"', () => {
+      expect(parseCommandKeyword('fiona search Data Standard')).toEqual({
+        keyword: 'search',
+        args: 'Data Standard',
+      });
+    });
+
+    it('returns null for bare "fiona ask" with no argument', () => {
+      expect(parseCommandKeyword('fiona ask')).toBeNull();
+    });
+
+    it('returns null for bare "fiona search" with no argument', () => {
+      expect(parseCommandKeyword('fiona search')).toBeNull();
+    });
+
+    it('returns null for bare "fiona" with no sub-command', () => {
+      expect(parseCommandKeyword('fiona')).toBeNull();
+    });
+  });
+
   describe('non-command text', () => {
     it('returns null for empty string', () => {
       expect(parseCommandKeyword('')).toBeNull();
@@ -88,6 +129,10 @@ describe('HELP_TEXT', () => {
 
   it('mentions @fiona help as thread and agent panel alternative', () => {
     expect(HELP_TEXT).toMatch('@fiona help');
+  });
+
+  it('mentions fiona help as the two-word keyword alternative', () => {
+    expect(HELP_TEXT).toMatch('fiona help');
   });
 });
 

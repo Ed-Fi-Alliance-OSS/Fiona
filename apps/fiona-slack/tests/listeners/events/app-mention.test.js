@@ -386,5 +386,25 @@ describe('appMentionCallback', () => {
       expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
+
+    it('responds with help text when mention text is "fiona help"', async () => {
+      mockEvent.text = '<@UFIONA> fiona help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+      mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
   });
 });

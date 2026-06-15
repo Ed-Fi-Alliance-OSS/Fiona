@@ -614,5 +614,39 @@ describe('message (assistant thread handler)', () => {
       expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
+
+    it('responds with help text when message is "fiona help"', async () => {
+      mockMessage.text = 'fiona help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text for "fiona ask <question>"', async () => {
+      mockMessage.text = 'fiona ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
   });
 });

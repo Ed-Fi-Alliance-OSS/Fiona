@@ -8,10 +8,10 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 
 *Available commands:*
 \`\`\`
-/fiona help              Show this help message (in a channel)
-@fiona help              Same — works in threads and the agent panel
-/fiona ask <question>    Ask Fiona a question about Ed-Fi (coming soon)
-/fiona search <query>    Search Ed-Fi documentation (coming soon)
+/fiona help                    Show this help message (in a channel)
+@fiona help  |  fiona help     Same — works in threads and the agent panel
+/fiona ask <question>          Ask Fiona a question about Ed-Fi (coming soon)
+/fiona search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
 _Tip: You can also send Fiona a direct message._`;
 
@@ -29,26 +29,29 @@ export const SEARCH_NOT_YET_TEXT =
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
  * Disambiguation rules:
- *   - "help"            — exact whole-message match only; trailing text → null (treat as query)
- *   - "ask <args>"      — requires non-empty args after "ask "; bare "ask" → null
- *   - "search <args>"   — requires non-empty args after "search "; bare "search" → null
+ *   - "help"               — exact whole-message match only; trailing text → null (treat as query)
+ *   - "ask <args>"         — requires non-empty args after "ask "; bare "ask" → null
+ *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
+ *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
  *
  * @param {string} text - Trimmed, mention-stripped message text.
  * @returns {{ keyword: string, args: string } | null}
  */
 export function parseCommandKeyword(text) {
-  const lower = text.trim().toLowerCase();
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
 
-  if (lower === 'help') {
+  // Strip optional "fiona " prefix so "fiona help" resolves the same as "help"
+  const body = lower.startsWith('fiona ') ? trimmed.slice('fiona '.length).trim() : trimmed;
+  const bodyLower = body.toLowerCase();
+
+  if (bodyLower === 'help') {
     return { keyword: 'help', args: '' };
   }
 
   for (const kw of ['ask', 'search']) {
-    if (lower.startsWith(`${kw} `)) {
-      const args = text
-        .trim()
-        .slice(kw.length + 1)
-        .trim();
+    if (bodyLower.startsWith(`${kw} `)) {
+      const args = body.slice(kw.length + 1).trim();
       if (args.length > 0) {
         return { keyword: kw, args };
       }
