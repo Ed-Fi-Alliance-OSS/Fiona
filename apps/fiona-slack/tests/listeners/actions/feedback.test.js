@@ -5,13 +5,6 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-// Mock recordFeedback before importing the module under test
-const mockRecordFeedback = jest.fn().mockResolvedValue(undefined);
-
-jest.unstable_mockModule('../../../src/agent/feedback-store.js', () => ({
-  recordFeedback: mockRecordFeedback,
-}));
-
 const { feedbackActionCallback } = await import('../../../src/listeners/actions/feedback.js');
 
 describe('feedbackActionCallback', () => {
@@ -24,17 +17,15 @@ describe('feedbackActionCallback', () => {
     jest.clearAllMocks();
 
     mockAck = jest.fn().mockResolvedValue(undefined);
-    mockLogger = { error: jest.fn() };
+    mockLogger = { error: jest.fn(), warn: jest.fn() };
     mockClient = {
-      chat: {
-        postEphemeral: jest.fn().mockResolvedValue(undefined),
-      },
-      conversations: {
-        replies: jest.fn().mockResolvedValue({ messages: [] }),
+      views: {
+        open: jest.fn().mockResolvedValue(undefined),
       },
     };
     mockBody = {
       type: 'block_actions',
+      trigger_id: 'T123.456.abc',
       user: { id: 'U123' },
       channel: { id: 'C456' },
       message: {
@@ -56,7 +47,7 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(mockClient.views.open).not.toHaveBeenCalled();
   });
 
   it('returns early when action type is not feedback_buttons', async () => {
@@ -64,57 +55,97 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(mockClient.views.open).not.toHaveBeenCalled();
   });
 
-  it('posts a positive ephemeral message for good-feedback', async () => {
+  it('logs warn and returns early for unexpected feedback value', async () => {
+    mockBody.actions[0].value = 'unknown-value';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    expect(mockLogger.warn).toHaveBeenCalled();
+    expect(mockClient.views.open).not.toHaveBeenCalled();
+  });
+
+  it('opens modal with trigger_id for good-feedback', async () => {
     mockBody.actions[0].value = 'good-feedback';
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'C456',
-        user: 'U123',
-        thread_ts: '1234567890.000001',
-      }),
+    expect(mockClient.views.open).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
     );
-    const [{ text }] = mockClient.chat.postEphemeral.mock.calls[0];
-    expect(text).toContain('glad');
   });
 
-  it('posts a negative ephemeral message for bad-feedback', async () => {
+  it('opens modal with trigger_id for bad-feedback', async () => {
     mockBody.actions[0].value = 'bad-feedback';
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    const [{ text }] = mockClient.chat.postEphemeral.mock.calls[0];
-    expect(text).toContain('Sorry');
-  });
-
-  it('calls recordFeedback with correct arguments', async () => {
-    mockBody.actions[0].value = 'good-feedback';
-    const messages = [
-      { ts: '1234567890.000000', text: 'User question' },
-      { ts: '1234567890.000001', text: 'Bot response text' },
-    ];
-    mockClient.conversations.replies.mockResolvedValueOnce({ messages });
-
-    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
-
-    expect(mockRecordFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: 'U123',
-        channelId: 'C456',
-        messageTs: '1234567890.000001',
-        value: 'good-feedback',
-        botResponse: 'Bot response text',
-      }),
+    expect(mockClient.views.open).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
     );
   });
 
-  it('logs error and does not throw when conversations.replies rejects', async () => {
-    mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
+  it('modal callback_id is feedback_reason', async () => {
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.callback_id).toBe('feedback_reason');
+  });
+
+  it('modal block has correct block_id and element action_id', async () => {
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.blocks[0].block_id).toBe('reason_block');
+    expect(view.blocks[0].element.action_id).toBe('reason_input');
+  });
+
+  it('modal input is optional for good-feedback', async () => {
+    mockBody.actions[0].value = 'good-feedback';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.blocks[0].optional).toBe(true);
+  });
+
+  it('modal input is required (optional: false) for bad-feedback', async () => {
+    mockBody.actions[0].value = 'bad-feedback';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.blocks[0].optional).toBe(false);
+  });
+
+  it('private_metadata contains channelId, messageTs, userId, value, thread_ts', async () => {
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta).toEqual({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+    });
+  });
+
+  it('uses message.ts as thread_ts when thread_ts is absent', async () => {
+    delete mockBody.message.thread_ts;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.thread_ts).toBe('1234567890.000001');
+  });
+
+  it('logs error and does not throw when views.open rejects', async () => {
+    mockClient.views.open.mockRejectedValueOnce(new Error('trigger expired'));
 
     await expect(
       feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger }),

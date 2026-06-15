@@ -26,14 +26,20 @@ let container = null;
 export async function getContainer(logger) {
   if (container) return container;
 
+  const connectionString = COSMOS_CONNECTION_STRING;
+  const endpoint = COSMOS_ENDPOINT;
+  const key = COSMOS_KEY;
+  const database = COSMOS_DATABASE;
+  const cosmosContainer = COSMOS_CONTAINER;
+
   let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
+  if (connectionString) {
+    client = new CosmosClient({ connectionString });
+  } else if (endpoint && key) {
+    client = new CosmosClient({ endpoint, key });
+  } else if (endpoint) {
     client = new CosmosClient({
-      endpoint: COSMOS_ENDPOINT,
+      endpoint,
       aadCredentials: new DefaultAzureCredential(),
     });
   } else {
@@ -46,8 +52,18 @@ export async function getContainer(logger) {
     return null;
   }
 
-  container = client.database(COSMOS_DATABASE).container(COSMOS_CONTAINER);
-  return container;
+  try {
+    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { container: c } = await db.containers.createIfNotExists({
+      id: cosmosContainer,
+      partitionKey: { paths: ['/deploymentType', '/userId'], kind: 'MultiHash', version: 2 },
+    });
+    container = c;
+    return container;
+  } catch (error) {
+    logger?.warn?.(`Failed to initialize Cosmos DB interactions container: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -106,7 +122,7 @@ export async function recordInteraction({
     status,
     errorType: status === 'error' ? (errorType ?? null) : null,
     rateLimited,
-    deploymentType: DEPLOYMENT_TYPE,
+    deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),
   };
 
@@ -115,6 +131,6 @@ export async function recordInteraction({
       partitionKey: [doc.deploymentType, doc.userId],
     });
   } catch (error) {
-    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.name}`);
+    logger?.warn?.(`Failed to record interaction to Cosmos DB: ${error.message}`);
   }
 }

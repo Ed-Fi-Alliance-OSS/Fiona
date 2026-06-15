@@ -3,9 +3,17 @@ import { describe, it, expect, jest, beforeAll, afterAll } from '@jest/globals';
 // Mock @azure/cosmos and @azure/identity BEFORE the module under test is imported
 const mockUpsert = jest.fn().mockResolvedValue({});
 const mockContainerObj = { items: { upsert: mockUpsert } };
-const mockDatabase = { container: jest.fn().mockReturnValue(mockContainerObj) };
+const mockDatabase = {
+  container: jest.fn().mockReturnValue(mockContainerObj),
+  containers: {
+    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj })
+  }
+};
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
   database: jest.fn().mockReturnValue(mockDatabase),
+  databases: {
+    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase })
+  }
 }));
 
 jest.unstable_mockModule('@azure/cosmos', () => ({
