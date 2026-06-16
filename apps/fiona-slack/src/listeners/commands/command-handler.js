@@ -8,22 +8,26 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 
 *Available commands:*
 \`\`\`
-/fiona help                    Show this help message (in a channel)
-@fiona help  |  fiona help     Same — works in threads and the agent panel
-/fiona ask <question>          Ask Fiona a question about Ed-Fi (coming soon)
+/fiona help                    Show this help message
+/fiona ask <question>          Ask a question about Ed-Fi (coming soon)
 /fiona search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
-_Tip: You can also send Fiona a direct message._`;
+*How to reach Fiona:*
+• *Slash command* (\`/fiona …\`) — in any channel
+• *@-mention* (\`@fiona …\`) — in a channel or thread
+• *Keyword* (\`fiona help\`) — in a DM or the agent panel
+
+_Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 
 export const ASK_NOT_YET_TEXT =
   `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message. ` +
-  `You can also use \`@fiona ask <question>\` in a thread or the agent panel.`;
+  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
+  `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
 
 export const SEARCH_NOT_YET_TEXT =
   `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message. ` +
-  `You can also use \`@fiona search <query>\` in a thread or the agent panel.`;
+  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
+  `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
 
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.

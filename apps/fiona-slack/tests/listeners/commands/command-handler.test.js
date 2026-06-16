@@ -127,8 +127,8 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toMatch('/fiona help');
   });
 
-  it('mentions @fiona help as thread and agent panel alternative', () => {
-    expect(HELP_TEXT).toMatch('@fiona help');
+  it('mentions @fiona as channel and thread alternative', () => {
+    expect(HELP_TEXT).toMatch('@fiona');
   });
 
   it('mentions fiona help as the two-word keyword alternative', () => {
