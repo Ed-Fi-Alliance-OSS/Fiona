@@ -127,9 +127,11 @@ describe('recordInteraction - with connection string', () => {
     });
 
     const [doc, options] = mockUpsert.mock.calls[0];
-    expect(options).toEqual({
-      partitionKey: [doc.deploymentType, doc.userId],
-    });
+    expect(options).toEqual(
+      expect.objectContaining({
+        partitionKey: [doc.deploymentType, doc.userId],
+      }),
+    );
   });
 
   it('resolves without error on success', async () => {

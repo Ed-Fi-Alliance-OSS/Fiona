@@ -19,4 +19,55 @@ COSMOS_CONNECTION_STRING=AccountEndpoint=https://localhost:8081/;AccountKey=C2y6
 
 ## Create Required Containers
 
-Call `npm run setup:emulator` in the `fiona-slack` app to create the required database and container in the emulator.
+Call `npm run setup:emulator` in the `fiona-slack` app to create the required database and containers in the emulator.
+
+## Smoke Testing Conversation Capture
+
+To verify that the conversation capture feature is working end-to-end:
+
+### 1. Configure your `.env`
+
+In `apps/fiona-slack/.env`, ensure the following are set:
+
+```env
+COSMOS_CONNECTION_STRING=AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTq+JjS9+V0yS;
+CAPTURE_ALL_CONVERSATIONS=true
+DEPLOYMENT_TYPE=local
+```
+
+### 2. Create containers
+
+```bash
+cd apps/fiona-slack
+npm run setup:emulator
+```
+
+### 3. Run the bot
+
+The emulator uses a self-signed TLS certificate, so you must bypass certificate validation:
+
+```pwsh
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; slack run
+```
+
+### 4. Trigger a message
+
+Send a message to the bot — either via a DM in App Home or by mentioning `@Fiona` in a channel.
+
+### 5. Verify capture in Data Explorer
+
+Navigate to `https://localhost:8081/_explorer/index.html` and open:
+
+**`fiona` database → `conversations` container → Items**
+
+Confirm a document exists containing:
+
+| Field | Expected |
+|---|---|
+| `userId` | Your Slack user ID |
+| `userMessage` | The message you sent |
+| `botResponse` | Fiona's reply |
+| `threadHistory` | Array of `{role, content}` objects |
+| `entryPoint` | `app_mention` or `assistant_message` |
+| `deploymentType` | `local` |
+| `ttl` | `15552000` |

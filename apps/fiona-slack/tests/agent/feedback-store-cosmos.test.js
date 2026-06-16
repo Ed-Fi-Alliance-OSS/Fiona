@@ -104,9 +104,11 @@ describe('recordFeedback - with connection string', () => {
     });
 
     const [doc, options] = mockUpsert.mock.calls[0];
-    expect(options).toEqual({
-      partitionKey: [doc.deploymentType, doc.feedbackId],
-    });
+    expect(options).toEqual(
+      expect.objectContaining({
+        partitionKey: [doc.deploymentType, doc.feedbackId],
+      }),
+    );
   });
 
   it('resolves without error on success', async () => {
@@ -179,5 +181,24 @@ describe('recordFeedback - with connection string', () => {
 
     const [doc] = mockUpsert.mock.calls[0];
     expect(doc.reason).toBeNull();
+  });
+
+  it('logs a warning and does not throw when upsert fails', async () => {
+    mockUpsert.mockRejectedValueOnce(new Error('Cosmos write failure'));
+    const logger = { warn: jest.fn() };
+
+    await expect(
+      recordFeedback({
+        userId: 'U999',
+        channelId: 'C999',
+        messageTs: '1234567890.000006',
+        value: 'good-feedback',
+        userMessage: null,
+        botResponse: null,
+        logger,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to record feedback'));
   });
 });

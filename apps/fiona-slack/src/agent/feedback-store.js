@@ -6,10 +6,78 @@
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 
+const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
+const COSMOS_KEY = process.env.COSMOS_KEY;
+const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
+const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
+const COSMOS_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
+
 let warnedMissingConfig = false;
+const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
+const RECONNECT_CODES = new Set([410, 503]);
 
 /** @type {import('@azure/cosmos').Container | null} */
 let container = null;
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function formatCosmosError(error) {
+  const fallback = error instanceof Error ? error.message : String(error);
+  const message = String(fallback || 'Unknown error')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const statusCode = Number(error?.statusCode);
+  const code = Number(error?.code);
+  const activityId = error?.activityId ?? error?.headers?.['x-ms-activity-id'];
+
+  const details = [
+    Number.isFinite(statusCode) ? `statusCode=${statusCode}` : null,
+    Number.isFinite(code) ? `code=${code}` : null,
+    activityId ? `activityId=${activityId}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return details ? `${message} (${details})` : message;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {number | null}
+ */
+function toNumericCode(error) {
+  const rawCode = error?.code ?? error?.statusCode;
+  const code = Number(rawCode);
+  if (Number.isFinite(code)) return code;
+
+  const message = String(error?.message ?? '').toLowerCase();
+  if (message.includes('410 response')) return 410;
+  if (message.includes('service is currently unavailable')) return 503;
+  return null;
+}
+
+function isEmulatorTarget() {
+  const target = `${COSMOS_CONNECTION_STRING ?? ''} ${COSMOS_ENDPOINT ?? ''}`.toLowerCase();
+  return target.includes('localhost') || target.includes('127.0.0.1');
+}
+
+function getRetryPolicy() {
+  if (process.env.NODE_ENV === 'test') {
+    return { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 5 };
+  }
+  if (isEmulatorTarget()) {
+    return { maxAttempts: 2, baseDelayMs: 200, maxDelayMs: 1000 };
+  }
+  return { maxAttempts: 3, baseDelayMs: 150, maxDelayMs: 800 };
+}
+
+function getDelayMs(policy, attempt) {
+  const baseDelay = Math.min(policy.baseDelayMs * 2 ** (attempt - 1), policy.maxDelayMs);
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(baseDelay * 0.2)));
+  return baseDelay + jitter;
+}
 
 /**
  * @param {{ warn?: (msg: string) => void }} [logger]
@@ -17,19 +85,18 @@ let container = null;
 async function getContainer(logger) {
   if (container) return container;
 
-  const connectionString = process.env.COSMOS_CONNECTION_STRING;
-  const endpoint = process.env.COSMOS_ENDPOINT;
-  const key = process.env.COSMOS_KEY;
-  const database = process.env.COSMOS_DATABASE || 'chatbot';
-  const cosmosContainer = process.env.COSMOS_CONTAINER || 'feedback';
-
+  const database = COSMOS_DATABASE;
+  const cosmosContainer = COSMOS_CONTAINER;
   let client;
-  if (connectionString) {
-    client = new CosmosClient({ connectionString });
-  } else if (endpoint && key) {
-    client = new CosmosClient({ endpoint, key });
-  } else if (endpoint) {
-    client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() });
+  if (COSMOS_CONNECTION_STRING) {
+    client = new CosmosClient(COSMOS_CONNECTION_STRING);
+  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
+    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
+  } else if (COSMOS_ENDPOINT) {
+    client = new CosmosClient({
+      endpoint: COSMOS_ENDPOINT,
+      aadCredentials: new DefaultAzureCredential(),
+    });
   } else {
     if (!warnedMissingConfig) {
       warnedMissingConfig = true;
@@ -99,11 +166,26 @@ export async function recordFeedback({
     timestamp: new Date().toISOString(),
   };
 
-  try {
-    await c.items.upsert(doc, {
-      partitionKey: [doc.deploymentType, doc.feedbackId],
-    });
-  } catch (error) {
-    logger?.warn?.(`Failed to record feedback to Cosmos DB: ${error.message}`);
+  const policy = getRetryPolicy();
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+    try {
+      const activeContainer = attempt === 1 ? c : await getContainer(logger);
+      if (!activeContainer) return;
+      await activeContainer.items.upsert(doc, {
+        partitionKey: [doc.deploymentType, doc.feedbackId],
+      });
+      return;
+    } catch (error) {
+      const code = toNumericCode(error);
+      const retryable = RETRYABLE_CODES.has(code);
+      if (!retryable || attempt === policy.maxAttempts) {
+        logger?.warn?.(`Failed to record feedback to Cosmos DB: ${formatCosmosError(error)}`);
+        return;
+      }
+      if (RECONNECT_CODES.has(code)) {
+        container = null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, getDelayMs(policy, attempt)));
+    }
   }
 }
