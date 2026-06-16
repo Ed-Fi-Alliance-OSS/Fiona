@@ -64,19 +64,6 @@ export const message = async ({ client, context, logger, message, say, setStatus
     return;
   }
 
-  // Route command keywords (help, ask, search) before invoking the LLM.
-  // Only exact "help" matches; "help me with X" falls through to the LLM.
-  const cmd = parseCommandKeyword(text);
-  if (cmd) {
-    if (cmd.keyword === 'help') {
-      await handleHelpViaSay(say, logger);
-    } else {
-      const notYetText = cmd.keyword === 'ask' ? ASK_NOT_YET_TEXT : SEARCH_NOT_YET_TEXT;
-      await handleComingSoonViaSay(say, logger, cmd.keyword, notYetText);
-    }
-    return;
-  }
-
   const { channel, thread_ts } = message;
   const messageTs = message.ts;
 
@@ -112,6 +99,20 @@ export const message = async ({ client, context, logger, message, say, setStatus
           markInteractionRecorded,
         })
       ) {
+        return;
+      }
+
+      // Route command keywords (help, ask, search) before invoking the LLM.
+      // Only exact "help" matches; "help me with X" falls through to the LLM.
+      const cmd = parseCommandKeyword(text);
+      if (cmd) {
+        markInteractionRecorded();
+        if (cmd.keyword === 'help') {
+          await handleHelpViaSay(say, logger);
+        } else {
+          const notYetText = cmd.keyword === 'ask' ? ASK_NOT_YET_TEXT : SEARCH_NOT_YET_TEXT;
+          await handleComingSoonViaSay(say, logger, cmd.keyword, notYetText);
+        }
         return;
       }
 

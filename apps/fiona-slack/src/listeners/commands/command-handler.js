@@ -35,7 +35,8 @@ export const SEARCH_NOT_YET_TEXT =
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
  *
  * @param {string} text - Trimmed, mention-stripped message text.
- * @returns {{ keyword: string, args: string } | null}
+ * @returns {{ keyword: string, rawArgs: string } | null}
+ *   `rawArgs` is direct user input — sanitize before passing to the LLM or any external system.
  */
 export function parseCommandKeyword(text) {
   const trimmed = text.trim();
@@ -46,14 +47,14 @@ export function parseCommandKeyword(text) {
   const bodyLower = body.toLowerCase();
 
   if (bodyLower === 'help') {
-    return { keyword: 'help', args: '' };
+    return { keyword: 'help', rawArgs: '' };
   }
 
   for (const kw of ['ask', 'search']) {
     if (bodyLower.startsWith(`${kw} `)) {
-      const args = body.slice(kw.length + 1).trim();
-      if (args.length > 0) {
-        return { keyword: kw, args };
+      const rawArgs = body.slice(kw.length + 1).trim();
+      if (rawArgs.length > 0) {
+        return { keyword: kw, rawArgs };
       }
     }
   }

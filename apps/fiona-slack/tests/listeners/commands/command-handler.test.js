@@ -11,12 +11,12 @@ const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, HELP_TEXT
 describe('parseCommandKeyword', () => {
   describe('help keyword', () => {
     it('returns help keyword for exact "help"', () => {
-      expect(parseCommandKeyword('help')).toEqual({ keyword: 'help', args: '' });
+      expect(parseCommandKeyword('help')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('is case-insensitive', () => {
-      expect(parseCommandKeyword('HELP')).toEqual({ keyword: 'help', args: '' });
-      expect(parseCommandKeyword('Help')).toEqual({ keyword: 'help', args: '' });
+      expect(parseCommandKeyword('HELP')).toEqual({ keyword: 'help', rawArgs: '' });
+      expect(parseCommandKeyword('Help')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('does not match when help has trailing text', () => {
@@ -32,12 +32,12 @@ describe('parseCommandKeyword', () => {
     it('returns ask keyword with args when ask has content', () => {
       expect(parseCommandKeyword('ask how do I set up ODS')).toEqual({
         keyword: 'ask',
-        args: 'how do I set up ODS',
+        rawArgs: 'how do I set up ODS',
       });
     });
 
     it('is case-insensitive', () => {
-      expect(parseCommandKeyword('ASK something')).toEqual({ keyword: 'ask', args: 'something' });
+      expect(parseCommandKeyword('ASK something')).toEqual({ keyword: 'ask', rawArgs: 'something' });
     });
 
     it('does not match bare "ask" with no argument', () => {
@@ -53,12 +53,12 @@ describe('parseCommandKeyword', () => {
     it('returns search keyword with args when search has content', () => {
       expect(parseCommandKeyword('search Data Standard')).toEqual({
         keyword: 'search',
-        args: 'Data Standard',
+        rawArgs: 'Data Standard',
       });
     });
 
     it('is case-insensitive', () => {
-      expect(parseCommandKeyword('SEARCH something')).toEqual({ keyword: 'search', args: 'something' });
+      expect(parseCommandKeyword('SEARCH something')).toEqual({ keyword: 'search', rawArgs: 'something' });
     });
 
     it('does not match bare "search" with no argument', () => {
@@ -68,12 +68,12 @@ describe('parseCommandKeyword', () => {
 
   describe('fiona <command> two-word prefix', () => {
     it('returns help keyword for "fiona help"', () => {
-      expect(parseCommandKeyword('fiona help')).toEqual({ keyword: 'help', args: '' });
+      expect(parseCommandKeyword('fiona help')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('is case-insensitive for the fiona prefix', () => {
-      expect(parseCommandKeyword('Fiona Help')).toEqual({ keyword: 'help', args: '' });
-      expect(parseCommandKeyword('FIONA HELP')).toEqual({ keyword: 'help', args: '' });
+      expect(parseCommandKeyword('Fiona Help')).toEqual({ keyword: 'help', rawArgs: '' });
+      expect(parseCommandKeyword('FIONA HELP')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('returns null for "fiona help me with X" — trailing text after help is a query', () => {
@@ -83,14 +83,14 @@ describe('parseCommandKeyword', () => {
     it('returns ask keyword with args for "fiona ask <question>"', () => {
       expect(parseCommandKeyword('fiona ask how do I configure ODS?')).toEqual({
         keyword: 'ask',
-        args: 'how do I configure ODS?',
+        rawArgs: 'how do I configure ODS?',
       });
     });
 
     it('returns search keyword with args for "fiona search <query>"', () => {
       expect(parseCommandKeyword('fiona search Data Standard')).toEqual({
         keyword: 'search',
-        args: 'Data Standard',
+        rawArgs: 'Data Standard',
       });
     });
 

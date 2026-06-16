@@ -648,5 +648,41 @@ describe('message (assistant thread handler)', () => {
       expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
+
+    it('rate-limited user typing "help" receives rate-limit message, not help text', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('request limit');
+      expect(mockSay.mock.calls[0][0]).not.toContain('/fiona help');
+    });
+
+    it('keyword command response does not invoke the LLM and does not double-record telemetry', async () => {
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      // help response sent; LLM not invoked; telemetry wrapper finalizes without a second recordInteraction call
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(recordInteraction).not.toHaveBeenCalled();
+    });
   });
 });
