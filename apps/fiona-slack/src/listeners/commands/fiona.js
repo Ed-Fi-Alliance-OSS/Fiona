@@ -3,7 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
+import { checkRateLimit } from '../../agent/rate-limiter.js';
 
 const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
@@ -24,11 +26,17 @@ const SEARCH_NOT_YET_TEXT =
   `*/fiona search* is not yet available. ` +
   `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
 
+const ESCALATE_CONFIRM_TEXT =
+  '✅ Your conversation has been escalated to #escalation. A team member will follow up shortly.';
+const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
+const ESCALATE_ERROR_TEXT =
+  ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
+
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
  * back to help for unrecognized / missing input. Never invokes the LLM.
  */
-export const fionaCommandCallback = async ({ command, ack, logger }) => {
+export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
 
@@ -41,13 +49,10 @@ export const fionaCommandCallback = async ({ command, ack, logger }) => {
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({
-        command,
-        ack,
-        logger,
-        subCommand: 'search',
-        text: SEARCH_NOT_YET_TEXT,
-      });
+      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      break;
+    case 'escalate':
+      await handleEscalate({ command, ack, respond, client, logger });
       break;
     default:
       await handleUnknown({ command, ack, logger, subCommand });
@@ -120,4 +125,65 @@ async function handleUnknown({ command, ack, logger, subCommand }) {
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: 'slash_unknown' });
+}
+
+function isDmChannel(command) {
+  return command.channel_name === 'directmessage' || (command.channel_id || '').startsWith('D');
+}
+
+async function handleEscalate({ command, ack, respond, client, logger }) {
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona escalate: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping escalate');
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    const minutes = Math.ceil(retryAfterMs / 60000);
+    await respond({
+      response_type: 'ephemeral',
+      text: `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
+    });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_escalate'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_escalate interaction: ${err.name}`));
+    return;
+  }
+
+  const dm = isDmChannel(command);
+  const result = await postEscalation({
+    client,
+    userId: command.user_id,
+    teamId: command.team_id,
+    channelId: command.channel_id,
+    threadTs: null,
+    messageTs: command.trigger_id,
+    source: 'slash_escalate',
+    isDm: dm,
+    logger,
+  });
+
+  if (result.ok) {
+    await respond({ response_type: 'ephemeral', text: dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT });
+  } else {
+    await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_escalate'),
+      status: 'error',
+      errorType: result.errorType,
+      rateLimited: false,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_escalate interaction: ${err.name}`));
+  }
 }
