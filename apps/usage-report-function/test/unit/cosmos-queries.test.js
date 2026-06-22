@@ -196,5 +196,17 @@ describe('cosmos-queries', () => {
       );
       expect(result).toBe(0);
     });
+
+    it('feedback count query uses value allow-list to exclude escalation rows', async () => {
+      mockInteractionsContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [100] }),
+      });
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [10] }),
+      });
+      await getFeedbackResponseRate(mockInteractionsContainer, mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+      const [feedbackQuerySpec] = mockFeedbackContainer.items.query.mock.calls[0];
+      expect(feedbackQuerySpec.query).toContain(`f["value"] IN ('good-feedback', 'bad-feedback')`);
+    });
   });
 });
