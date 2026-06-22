@@ -135,6 +135,7 @@ async function getContainer(logger) {
  * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
+ * @param {string} [feedback.interactionType] - Optional interaction type (e.g., 'slash_escalate')
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
 export async function recordFeedback({
@@ -145,6 +146,7 @@ export async function recordFeedback({
   reason,
   userMessage,
   botResponse,
+  interactionType,
   logger,
 }) {
   const c = await getContainer(logger);
@@ -162,6 +164,7 @@ export async function recordFeedback({
     reason: reason?.trim() ? reason.trim() : null,
     userMessage,
     botResponse,
+    ...(interactionType ? { interactionType } : {}),
     deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),
   };
