@@ -83,6 +83,7 @@ describe('postEscalation', () => {
 
   it('records to both the interactions and feedback containers', async () => {
     await postEscalation(baseArgs());
+    await new Promise((resolve) => setImmediate(resolve));
     expect(mockRecordInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ interactionType: 'slash_escalate', status: 'success' }),
     );
@@ -94,7 +95,8 @@ describe('postEscalation', () => {
   it('posts the transcript as a threaded reply to the escalation message', async () => {
     const args = baseArgs();
     await postEscalation(args);
-    const replyCall = args.client.chat.postMessage.mock.calls.find((c) => c[0].thread_ts === '111.222');
+    const primaryTs = (await args.client.chat.postMessage.mock.results[0].value).ts;
+    const replyCall = args.client.chat.postMessage.mock.calls.find((c) => c[0].thread_ts === primaryTs);
     expect(replyCall).toBeDefined();
   });
 
@@ -104,6 +106,7 @@ describe('postEscalation', () => {
     const result = await postEscalation(args);
     expect(result.ok).toBe(true);
     expect(args.client.chat.postMessage).toHaveBeenCalled();
+    expect(JSON.stringify(args.client.chat.postMessage.mock.calls[0][0].blocks)).not.toContain('*Summary:*');
   });
 
   it('returns post_failed when chat.postMessage throws', async () => {
