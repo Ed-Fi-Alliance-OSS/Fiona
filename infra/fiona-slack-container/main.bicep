@@ -79,6 +79,12 @@ param conversationsContainerName string = 'conversations'
 @description('Enable capturing all conversations for human evaluation (default: false)')
 param captureAllConversations bool = false
 
+@description('Slack channel ID where /fiona escalate posts (bot must be a member)')
+param escalationChannel string = ''
+
+@description('Optional Slack user group ID to @-mention on escalation')
+param escalationUsergroupId string = ''
+
 // --- Reference shared resources ---
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -385,6 +391,14 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'COSMOS_INTERACTIONS_CONTAINER'
               value: interactionsContainerName
+            }
+            {
+              name: 'ESCALATION_CHANNEL'
+              value: escalationChannel
+            }
+            {
+              name: 'ESCALATION_USERGROUP_ID'
+              value: escalationUsergroupId
             }
           ]
           // No probes -- no ingress port for HTTP health checks

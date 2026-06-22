@@ -270,9 +270,10 @@ Enabling Skills requires the following updates to the Slack app manifest
 
 ## 5. Environment Variables
 
-| Variable              | Default        | Purpose                                            |
-| --------------------- | -------------- | -------------------------------------------------- |
-| `ESCALATION_CHANNEL`  | `#escalation`  | Slack channel where escalation posts are created   |
+| Variable                  | Default | Purpose                                                          |
+| ------------------------- | ------- | ---------------------------------------------------------------- |
+| `ESCALATION_CHANNEL`      | (unset) | Channel **ID** where escalation posts are created (bot must join) |
+| `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user group ID to @-mention on escalation          |
 
 ---
 
