@@ -106,8 +106,8 @@ logic stays in one module.
 - Human-channel post (no transcript, no permalink):
   > :rotating_light: *Escalation requested* by *<name>* from `<#channel>`
   > _Requested via `/fiona escalate` — no conversation context. For full
-  > context, escalate from your conversation with Fiona using the **Escalate to
-  > a human** button._
+  > context, escalate from your conversation with Fiona using the **Get Live
+  > Help** button._
 - Ephemeral confirmation to the user. Do **not** hardcode "#escalation"; either
   resolve the channel's real name via `conversations.info` (cached) or omit the
   name ("…has been escalated. A team member will follow up shortly.").
@@ -115,7 +115,7 @@ logic stays in one module.
 
 ### Entry point 2 — explicit button (always present, with transcript)
 
-- A small `actions` block with a single "Escalate to a human" button is appended
+- A small `actions` block with a single "Get Live Help" button is appended
   to the blocks passed to `streamer.stop()` in `app_mention.js` and `message.js`,
   alongside the existing `feedbackBlock`. (The feedback buttons live in a
   `context_actions` block; the escalate button uses a separate `actions` block
@@ -136,16 +136,18 @@ logic stays in one module.
     unconfigured, the call fails, or the response can't be parsed (degrade
     quietly).
   - System prompt instructs the model to judge whether the user appears stuck,
-    unresolved, or frustrated, and to answer in a compact, parseable form.
+    unresolved, or frustrated, and to answer with a fixed first line —
+    `Get Live Help: yes` or `Get Live Help: no` — optionally followed by a short
+    reason line. Parsed defensively (case-insensitive; anything that is not an
+    explicit `yes` defaults to `no`).
 - After `streamer.stop()` and `captureConversation()` in both `app_mention.js`
   and `message.js`, run the classifier **fire-and-forget / non-blocking** (does
   not delay the answer). Runs on **every** turn, gated only by:
-  - `ESCALATION_CHANNEL` configured (nowhere to escalate otherwise), AND
-  - a config flag `ESCALATION_SUGGESTIONS_ENABLED` (default on when channel set),
-    AND
+  - `ESCALATION_CHANNEL` configured — this is also the single on/off switch for
+    suggestions (no separate flag); nowhere to escalate otherwise, AND
   - the turn did not error / degrade.
 - If `suggest`, post a follow-up block in the thread: explanatory text plus a
-  prominent "Escalate to a human" button (same handler, `action_id` variant or
+  prominent "Get Live Help" button (same handler, `action_id` variant or
   metadata marking `source: 'suggested_escalate'`, carrying the classifier
   `reason`). Clicking it runs the same transcript-capturing escalation.
 - The suggestion itself is not an escalation. Only a button click records an
@@ -177,8 +179,8 @@ usage-report allow-list, to remove the cross-file magic-string coupling.
 - `ESCALATION_CHANNEL` (existing) — destination channel **ID**; bot must be a
   member.
 - `ESCALATION_USERGROUP_ID` (existing, optional) — on-call user group to ping.
-- `ESCALATION_SUGGESTIONS_ENABLED` (new, optional, default: on when
-  `ESCALATION_CHANNEL` is set) — master switch for the proactive classifier.
+- Proactive suggestions have **no separate flag**: they are active whenever
+  `ESCALATION_CHANNEL` is set and inactive when it is not.
 - All read at module-load into consts (no inline `process.env` reads in
   functions), consistent with the rest of the codebase.
 
@@ -224,8 +226,10 @@ usage-report allow-list, to remove the cross-file magic-string coupling.
   `source: 'button_escalate'`; rate-limit; confirmation.
 - **`classifyForEscalation`:** suggest true/false parsing, unconfigured-client
   returns false without calling the LLM, error path returns false and warns.
-- **Proactive flow:** suggestion posted when classifier returns true and config
-  enabled; not posted when disabled / channel unset / turn errored.
+- **Proactive flow:** suggestion posted when classifier returns true and
+  `ESCALATION_CHANNEL` is set; not posted when the channel is unset or the turn
+  errored. Classifier first line parsed case-insensitively; non-`yes` → no
+  suggestion.
 - Tests must use real entry-point arguments (no synthetic `threadTs` on the
   slash path) and must not leak shared limiter / `process.env` state.
 
