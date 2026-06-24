@@ -4,7 +4,7 @@
 **Jira:** [AI-98](https://edfi.atlassian.net/browse/AI-98)
 **Design spec:** `docs/superpowers/specs/2026-06-16-ai-98-issue-to-pr-design.md`
 **Branch:** `ai-98-hitl-bug`
-**Status:** Ready for implementation
+**Status:** Finalized 2026-06-24 — Path B (Anthropic-on-Foundry) locked; ready for implementation
 
 ---
 

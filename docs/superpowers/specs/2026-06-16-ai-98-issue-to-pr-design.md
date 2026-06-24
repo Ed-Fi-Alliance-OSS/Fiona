@@ -3,7 +3,7 @@
 **Date:** 2026-06-16
 **Author:** Robert Hunter
 **Jira:** [AI-98](https://edfi.atlassian.net/browse/AI-98)
-**Status:** Approved — ready for implementation
+**Status:** Finalized 2026-06-24 — approved, Path B locked; ready for implementation
 
 ---
 
