@@ -83,13 +83,14 @@ Create a new GitHub App under the `Ed-Fi-Alliance-OSS` organization.
 
 ### 0.3 — Store secrets in Key Vault
 
-Add three secrets to `fiona-kv`:
+Add four secrets to `fiona-kv`:
 
 | Secret name | Value |
 |---|---|
 | `github-app-private-key` | Full contents of the downloaded `.pem` file |
 | `github-webhook-secret` | The webhook secret generated in 0.2 |
 | `anthropic-api-key` | Anthropic API key for Claude access |
+| `slack-webhook-url` | Slack incoming webhook URL for the fiona-bug-agent channel (confirmed) |
 
 Also note the GitHub App ID — it will be needed as an app setting (not a secret).
 
@@ -97,6 +98,7 @@ Also note the GitHub App ID — it will be needed as an app setting (not a secre
 az keyvault secret set --vault-name fiona-kv --name github-app-private-key --file ./fiona-issue-to-pr.pem
 az keyvault secret set --vault-name fiona-kv --name github-webhook-secret --value "<value>"
 az keyvault secret set --vault-name fiona-kv --name anthropic-api-key --value "<value>"
+az keyvault secret set --vault-name fiona-kv --name slack-webhook-url --value "<value>"
 ```
 
 **Acceptance criteria:**
@@ -123,7 +125,7 @@ Provisions:
   - `GITHUB_APP_ID` → plain value (not a secret)
   - `AI_FOUNDRY_ENDPOINT` → plain value (Foundry project endpoint)
   - `COSMOS_ENDPOINT` → plain value
-  - `SLACK_WEBHOOK_URL` → Key Vault reference or plain (not sensitive but treat as secret)
+  - `SLACK_WEBHOOK_URL` → `@Microsoft.KeyVault(SecretUri=...slack-webhook-url...)`
 
 #### `infra/issue-to-pr/modules/ai-foundry.bicep`
 
@@ -343,7 +345,7 @@ For each handler:
 Responsibilities:
 - Initialize `@azure/ai-projects` `AIProjectsClient` using the `AI_FOUNDRY_ENDPOINT` env var and `DefaultAzureCredential` (managed identity in production, developer credential locally)
 - On first call, create or retrieve the agent definition named `fiona-coding-agent`:
-  - Model: Claude via Anthropic endpoint configured in the Foundry project
+  - Model: deployment name `claude-opus-4-8` (Claude Opus 4.8 deployed to Foundry model catalog with this name — pin to a specific version, do not use `opus` alias)
   - System prompt: TDD prompt from the design spec (see below)
   - Tools: MCP tool server connected at `{MCP_TOOL_SERVER_URL}/api/mcp`
 - Start a thread and run for the given issue context
@@ -621,10 +623,6 @@ on:
       - 'apps/issue-to-pr-function/**'
       - 'infra/issue-to-pr/**'
 
-permissions:
-  id-token: write
-  contents: read
-
 jobs:
   deploy:
     name: Deploy to Azure Functions
@@ -643,29 +641,37 @@ jobs:
         run: npm ci --omit=dev
         working-directory: apps/issue-to-pr-function
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+      - name: Azure login
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Bicep IaC
+        run: |
+          az deployment group create \
+            --resource-group edfi-fiona-rg \
+            --template-file infra/issue-to-pr/main.bicep \
+            --parameters @infra/issue-to-pr/params.production.json
 
       - name: Deploy to Azure Functions
-        uses: azure/functions-action@v1
-        with:
-          app-name: issue-to-pr-function
-          package: apps/issue-to-pr-function
-          respect-funcignore: true
+        run: |
+          cd apps/issue-to-pr-function && zip -r ../issue-to-pr-function.zip . -x "*.test.js" -x "test/*"
+          az functionapp deployment source config-zip \
+            --resource-group edfi-fiona-rg \
+            --name issue-to-pr-function \
+            --src ../issue-to-pr-function.zip
 ```
 
-Required GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
-Set up a federated credential on the deployment service principal for the `main` branch of this repo.
+Required GitHub secrets:
+- `AZURE_CREDENTIALS`: Service principal JSON (`{ clientId, clientSecret, subscriptionId, tenantId }`) — stored at the `production` environment level, matching the existing pattern used by `deploy-fiona-slack-container.yml` and `deploy-usage-report-function.yml`.
+
+Note: This follows the existing deployment pattern in the repo (`azure/login@v3.0.0` with `creds: ${{ secrets.AZURE_CREDENTIALS }}`). The `AZURE_CREDENTIALS` secret already exists at the environment level — verify it grants contributor rights to `edfi-fiona-rg` before running.
 
 **Acceptance criteria:**
 - `agent-execution.yml` can be triggered via `repository_dispatch` with `event_type: agent-validation` and a `branch` payload; runs lint and tests on the specified branch
 - PR workflow triggers on PRs touching `apps/issue-to-pr-function/**` or `infra/issue-to-pr/**`
 - Deploy workflow triggers on push to `main` with matching path changes
-- Deploy workflow uses OIDC (no long-lived secrets)
+- Deploy workflow uses existing `AZURE_CREDENTIALS` service principal pattern (consistent with all other Azure deployments in this repo)
 
 ---
 
@@ -730,14 +736,14 @@ Create `docs/runbooks/issue-to-pr-operator.md` covering:
 
 ## Open Items to Resolve Before Starting
 
-| Item | Decision needed |
-|---|---|
-| Key Vault resource group | Confirm `fiona-kv` is in `edfi-fiona-rg` or `fiona-rg` (Phase 0.1) |
-| AI Foundry Hub | Confirm whether one already exists in the subscription (Phase 0.1) |
-| Cosmos DB account name | Confirm exact name for Bicep parameter (Phase 0.1) |
-| Claude model identifier in Foundry | Confirm the model name/deployment name for Claude in the Foundry project (Phase 3) |
-| OIDC deployment principal | Create or identify the service principal + federated credential for the deploy workflow (Phase 6.3) |
-| Slack webhook URL | Obtain or create the webhook URL for the Fiona Slack channel (Phase 4.1) |
+| Item | Status | Resolution |
+|---|---|---|
+| Key Vault resource group | **PENDING** | Run `az keyvault list --query "[].{name:name,rg:resourceGroup}" -o table` and confirm `fiona-kv` location (Phase 0.1) |
+| AI Foundry Hub | **PENDING** | Run `az cognitiveservices account list --query "[?kind=='AIServices'].{name:name,rg:resourceGroup}" -o table` to check if one exists (Phase 0.1) |
+| Cosmos DB account name | **PENDING** | Run `az cosmosdb list -g edfi-fiona-rg --query "[].name" -o table` (Phase 0.1) |
+| Claude model identifier in Foundry | **RESOLVED** | Deploy Claude Opus 4.8 in Foundry model catalog with deployment name `claude-opus-4-8`. Do not use alias `opus` — pin to the specific version. `agent-runner.js` references this deployment name via `@azure/ai-projects`. |
+| GHA deployment auth | **RESOLVED** | Existing pattern confirmed: `azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0` with `creds: ${{ secrets.AZURE_CREDENTIALS }}` (service principal JSON). Secret stored at `production` environment level. Phase 6.3 updated to match. |
+| Slack webhook URL | **RESOLVED** | Confirmed URL for fiona-bug-agent channel. Store in Key Vault as `slack-webhook-url`. Reference via Key Vault reference in app settings. Never hardcode in source or config. |
 
 ---
 
