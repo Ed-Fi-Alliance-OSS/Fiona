@@ -33,16 +33,15 @@ Azure Durable Function — WorkflowOrchestrator
   - Orchestrator owns the GHA polling loop (df.createTimer); feeds result to a fresh agent turn
   - On failure: posts issue comment with error summary
   ↓
-Agent layer — Claude (TDD system prompt, see below)
-  - Path decided by Phase 3.0 spike:
-      preferred → Azure AI Agent Service (Azure AI Foundry) + Claude deployment
-      fallback  → direct Anthropic SDK with a self-managed tool-use loop
-  - Connected to MCP Tool Server via HTTP (AAD bearer token; function-key fallback)
-  ↓
-Azure Function — McpToolServer            [HTTP trigger, JSON-RPC 2.0]
-  Exposes: read_issue, list_directory, read_file, write_file,
-           create_branch, run_validation, get_validation_status,
-           create_draft_pr, add_issue_comment
+Agent layer — agent-runner.js (TDD system prompt, see below)
+  - Path B (Phase 3.0): Claude Opus 4.8 hosted on Microsoft Foundry,
+    called via @anthropic-ai/foundry-sdk with managed-identity Entra ID auth
+  - Self-owned tool-use loop; the 9 GitHub tools run IN-PROCESS (no remote MCP server)
+  ↓ (in-process function calls)
+GitHub tool handlers — src/lib/mcp-handlers/*.js
+  read_issue, list_directory, read_file, write_file,
+  create_branch, run_validation, get_validation_status,
+  create_draft_pr, add_issue_comment
   ↓ (for run_validation / get_validation_status)
 GitHub Actions — agent-execution.yml      [repository_dispatch]
   - Checkout branch, npm ci, npm run lint, npm test
@@ -75,11 +74,11 @@ apps/
         GitHubWebhookReceiver.js       # HTTP trigger: ingress + signature validation
         WorkflowOrchestrator.js        # Durable orchestrator
         WorkflowActivities.js          # Durable activities (StartAgentEdits, GetValidationStatus, AgentReactToResult, PostSlackNotification, PostIssueComment)
-        McpToolServer.js               # HTTP trigger: MCP protocol endpoint
+        # (no McpToolServer — Path B dispatches the GitHub tools in-process; see Phase 3.0)
       lib/
         webhook-validator.js           # HMAC-SHA256 signature check
         github-client.js               # GitHub App auth (private key → JWT → installation token)
-        agent-runner.js                # Azure AI Agent Service client
+        agent-runner.js                # Anthropic-on-Foundry client + self-owned tool-use loop (Path B)
         mcp-handlers/
           read-issue.js
           list-directory.js
@@ -100,7 +99,7 @@ infra/
     main.bicep
     modules/
       functions.bicep                  # Consumption plan Functions app + storage account
-      ai-foundry.bicep                 # AI Foundry hub + project + Agent Service resource
+      ai-foundry.bicep                 # Foundry resource + project + claude-opus-4-8 deployment (eastus2)
       cosmos-container.bicep           # agent-runs container on existing Cosmos account
 
 .github/
@@ -224,7 +223,7 @@ Agent polls `get_validation_status` until terminal state, reads job conclusion.
 |---|---|---|
 | Cosmos DB account | `fiona-db-dev-cosmos` | Add `agent-runs` container |
 | Cosmos DB database | `chatbot` | Same database |
-| Key Vault | `fiona-kv-bronze` | Add 4 secrets: `github-app-private-key`, `github-webhook-secret`, `anthropic-api-key`, `slack-webhook-url` |
+| Key Vault | `fiona-kv-bronze` | Add 3 secrets: `github-app-private-key`, `github-webhook-secret`, `slack-webhook-url` (no `anthropic-api-key` — Claude auth is managed-identity Entra ID, Path B) |
 | Resource group | `edfi-fiona-rg` | Deploy all new resources here |
 
 > **Confirmed (2026-06-24, `az`):** Key Vault is `fiona-kv-bronze` (no `fiona-kv` exists) and Cosmos is `fiona-db-dev-cosmos`, both in `edfi-fiona-rg`. The new AI Foundry resource is also created in `edfi-fiona-rg`, so all AI-98 resources share one resource group — no cross-RG references.
@@ -235,7 +234,7 @@ Agent polls `get_validation_status` until terminal state, reads job conclusion.
 |---|---|---|
 | Azure Functions app | `issue-to-pr-function` | Consumption plan for MVP; upgrade to EP1 if cold-start or timeout issues arise |
 | Storage account | `fionaissuetoprstorage` | Isolated from `fionastorage` to keep Durable state separate |
-| Azure AI Foundry resource | `fiona-ai-hub` | **New**, in `edfi-fiona-rg`. No reusable Hub exists; `fiona-llm` (RG `edfi-fiona`) has no Claude. Deferred until Phase 3.0 spike selects the Foundry path; dropped entirely on the direct-Anthropic fallback. |
+| Microsoft Foundry resource | `fiona-ai-hub` | **New**, in `edfi-fiona-rg`, **region `eastus2`** (Claude-on-Foundry is East US2 / Sweden Central only). Hosts the `claude-opus-4-8` deployment; Functions MI gets `Cognitive Services User`. Base on the [starter-kit Bicep](https://github.com/Azure-Samples/claude). |
 | Azure AI Foundry Project | `fiona-issue-to-pr` | New, in `edfi-fiona-rg`. Hosts the `claude-opus-4-8` deployment + agent run history. |
 | System-assigned MI | on Functions app | Key Vault Secrets User + Cosmos DB Built-in Data Contributor |
 
@@ -258,7 +257,7 @@ Agent polls `get_validation_status` until terminal state, reads job conclusion.
 - Observability: Azure Monitor + Durable run history
 
 ### Phase 2 — Robustness
-- Migrate Claude to Azure-hosted model in Foundry (remove direct Anthropic API dependency)
+- (Claude is already Azure-hosted on Foundry via Path B — no migration needed)
 - Add `get_ci_status` tool (full CI pipeline, not just unit tests)
 - Slack approve/reject button for high-risk paths
 - Expand to additional Ed-Fi repos (each needs `agent-execution.yml`)
@@ -281,10 +280,10 @@ Agent polls `get_validation_status` until terminal state, reads job conclusion.
 | GitHub App permissions scope | Minimum required; security review before production |
 | `write_file` 1 MB limit | Documented; Phase 2: Git Data API |
 | `agent-execution.yml` missing from target repo | Deployment runbook; template committed to this repo |
-| Anthropic external model endpoint (preview in Foundry) | Acceptable MVP; Phase 2 migrates to Azure-hosted Claude |
-| Claude Opus 4.8 may not be deployable to Foundry in our region | **Phase 3.0 spike** confirms availability before any Foundry infra; direct-Anthropic SDK fallback if unavailable |
-| Foundry preview MCP connector may not present an AAD token | Spike-gated; fall back to a Functions host key (`mcp-function-key`) if needed; AAD is the hardening target |
-| Foundry Agent Service may not yield control mid-run (needed for orchestrator-owned GHA polling) | Spike acceptance criterion; if it can't, the direct-Anthropic path owns the loop natively |
+| Claude on Foundry is a non-Microsoft (Anthropic) model | GA, but governed by Anthropic's supported-regions policy and Azure Marketplace terms; data flows to the Anthropic-operated Foundry deployment within Azure. Review per MSDF data-handling guidance before production. |
+| Claude deployable to Foundry in our region | **RESOLVED (Phase 3.0):** `claude-opus-4-8` is GA in the Foundry catalog (Anthropic / GlobalStandard) in East US2 — Foundry resource pinned to `eastus2`. |
+| Tool-server auth / mid-run yield | **RESOLVED (Path B):** self-owned loop runs tools in-process (no remote MCP server, no MCP-endpoint auth) and we control turn boundaries — both concerns are moot. |
+| Foundry Claude is a partner Marketplace offering | Requires Azure Marketplace access + a supported pay-as-you-go subscription/region; some subscription types are excluded. Verify before deploy (Phase 0.1 prerequisite). |
 
 ---
 
