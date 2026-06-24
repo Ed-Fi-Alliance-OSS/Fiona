@@ -126,7 +126,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       await streamer.stop({ blocks: [feedbackBlock] });
       finalizeMetadataEnvelope(metadata);
 
-      await captureConversation({
+      captureConversation({
         userId: user,
         teamId: team,
         channelId: channel,
@@ -141,7 +141,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
         sources: metadata?.sources,
         logger,
-      });
+      }).catch((err) => logger?.warn?.(`Failed to capture conversation: ${err.message}`));
     },
   );
 };

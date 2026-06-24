@@ -243,7 +243,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
         await streamer.stop({ blocks: [feedbackBlock] });
         finalizeMetadataEnvelope(metadata);
 
-        await captureConversation({
+        captureConversation({
           userId,
           teamId,
           channelId: channel,
@@ -258,7 +258,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
           sources: metadata?.sources,
           logger,
-        });
+        }).catch((err) => logger?.warn?.(`Failed to capture conversation: ${err.message}`));
       }
     },
   );
