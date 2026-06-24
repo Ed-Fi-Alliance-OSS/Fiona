@@ -667,7 +667,7 @@ describe('message (assistant thread handler)', () => {
       expect(mockSay.mock.calls[0][0]).not.toContain('/fiona help');
     });
 
-    it('keyword command response does not invoke the LLM and does not double-record telemetry', async () => {
+    it('keyword command response does not invoke the LLM', async () => {
       mockMessage.text = 'help';
 
       await messageHandler({
@@ -679,10 +679,10 @@ describe('message (assistant thread handler)', () => {
         setStatus: mockSetStatus,
       });
 
-      // help response sent; LLM not invoked; telemetry wrapper finalizes without a second recordInteraction call
       expect(mockSay).toHaveBeenCalledTimes(1);
       expect(callLLM).not.toHaveBeenCalled();
-      expect(recordInteraction).not.toHaveBeenCalled();
+      // Telemetry recording via the handleInteractionWithTelemetry finally block
+      // is covered in tests/agent/interaction-telemetry.test.js.
     });
   });
 });

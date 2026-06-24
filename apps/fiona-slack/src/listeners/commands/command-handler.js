@@ -13,9 +13,9 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 /fiona search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
 *How to reach Fiona:*
-• *Slash command* (`/fiona …`) — in any channel
-• *@-mention* (`@fiona …`) — in a channel or thread
-• *Keyword* (`help` or `fiona help`) — in a DM or the agent panel
+• *Slash command* (\`/fiona …\`) — in any channel
+• *@-mention* (\`@fiona …\`) — in a channel or thread
+• *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 

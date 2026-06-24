@@ -100,7 +100,6 @@ export const message = async ({ client, context, logger, message, say, setStatus
       // Only exact "help" matches; "help me with X" falls through to the LLM.
       const cmd = parseCommandKeyword(text);
       if (cmd) {
-        markInteractionRecorded();
         await routeCommandViaSay(say, logger, cmd);
         return;
       }

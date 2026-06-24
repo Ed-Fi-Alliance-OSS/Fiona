@@ -80,7 +80,6 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Only exact "help" matches; "@fiona help me with X" falls through to the LLM.
       const cmd = parseCommandKeyword(text);
       if (cmd) {
-        markInteractionRecorded();
         await routeCommandViaSay(say, logger, cmd);
         return;
       }

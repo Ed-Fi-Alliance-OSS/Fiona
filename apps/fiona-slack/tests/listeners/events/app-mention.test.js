@@ -397,6 +397,17 @@ describe('appMentionCallback', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
+    it('keyword command response does not invoke the LLM', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(callLLM).not.toHaveBeenCalled();
+      // Telemetry recording via the handleInteractionWithTelemetry finally block
+      // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
     it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
       mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
 
