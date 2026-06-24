@@ -1,2 +1,5 @@
 # Real parameter file — contains environment-specific values; do not commit
 params.dev.json
+
+# Compiled ARM template output from `az bicep build` — do not commit
+main.json

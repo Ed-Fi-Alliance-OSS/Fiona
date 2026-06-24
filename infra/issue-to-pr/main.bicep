@@ -72,17 +72,15 @@ resource kvSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
-// Cosmos DB Built-in Data Contributor
-resource cosmosDataContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: cosmosAccount
+// Cosmos DB Built-in Data Contributor — this is a Cosmos data-plane (SQL) role, NOT an
+// Azure RBAC (Microsoft.Authorization) role, so it must be a sqlRoleAssignment resource.
+resource cosmosDataContributorRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-05-15' = {
+  parent: cosmosAccount
   name: guid(cosmosAccount.id, functionAppResourceId, '00000000-0000-0000-0000-000000000002')
   properties: {
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '00000000-0000-0000-0000-000000000002' // Cosmos DB Built-in Data Contributor
-    )
+    roleDefinitionId: '${cosmosAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002' // Cosmos DB Built-in Data Contributor
     principalId: functions.outputs.functionAppPrincipalId
-    principalType: 'ServicePrincipal'
+    scope: cosmosAccount.id
   }
 }
 
