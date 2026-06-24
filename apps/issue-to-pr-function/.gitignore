@@ -1,0 +1,9 @@
+# Override root .gitignore `lib/` rule (Python artifact pattern not relevant here)
+!src/lib/
+!src/lib/**
+
+# Standard Node.js ignores
+node_modules/
+coverage/
+function-app.zip
+local.settings.json

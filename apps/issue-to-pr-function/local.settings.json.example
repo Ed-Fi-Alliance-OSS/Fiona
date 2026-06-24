@@ -1,0 +1,16 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "KEY_VAULT_URL": "https://fiona-kv.vault.azure.net/",
+    "GITHUB_APP_ID": "",
+    "GITHUB_TARGET_OWNER": "Ed-Fi-Alliance-OSS",
+    "GITHUB_TARGET_REPO": "Fiona",
+    "AI_PROJECT_CONNECTION_STRING": "",
+    "AI_AGENT_ID": "",
+    "COSMOS_ENDPOINT": "AccountEndpoint=https://localhost:8081/;AccountKey=...",
+    "COSMOS_DATABASE": "chatbot",
+    "SLACK_DRY_RUN": "true"
+  }
+}
