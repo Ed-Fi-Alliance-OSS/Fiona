@@ -66,6 +66,28 @@ export function parseCommandKeyword(text) {
   return null;
 }
 
+const NOT_YET_TEXT = {
+  ask: ASK_NOT_YET_TEXT,
+  search: SEARCH_NOT_YET_TEXT,
+};
+
+/**
+ * Dispatches a parsed command to the appropriate say() response.
+ * Centralizes routing so each handler only calls this once.
+ *
+ * @param {Function} say
+ * @param {import('@slack/logger').Logger} logger
+ * @param {{ keyword: string, rawArgs: string }} cmd
+ */
+export async function routeCommandViaSay(say, logger, cmd) {
+  if (cmd.keyword === 'help') {
+    await handleHelpViaSay(say, logger);
+  } else {
+    const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
+    await handleComingSoonViaSay(say, logger, cmd.keyword, text);
+  }
+}
+
 /**
  * Sends the help response via say() — visible to all thread/channel participants.
  * Used in contexts where slash-command ack() is not available (threads, agent panel).

@@ -15,13 +15,7 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import {
-  ASK_NOT_YET_TEXT,
-  handleComingSoonViaSay,
-  handleHelpViaSay,
-  parseCommandKeyword,
-  SEARCH_NOT_YET_TEXT,
-} from '../commands/command-handler.js';
+import { parseCommandKeyword, routeCommandViaSay } from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -107,12 +101,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       const cmd = parseCommandKeyword(text);
       if (cmd) {
         markInteractionRecorded();
-        if (cmd.keyword === 'help') {
-          await handleHelpViaSay(say, logger);
-        } else {
-          const notYetText = cmd.keyword === 'ask' ? ASK_NOT_YET_TEXT : SEARCH_NOT_YET_TEXT;
-          await handleComingSoonViaSay(say, logger, cmd.keyword, notYetText);
-        }
+        await routeCommandViaSay(say, logger, cmd);
         return;
       }
 

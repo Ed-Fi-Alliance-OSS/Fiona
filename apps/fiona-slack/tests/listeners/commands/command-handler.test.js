@@ -5,7 +5,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
+const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
   await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
@@ -201,5 +201,37 @@ describe('handleComingSoonViaSay', () => {
 
   it('SEARCH_NOT_YET_TEXT mentions @fiona search as alternative', () => {
     expect(SEARCH_NOT_YET_TEXT).toMatch('@fiona search');
+  });
+});
+
+describe('routeCommandViaSay', () => {
+  let mockSay;
+  let mockLogger;
+
+  beforeEach(() => {
+    mockSay = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+  });
+
+  it('sends HELP_TEXT when keyword is "help"', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
+    expect(mockSay).toHaveBeenCalledWith(HELP_TEXT);
+  });
+
+  it('sends ASK_NOT_YET_TEXT when keyword is "ask"', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
+    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
+  });
+
+  it('sends SEARCH_NOT_YET_TEXT when keyword is "search"', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
+    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
+  });
+
+  it('does not throw when say() throws', async () => {
+    mockSay.mockRejectedValueOnce(new Error('network error'));
+    await expect(
+      routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' }),
+    ).resolves.not.toThrow();
   });
 });
