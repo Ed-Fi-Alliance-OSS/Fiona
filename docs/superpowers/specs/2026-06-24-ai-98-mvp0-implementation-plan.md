@@ -15,9 +15,10 @@ This plan covers the full MVP0 build of the `issue-to-pr-function` pipeline: an 
 Phases are ordered by dependency: each phase produces artifacts that the next phase depends on.
 
 **What is already done:**
-- `apps/issue-to-pr-function/src/functions/GitHubWebhookReceiver.js` — HTTP trigger, HMAC validation, label filtering, Durable client handoff
+- `apps/issue-to-pr-function/src/functions/GitHubWebhookReceiver.js` — HTTP trigger, HMAC validation, label filtering, Durable client handoff (Phase 5.0 adds idempotency + branch-slug logic)
 - `apps/issue-to-pr-function/src/lib/webhook-validator.js` — constant-time HMAC-SHA256 verification
 - `apps/issue-to-pr-function/test/webhook-validator.test.js` — full unit test coverage
+- `apps/issue-to-pr-function/test/GitHubWebhookReceiver.test.js` — receiver unit tests
 - Project scaffold: `package.json`, `host.json`, `biome.json`, `jest.config.js`
 
 ---
@@ -26,21 +27,22 @@ Phases are ordered by dependency: each phase produces artifacts that the next ph
 
 **Goal:** All infrastructure and secrets exist before any code is written. Nothing blocks Phase 1.
 
-### 0.1 — Confirm existing Azure resource names
+### 0.1 — Existing Azure resource names (CONFIRMED)
 
-Before writing any Bicep parameters, verify:
+Resolved via `az` against subscription **Ed-Fi Alliance** (2026-06-24):
 
-- Which resource group `fiona-kv` is in — design assumes `edfi-fiona-rg` but it may be `fiona-rg`. Run: `az keyvault list --query "[].{name:name,rg:resourceGroup}" -o table`
-- Cosmos DB account name — required as a Bicep parameter for the new container. Run: `az cosmosdb list -g edfi-fiona-rg --query "[].name" -o table`
-- Whether an AI Foundry Hub already exists in the subscription. Run: `az cognitiveservices account list --query "[?kind=='AIServices'].{name:name,rg:resourceGroup}" -o table`
+| Resource | Confirmed value | Resource group |
+|---|---|---|
+| Key Vault | **`fiona-kv-bronze`** (no `fiona-kv` exists) | `edfi-fiona-rg` |
+| Cosmos DB account | **`fiona-db-dev-cosmos`** — endpoint `https://fiona-db-dev-cosmos.documents.azure.com:443/` | `edfi-fiona-rg` |
+| AI Foundry | None reusable. No ML Hub/Project exists; the only AIServices accounts (`fiona-llm`, `rober-mh3wbvuh-eastus2`) live in RG `edfi-fiona` and have **no Claude deployed**. | — |
 
-Document confirmed values in a `infra/issue-to-pr/params.dev.json` file (not committed — add to `.gitignore`).
+**Decision:** Provision a **new** AI Foundry resource + project in **`edfi-fiona-rg`** (alongside Key Vault and Cosmos), compatible with a Claude Opus 4.8 deployment. All AI-98 resources therefore live in a single resource group — no cross-RG handling needed.
+
+Record confirmed values in `infra/issue-to-pr/params.dev.json` (not committed — add to `.gitignore`).
 
 **Acceptance criteria:**
-- Key Vault resource group confirmed
-- Cosmos DB account name confirmed
-- AI Foundry Hub status confirmed
-- `params.dev.json` exists locally for use during Bicep deployment
+- `params.dev.json` exists locally with `cosmosAccountName=fiona-db-dev-cosmos`, `keyVaultName=fiona-kv-bronze`, `keyVaultResourceGroup=edfi-fiona-rg`
 
 ---
 
@@ -83,7 +85,7 @@ Create a new GitHub App under the `Ed-Fi-Alliance-OSS` organization.
 
 ### 0.3 — Store secrets in Key Vault
 
-Add four secrets to `fiona-kv`:
+Add four secrets to `fiona-kv-bronze`:
 
 | Secret name | Value |
 |---|---|
@@ -95,14 +97,14 @@ Add four secrets to `fiona-kv`:
 Also note the GitHub App ID — it will be needed as an app setting (not a secret).
 
 ```bash
-az keyvault secret set --vault-name fiona-kv --name github-app-private-key --file ./fiona-issue-to-pr.pem
-az keyvault secret set --vault-name fiona-kv --name github-webhook-secret --value "<value>"
-az keyvault secret set --vault-name fiona-kv --name anthropic-api-key --value "<value>"
-az keyvault secret set --vault-name fiona-kv --name slack-webhook-url --value "<value>"
+az keyvault secret set --vault-name fiona-kv-bronze --name github-app-private-key --file ./fiona-issue-to-pr.pem
+az keyvault secret set --vault-name fiona-kv-bronze --name github-webhook-secret --value "<value>"
+az keyvault secret set --vault-name fiona-kv-bronze --name anthropic-api-key --value "<value>"
+az keyvault secret set --vault-name fiona-kv-bronze --name slack-webhook-url --value "<value>"
 ```
 
 **Acceptance criteria:**
-- All three secrets exist in Key Vault and are readable
+- All four secrets exist in Key Vault and are readable
 
 ---
 
@@ -118,27 +120,30 @@ Provisions:
   - Runtime: Node.js 22
   - Extension bundle: `Microsoft.Azure.Functions.ExtensionBundle` version `[4.*, 5.0.0)` (standard Durable Functions bundle — not the `.Workflows` Logic Apps bundle)
   - System-assigned managed identity: enabled
-- App settings (Key Vault references for secrets):
-  - `GITHUB_WEBHOOK_SECRET` → `@Microsoft.KeyVault(SecretUri=...github-webhook-secret...)`
-  - `GITHUB_APP_PRIVATE_KEY` → `@Microsoft.KeyVault(SecretUri=...github-app-private-key...)`
-  - `ANTHROPIC_API_KEY` → `@Microsoft.KeyVault(SecretUri=...anthropic-api-key...)`
+- App settings (Key Vault references resolve against `fiona-kv-bronze`):
+  - `GITHUB_WEBHOOK_SECRET` → `@Microsoft.KeyVault(SecretUri=https://fiona-kv-bronze.vault.azure.net/secrets/github-webhook-secret...)`
+  - `GITHUB_APP_PRIVATE_KEY` → `@Microsoft.KeyVault(SecretUri=...fiona-kv-bronze.../github-app-private-key...)`
+  - `ANTHROPIC_API_KEY` → `@Microsoft.KeyVault(SecretUri=...fiona-kv-bronze.../anthropic-api-key...)`
   - `GITHUB_APP_ID` → plain value (not a secret)
-  - `AI_FOUNDRY_ENDPOINT` → plain value (Foundry project endpoint)
-  - `COSMOS_ENDPOINT` → plain value
-  - `SLACK_WEBHOOK_URL` → `@Microsoft.KeyVault(SecretUri=...slack-webhook-url...)`
+  - `AI_FOUNDRY_ENDPOINT` → plain value (Foundry project endpoint; set after the Phase 3.0 spike confirms the Foundry path)
+  - `COSMOS_ENDPOINT` → plain value `https://fiona-db-dev-cosmos.documents.azure.com:443/`
+  - `SLACK_WEBHOOK_URL` → `@Microsoft.KeyVault(SecretUri=...fiona-kv-bronze.../slack-webhook-url...)`
 
 #### `infra/issue-to-pr/modules/ai-foundry.bicep`
 
-Provisions (skip Hub creation if one already exists — see 0.1):
-- AI Foundry Hub: `fiona-ai-hub`
+> **Deferred until Phase 3.0 spike passes.** Per 0.1 there is no reusable Foundry Hub, and the existing `fiona-llm` (RG `edfi-fiona`) has no Claude deployment. We provision a **new** Foundry resource in **`edfi-fiona-rg`** so all AI-98 resources share one resource group. Do not deploy this module until the spike (Phase 3.0) confirms Claude Opus 4.8 is deployable and the Foundry path is chosen; if the spike fails, this module is dropped entirely in favor of the direct-Anthropic path.
+
+Provisions (new, in `edfi-fiona-rg`):
+- AI Foundry resource (account): `fiona-ai-hub` — Claude-compatible (deploy in a region where Claude Opus 4.8 serverless is available; the spike confirms the region)
 - AI Foundry Project: `fiona-issue-to-pr`
-- Output: project endpoint URL (used in Functions app settings)
+- Claude Opus 4.8 model deployment named `claude-opus-4-8` (pinned version, not the `opus` alias)
+- Output: project endpoint URL (used in Functions app settings as `AI_FOUNDRY_ENDPOINT`)
 
 Note: The agent definition itself is created at runtime by `agent-runner.js`, not by IaC.
 
 #### `infra/issue-to-pr/modules/cosmos-container.bicep`
 
-Adds to the existing Cosmos DB account and `chatbot` database:
+Adds to the existing Cosmos DB account `fiona-db-dev-cosmos` and `chatbot` database:
 - Container: `agent-runs`
 - Partition key: `/repoFullName`
 - Default TTL: 7,776,000 seconds (90 days)
@@ -148,11 +153,12 @@ Adds to the existing Cosmos DB account and `chatbot` database:
 
 #### `infra/issue-to-pr/main.bicep`
 
-- Parameters: `cosmosAccountName`, `keyVaultName`, `keyVaultResourceGroup`, `location`
-- Invokes all three modules
+- Parameters (confirmed values): `cosmosAccountName=fiona-db-dev-cosmos`, `keyVaultName=fiona-kv-bronze`, `keyVaultResourceGroup=edfi-fiona-rg`, `location`
+- Invokes `functions.bicep` and `cosmos-container.bicep`; invokes `ai-foundry.bicep` **only after the Phase 3.0 spike selects the Foundry path**
+- All resources deploy to `edfi-fiona-rg` (single RG — no cross-RG references)
 - RBAC assignments on the Functions app managed identity:
-  - `Key Vault Secrets User` on `fiona-kv`
-  - `Cosmos DB Built-in Data Contributor` on the Cosmos DB account
+  - `Key Vault Secrets User` on `fiona-kv-bronze`
+  - `Cosmos DB Built-in Data Contributor` on `fiona-db-dev-cosmos`
 
 **Deploy command (dev):**
 ```bash
@@ -168,10 +174,10 @@ az deployment group create \
 
 **Acceptance criteria:**
 - Functions app exists with system-assigned MI
-- MI has Key Vault Secrets User and Cosmos DB Built-in Data Contributor roles
-- AI Foundry Hub + Project exist and endpoint is reachable
+- MI has Key Vault Secrets User (on `fiona-kv-bronze`) and Cosmos DB Built-in Data Contributor (on `fiona-db-dev-cosmos`) roles
 - `agent-runs` container exists with correct partition key and TTL
 - Key Vault references resolve (visible in Functions app → Configuration → Values show)
+- AI Foundry resource + project + Claude deployment exist and endpoint is reachable — **only once Phase 3.0 has selected the Foundry path**
 
 ---
 
@@ -188,7 +194,9 @@ Create `apps/issue-to-pr-function/local.settings.json` (gitignored) from the `.e
     "GITHUB_WEBHOOK_SECRET": "",
     "GITHUB_APP_PRIVATE_KEY": "",
     "GITHUB_APP_ID": "",
+    "ANTHROPIC_API_KEY": "",
     "AI_FOUNDRY_ENDPOINT": "",
+    "MCP_TOOL_SERVER_URL": "",
     "COSMOS_ENDPOINT": "",
     "SLACK_WEBHOOK_URL": ""
   }
@@ -212,7 +220,7 @@ Create `apps/issue-to-pr-function/local.settings.json` (gitignored) from the `.e
 Responsibilities:
 - Load `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_ID` from `process.env`
 - Generate a JWT signed with RS256, valid for 10 minutes, with `iss: appId`
-- Call `POST /app/installations` to find the installation ID for a given owner/repo
+- Call `GET /repos/{owner}/{repo}/installation` to get the installation ID for that repo directly (single call — do not list all installations)
 - Exchange the JWT for a short-lived installation access token via `POST /app/installations/{id}/access_tokens`
 - Cache the token in memory until 60 seconds before its `expires_at`; refresh transparently on next call
 
@@ -251,6 +259,8 @@ Test cases:
 
 Responsibilities:
 - HTTP trigger, accepts `POST` at route `mcp`
+- **Auth (baseline): AAD bearer token / managed identity.** Set `authLevel: 'anonymous'` and either (a) enable App Service Easy Auth (Entra ID) on the Functions app, or (b) validate the `Authorization: Bearer <token>` JWT in-code (issuer + audience = the function's app registration). Reject unauthenticated calls with `401`. This protects the write tools (`write_file`, `create_branch`, `create_draft_pr`, `add_issue_comment`) from anyone who can reach the endpoint.
+  - **Fallback:** if the Phase 3.0 spike shows the Foundry preview MCP connector cannot present an AAD token, fall back to a Functions host key (`authLevel: 'function'`) stored in Key Vault as `mcp-function-key`. Treat AAD as the Phase 2 hardening target (the design's security-review gate applies before production).
 - Parse body as JSON-RPC 2.0 (`{ jsonrpc, id, method, params }`)
 - Route `method` to the correct handler in `src/lib/mcp-handlers/`
 - Return `{ jsonrpc: "2.0", id, result }` on success
@@ -285,10 +295,10 @@ One file per tool in `src/lib/mcp-handlers/`. Each handler receives `params` (th
 - Errors: descriptive message if content exceeds 1 MB
 
 #### `create-branch.js`
-- Params: `{ owner, repo, branch, fromBranch? }` (`fromBranch` defaults to repo default branch)
+- Params: `{ owner, repo, branch, fromBranch? }` (`fromBranch` defaults to repo default branch). The `branch` value is the orchestrator-computed `agent/issue-{n}-{shortSlug}` (see Phase 5) — the agent does not invent it.
 - Calls: `GET /repos/{owner}/{repo}/git/ref/heads/{fromBranch}` to get HEAD SHA, then `POST /repos/{owner}/{repo}/git/refs`
+- **Re-run handling:** if the branch already exists (422) — which happens on an intentional re-run after the orchestration was purged (Phase 5, #5) — reset it to the `fromBranch` HEAD via `PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}` with `force: true` rather than failing. This gives the re-run a clean starting point.
 - Returns: `{ branch, sha }`
-- Errors: descriptive message if branch already exists (422)
 
 #### `run-validation.js`
 - Params: `{ owner, repo, branch }`
@@ -300,8 +310,8 @@ Implementation note: GitHub's `repository_dispatch` API does not return the trig
 
 #### `get-validation-status.js`
 - Params: `{ owner, repo, branch, dispatchedAt }`
-- Calls: `GET /repos/{owner}/{repo}/actions/runs?branch={branch}&event=repository_dispatch&created=>={dispatchedAt}`
-- Finds the most recent matching run
+- Calls: `GET /repos/{owner}/{repo}/actions/runs?branch={branch}&event=repository_dispatch`
+- **Matching:** because each issue gets a unique branch (`agent/issue-{n}-{shortSlug}`, Phase 6 / #6), the branch filter alone uniquely identifies this validation run. Take the most recent run on that branch; use `dispatchedAt` only as a clock-skew sanity guard (ignore runs created well before dispatch), not as the primary selector.
 - Returns: `{ status, conclusion, runId, runUrl }` where `status` is `queued | in_progress | completed` and `conclusion` is `success | failure | null`
 - If no run found yet, returns `{ status: "queued", conclusion: null, runId: null }`
 
@@ -340,9 +350,25 @@ For each handler:
 
 **Prerequisite:** Phase 2 (MCP Tool Server must be deployed or running locally with a reachable URL)
 
+### 3.0 — Agent Layer Spike (GATE — decides #1, #2, #3)
+
+Before building `agent-runner.js`, run a time-boxed spike (~1 day) to verify the preferred Foundry Agent Service + Claude path actually works. This gate determines whether we use `@azure/ai-projects` (Foundry) or the direct Anthropic SDK, and confirms the assumptions baked into Phase 0.4 (`ai-foundry.bicep`), Phase 4 (orchestrator polling), and Phase 2 (MCP auth).
+
+**Acceptance criteria — all must pass for the Foundry path:**
+0. **Claude deployable:** Claude Opus 4.8 can be deployed to a new Foundry resource in `edfi-fiona-rg` in a region where it is available (serverless / Models-as-a-Service). Record the region.
+1. **Tool round-trip:** an agent backed by the Claude deployment completes one MCP tool call (`read_issue`) against the MCP tool server via the Foundry tool connection.
+2. **Mid-run yield:** Agent Service can end a run/turn after a tool dispatch and resume in a fresh turn — required so the **orchestrator** (not the agent) owns the GHA polling loop (#2).
+3. **AAD auth to MCP:** the Foundry MCP connector can present an AAD bearer token to the MCP tool server (#3).
+
+**Outcome:**
+- **All pass → Foundry path:** proceed with 3.1 using `@azure/ai-projects`; deploy `ai-foundry.bicep` (Phase 0.4).
+- **Any fail → direct-Anthropic fallback:** 3.1 uses the Anthropic SDK and owns the tool-use loop in-process; drop `@azure/ai-projects` and the `ai-foundry.bicep` module; the MCP tool server is called in-process (or with a `DefaultAzureCredential` token, which is trivial to attach when we own the caller).
+
 ### 3.1 — Write `src/lib/agent-runner.js`
 
-Responsibilities:
+> The SDK choice below is **conditional on the Phase 3.0 outcome.** Foundry path = `@azure/ai-projects`; fallback = Anthropic SDK with a self-managed tool-use loop. The responsibilities are otherwise the same. In **both** cases the agent **dispatches** validation and then ends its turn — it does NOT poll `get_validation_status` in a loop. The orchestrator drives polling and starts a fresh agent turn with the result (see Phase 4.2, #2).
+
+Responsibilities (Foundry path shown; fallback substitutes the Anthropic SDK):
 - Initialize `@azure/ai-projects` `AIProjectsClient` using the `AI_FOUNDRY_ENDPOINT` env var and `DefaultAzureCredential` (managed identity in production, developer credential locally)
 - On first call, create or retrieve the agent definition named `fiona-coding-agent`:
   - Model: deployment name `claude-opus-4-8` (Claude Opus 4.8 deployed to Foundry model catalog with this name — pin to a specific version, do not use `opus` alias)
@@ -424,10 +450,20 @@ Three activities, each exported as a named Durable activity function:
   ```
 - Fire-and-forget: if Slack call fails, log the error and return without throwing (do not fail the orchestration)
 
-#### `StartAgentRun`
-- Input: `{ repoFullName, issueNumber, issueTitle, issueBody, baseBranch, instanceId }`
-- Calls `agent-runner.js` `runAgent(input)`
-- Returns the structured result from `agent-runner.js`
+#### `StartAgentEdits`
+- Input: `{ repoFullName, issueNumber, issueTitle, issueBody, baseBranch, branchName, instanceId }`
+- Calls `agent-runner.js` to run the agent through: read issue → locate code → create branch (`branchName`) → write failing test + fix → **dispatch validation** (`run_validation`), then **end the turn**. Does NOT poll validation.
+- Returns: `{ status: 'dispatched' | 'failed', dispatchedAt?, threadId?, summary?, error? }` (`threadId`/conversation handle is persisted so `AgentReactToResult` can resume the same agent turn)
+
+#### `GetValidationStatus`
+- Input: `{ repoFullName, branchName, dispatchedAt }`
+- Thin wrapper over the `get-validation-status` handler; returns `{ status, conclusion, runId, runUrl }`
+- Short-lived (one API call) — safe within the Consumption activity timeout
+
+#### `AgentReactToResult`
+- Input: `{ ...agent context, threadId, validationConclusion, runUrl }`
+- Resumes the agent turn with the validation outcome. On `success` → agent calls `create_draft_pr` (final action). On `failure` → agent iterates (edit + re-dispatch) or gives up with a summary.
+- Returns the structured result: `{ status: 'completed', prUrl, summary }` or `{ status: 'failed', summary, error }`, or `{ status: 're-dispatched', dispatchedAt }` if it wants another validation round
 
 #### `PostIssueComment`
 - Input: `{ repoFullName, issueNumber, body }`
@@ -437,10 +473,12 @@ Three activities, each exported as a named Durable activity function:
 
 ### 4.2 — Write `src/functions/WorkflowOrchestrator.js`
 
+The orchestrator owns the GHA polling loop using `context.df.createTimer` so no single activity blocks past the Consumption timeout (#2). Each activity is short-lived; durable state persists across the timer waits.
+
 ```javascript
 // Orchestrator function — must be a generator (Durable requirement)
 orchestrator(context):
-  const input = context.df.getInput()
+  const input = context.df.getInput()  // includes branchName computed by the receiver (#6)
 
   // Informational Slack message — non-blocking, failures do not abort
   yield context.df.callActivity('PostSlackNotification', {
@@ -449,14 +487,43 @@ orchestrator(context):
     issueTitle: input.issueTitle
   })
 
-  // Run the agent
-  const result = yield context.df.callActivity('StartAgentRun', {
+  // Agent edits code + dispatches validation, then yields control
+  let agent = yield context.df.callActivity('StartAgentEdits', {
     ...input,
     instanceId: context.df.instanceId
   })
 
-  // If agent failed, post a comment to the issue
-  if (result.status === 'failed') {
+  let result
+  const MAX_ROUNDS = 5  // guard against infinite re-dispatch loops
+  for (let round = 0; agent.status === 'dispatched' && round < MAX_ROUNDS; round++) {
+    // Poll GHA via durable timer — not billed against an activity timeout
+    let v = { status: 'queued', conclusion: null }
+    while (v.status !== 'completed') {
+      yield context.df.createTimer(addSeconds(context.df.currentUtcDateTime, 30))
+      v = yield context.df.callActivity('GetValidationStatus', {
+        repoFullName: input.repoFullName,
+        branchName: input.branchName,
+        dispatchedAt: agent.dispatchedAt
+      })
+    }
+
+    // Feed the result back into a fresh agent turn
+    result = yield context.df.callActivity('AgentReactToResult', {
+      ...input,
+      threadId: agent.threadId,
+      validationConclusion: v.conclusion,
+      runUrl: v.runUrl
+    })
+
+    // Agent may request another validation round
+    agent = result.status === 're-dispatched' ? { status: 'dispatched', dispatchedAt: result.dispatchedAt, threadId: agent.threadId } : { status: 'done' }
+  }
+
+  // StartAgentEdits itself may have failed before dispatch
+  if (agent.status === 'failed') result = agent
+
+  // If the run failed, post a comment to the issue
+  if (result?.status === 'failed') {
     yield context.df.callActivity('PostIssueComment', {
       repoFullName: input.repoFullName,
       issueNumber: input.issueNumber,
@@ -465,18 +532,23 @@ orchestrator(context):
   }
 ```
 
+Note: all values used in the orchestrator must come from activity outputs or `context.df` (deterministic replay requirement) — use `context.df.currentUtcDateTime`, never `Date.now()`.
+
 ### 4.3 — Write unit tests for activities
 
 Location: `test/WorkflowActivities.test.js`
 
 - `PostSlackNotification`: mock `fetch`, verify correct Slack payload; verify non-throw on Slack error
-- `StartAgentRun`: mock `agent-runner`, verify result is passed through
+- `StartAgentEdits`: mock `agent-runner`, verify `{ status: 'dispatched', dispatchedAt, threadId }` is returned
+- `GetValidationStatus`: mock the handler, verify pass-through of status/conclusion
+- `AgentReactToResult`: mock `agent-runner`, verify `success`→completed/`failure`→failed mapping
 - `PostIssueComment`: mock `add-issue-comment` handler, verify comment body is correct
 
 **Acceptance criteria:**
 - `npm test` passes for activity tests
-- Starting a Durable orchestration (via local emulator or staging) runs activities in correct order
-- A failed `StartAgentRun` result triggers `PostIssueComment`
+- Starting a Durable orchestration (via local emulator or staging) runs activities in correct order, polling via timer until validation completes
+- A failed result triggers `PostIssueComment`
+- The polling loop terminates on `completed` and respects `MAX_ROUNDS`
 - `PostSlackNotification` failure does not abort the orchestration
 
 ---
@@ -487,11 +559,29 @@ Location: `test/WorkflowActivities.test.js`
 
 **Prerequisite:** Phase 0.4 (Functions app provisioned with Key Vault references), Phase 4 (orchestrator registered)
 
+### 5.0 — Receiver: idempotency + branch naming (code changes required)
+
+The already-built `GitHubWebhookReceiver.js` calls `client.startNew('WorkflowOrchestrator', { input })` with no instance ID. Update it:
+
+- **Deterministic instanceId (#5):** compute `instanceId = sanitize(`${repoFullName}#${issueNumber}`)` (Durable instance IDs disallow some chars — replace `/`, `#` with `-`). Before `startNew`:
+  ```javascript
+  const status = await client.getStatus(instanceId);
+  if (status && !isTerminal(status.runtimeStatus)) {
+    return { status: 202, body: 'Already running' };   // no-op on re-label / redelivery
+  }
+  if (status && isTerminal(status.runtimeStatus)) {
+    await client.purgeInstanceHistory(instanceId);      // allow intentional re-run
+  }
+  await client.startNew('WorkflowOrchestrator', { instanceId, input });
+  ```
+  (`isTerminal` = `Completed | Failed | Terminated | Canceled`.)
+- **Branch slug (#6):** compute `branchName = 'agent/issue-' + issueNumber + '-' + slug(issueTitle).slice(0, 30)` (lowercase, non-alphanumeric → `-`, trim trailing `-`) and add it to the orchestration `input`. The orchestrator/agent uses this exact value; the agent never invents a branch name.
+
 ### 5.1 — Wire Key Vault reference in app settings
 
-The `GitHubWebhookReceiver.js` already reads `process.env.GITHUB_WEBHOOK_SECRET`. The Key Vault reference in the Functions app settings handles this automatically in production. Verify locally using the value from `local.settings.json`.
+The `GitHubWebhookReceiver.js` reads `process.env.GITHUB_WEBHOOK_SECRET`. The Key Vault reference (→ `fiona-kv-bronze`) in the Functions app settings handles this automatically in production. Verify locally using the value from `local.settings.json`.
 
-No code changes required unless the env var name differs — confirm `GITHUB_WEBHOOK_SECRET` matches the app setting name in `main.bicep`.
+Confirm `GITHUB_WEBHOOK_SECRET` matches the app setting name in `main.bicep`.
 
 ### 5.2 — Smoke test with local emulator
 
@@ -519,6 +609,9 @@ curl -X POST http://localhost:7071/api/github-webhook \
 - Invalid signature returns 400
 - Non-`issues` event returns 200 `Ignored`
 - `agent-ready` label filter works correctly (other labels return 200 `Ignored`)
+- Re-labeling while an orchestration is still running is a no-op (deterministic instanceId, #5)
+- Re-labeling after a terminal run purges and restarts cleanly
+- Orchestration input carries `branchName = agent/issue-{n}-{slug}` (#6)
 
 ---
 
@@ -738,10 +831,14 @@ Create `docs/runbooks/issue-to-pr-operator.md` covering:
 
 | Item | Status | Resolution |
 |---|---|---|
-| Key Vault resource group | **PENDING** | Run `az keyvault list --query "[].{name:name,rg:resourceGroup}" -o table` and confirm `fiona-kv` location (Phase 0.1) |
-| AI Foundry Hub | **PENDING** | Run `az cognitiveservices account list --query "[?kind=='AIServices'].{name:name,rg:resourceGroup}" -o table` to check if one exists (Phase 0.1) |
-| Cosmos DB account name | **PENDING** | Run `az cosmosdb list -g edfi-fiona-rg --query "[].name" -o table` (Phase 0.1) |
-| Claude model identifier in Foundry | **RESOLVED** | Deploy Claude Opus 4.8 in Foundry model catalog with deployment name `claude-opus-4-8`. Do not use alias `opus` — pin to the specific version. `agent-runner.js` references this deployment name via `@azure/ai-projects`. |
+| Key Vault name & RG | **RESOLVED** | `fiona-kv-bronze` in `edfi-fiona-rg` (no `fiona-kv` exists). Confirmed via `az` 2026-06-24. |
+| Cosmos DB account name | **RESOLVED** | `fiona-db-dev-cosmos` in `edfi-fiona-rg`; endpoint `https://fiona-db-dev-cosmos.documents.azure.com:443/`. |
+| AI Foundry resource | **RESOLVED** | No reusable Hub/Project. Provision a **new** Foundry resource + project + Claude deployment in `edfi-fiona-rg` (single RG, no cross-RG). Deferred until the Phase 3.0 spike confirms the Foundry path. |
+| Agent layer (Foundry vs direct Anthropic) | **GATED by Phase 3.0** | Spike decides: Foundry Agent Service + `@azure/ai-projects` (preferred) vs direct Anthropic SDK (fallback). Drives Phase 0.4 `ai-foundry.bicep`, Phase 2 MCP auth, Phase 4 orchestration. |
+| Long-running agent execution | **RESOLVED** | Orchestrator owns the GHA polling loop via `df.createTimer`; agent dispatches then yields. Stay on Consumption plan (#2). |
+| MCP tool server auth | **RESOLVED** | AAD bearer token / managed identity baseline; function-key fallback if the preview MCP connector can't present a token (#3). |
+| Idempotency & branch naming | **RESOLVED** | Deterministic instanceId `${repo}#${issue}` + purge-on-rerun (#5); orchestrator-computed `agent/issue-{n}-{slug}` (#6). |
+| Claude model identifier in Foundry | **RESOLVED** | Deploy Claude Opus 4.8 with deployment name `claude-opus-4-8` (pinned version, not the `opus` alias) — only on the Foundry path after Phase 3.0. |
 | GHA deployment auth | **RESOLVED** | Existing pattern confirmed: `azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0` with `creds: ${{ secrets.AZURE_CREDENTIALS }}` (service principal JSON). Secret stored at `production` environment level. Phase 6.3 updated to match. |
 | Slack webhook URL | **RESOLVED** | Confirmed URL for fiona-bug-agent channel. Store in Key Vault as `slack-webhook-url`. Reference via Key Vault reference in app settings. Never hardcode in source or config. |
 
@@ -808,8 +905,9 @@ docs/runbooks/
 
 ```
 apps/issue-to-pr-function/
-  src/functions/GitHubWebhookReceiver.js
+  src/functions/GitHubWebhookReceiver.js   (Phase 5.0 will amend: idempotency + branch slug)
   src/lib/webhook-validator.js
   test/webhook-validator.test.js
+  test/GitHubWebhookReceiver.test.js
   package.json / host.json / biome.json / jest.config.js
 ```
