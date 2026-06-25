@@ -44,7 +44,9 @@ export async function githubRequest(owner, repo, method, path, body) {
     } catch {
       // ignore parse errors
     }
-    throw new Error(`GitHub API ${method} ${path} failed with status ${response.status}${ghMessage}`);
+    const err = new Error(`GitHub API ${method} ${path} failed with status ${response.status}${ghMessage}`);
+    err.status = response.status;
+    throw err;
   }
 
   // 204 No Content has no body

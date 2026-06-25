@@ -87,6 +87,23 @@ describe('githubRequest', () => {
     );
   });
 
+  it('attaches numeric status property to the thrown error on non-2xx response', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ message: 'Not Found' }),
+    });
+
+    let caught;
+    try {
+      await githubRequest(OWNER, REPO, 'GET', '/repos/test-owner/test-repo/issues/999');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.status).toBe(404);
+  });
+
   it('includes GitHub error message in the thrown error', async () => {
     globalThis.fetch = jest.fn().mockResolvedValueOnce({
       ok: false,

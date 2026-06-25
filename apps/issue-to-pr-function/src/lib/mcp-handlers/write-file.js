@@ -26,7 +26,7 @@ export async function writeFile({ owner, repo, path, branch, content, message })
     existingSha = data.sha;
   } catch (err) {
     // 404 means the file does not exist yet — that's fine
-    if (!err.message.includes('status 404')) {
+    if (err.status !== 404) {
       throw err;
     }
   }

@@ -26,8 +26,8 @@ export async function readFile({ owner, repo, path, branch }) {
   const rawBase64 = data.content.replace(/\n/g, '');
   const decoded = Buffer.from(rawBase64, 'base64').toString('utf-8');
 
-  if (decoded.length > MAX_FILE_SIZE) {
-    throw new Error(`File ${path} exceeds 1 MB after decoding (${decoded.length} bytes)`);
+  if (Buffer.byteLength(decoded, 'utf-8') > MAX_FILE_SIZE) {
+    throw new Error(`File ${path} exceeds 1 MB after decoding (${Buffer.byteLength(decoded, 'utf-8')} bytes)`);
   }
 
   return { content: decoded, sha: data.sha };
