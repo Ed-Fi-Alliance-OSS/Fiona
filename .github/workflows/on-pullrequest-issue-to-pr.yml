@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Build and Test the Issue-to-PR Function App
+
+on:
+  # This is not running on `push: main` because `deploy-issue-to-pr-function.yml` is triggered
+  # on this push, and it calls back to this test workflow
+  pull_request:
+    paths:
+      - 'apps/issue-to-pr-function/**'
+      - 'infra/issue-to-pr/**'
+      - '.github/workflows/deploy-issue-to-pr-function.yml'
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/issue-to-pr-function
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: apps/issue-to-pr-function/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Report test results
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: always()
+        with:
+          name: Jest Tests - issue-to-pr-function
+          path: apps/issue-to-pr-function/junit.xml
+          reporter: jest-junit
+          fail-on-error: false
+
+      - name: Report code coverage
+        if: always()
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "## Code Coverage - issue-to-pr-function" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage report not available (tests may have failed before coverage was collected)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          echo "## Code Coverage - issue-to-pr-function" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            const t = data.total;
+            console.log('| Statements | ' + t.statements.pct + '% |');
+            console.log('| Branches | ' + t.branches.pct + '% |');
+            console.log('| Functions | ' + t.functions.pct + '% |');
+            console.log('| Lines | ' + t.lines.pct + '% |');
+          " >> $GITHUB_STEP_SUMMARY
+
+  code_analysis:
+    name: Code Analysis (CodeQL & Dependency Review)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/issue-to-pr-function
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Dependency Review
+        # dependency-review-action requires PR/merge-group context (base/head refs)
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' || github.event_name == 'merge_group' }}
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/issue-to-pr-function/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2

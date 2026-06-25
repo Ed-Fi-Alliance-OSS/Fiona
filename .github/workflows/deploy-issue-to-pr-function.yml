@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Deploy Issue-to-PR Function
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/issue-to-pr-function/**'
+      - 'infra/issue-to-pr/**'
+      - '.github/workflows/deploy-issue-to-pr-function.yml'
+  workflow_dispatch:
+
+env:
+  AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'issue-to-pr-function' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'edfi-fiona-rg' }}
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/on-pullrequest-issue-to-pr.yml
+    secrets: inherit
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Warn when using default deployment values
+        run: |
+          if [ -z "${{ vars.AZURE_FUNCTIONAPP_NAME }}" ]; then
+            echo "::warning::Repository variable AZURE_FUNCTIONAPP_NAME is not set. Using default 'issue-to-pr-function'."
+          fi
+          if [ -z "${{ vars.AZURE_RESOURCE_GROUP }}" ]; then
+            echo "::warning::Repository variable AZURE_RESOURCE_GROUP is not set. Using default 'edfi-fiona-rg'."
+          fi
+          if [ -z "${{ vars.GITHUB_APP_ID }}" ]; then
+            echo "::warning::Repository variable GITHUB_APP_ID is not set. Bicep deployment will fail (githubAppId has no default)."
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: apps/issue-to-pr-function/package-lock.json
+
+      - name: Install production dependencies
+        working-directory: apps/issue-to-pr-function
+        run: npm ci --omit=dev
+
+      - name: Azure Login
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy IaC
+        # App settings come from Bicep Key Vault references — deploy infrastructure BEFORE the code.
+        # cosmosAccountName, keyVaultName, and foundryLocation have defaults in the Bicep template;
+        # githubAppId does not and must be supplied here.
+        # Note: az functionapp config appsettings set is intentionally omitted — AI-98 settings
+        # are provisioned by Bicep (Key Vault references), unlike the usage-report sibling.
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --template-file infra/issue-to-pr/main.bicep \
+            --parameters githubAppId='${{ vars.GITHUB_APP_ID }}'
+
+      - name: Package function app
+        run: |
+          cd apps/issue-to-pr-function
+          rm -f function-app.zip
+          zip -r ../../function-app.zip . -x ".git/*" "test/*" "coverage/*"
+
+      - name: Deploy to Azure
+        run: |
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --src function-app.zip
