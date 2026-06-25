@@ -95,7 +95,7 @@ Nine in-process operations the agent calls as tools, plus a shared HTTP helper. 
 ## End-to-end behavior (current)
 `agent-ready` label → receiver validates HMAC, filters to `issues`/`labeled`/`agent-ready`, starts the orchestration → Slack → agent edits + dispatches validation, yields → orchestrator polls GHA on a durable timer → agent reacts (opens a draft PR on success, or re-validates / fails) → failure posts an issue comment. The Cosmos `agent-runs` record tracks each run.
 
-> **Not yet wired (Phase 5, in progress):** the receiver computing a deterministic instance id (idempotency) and the `branchName` the orchestrator/agent require. Until Phase 5 lands, an end-to-end run polls `?branch=undefined`. **Do not judge end-to-end usability until Phase 5 is merged.**
+> **Phase 5.0 is now wired:** the receiver computes a deterministic instance id (idempotent re-labels) and supplies `branchName`. **Live end-to-end** still requires Phase 6 (the `agent-execution.yml` validation runner) + the deploy, and is verified in Phase 7 — so judge end-to-end usability only after those. The Phase 5.2 local smoke test (Azurite + `func start`) is still pending.
 
 ## What to verify before merge
 1. `npm test` → 80 passing; `npm run lint` clean; `az bicep build --file infra/issue-to-pr/main.bicep` compiles.

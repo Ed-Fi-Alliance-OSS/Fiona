@@ -1,8 +1,8 @@
 # AI-98 Issue-to-PR Pipeline — Implementation Status & Resume Guide
 
 **Last updated:** 2026-06-24
-**Branch:** `ai-98-hitl-bug` (HEAD `e37643f`)
-**Status:** Phases 0–4 implemented & reviewed; Phases 5–7 remain. 80 unit tests passing.
+**Branch:** `ai-98-hitl-bug` (HEAD `39e78d0`)
+**Status:** Phases 0–5 (code) implemented & reviewed; Phase 5.2 smoke test (manual/live) + Phases 6–7 remain. 93 unit tests passing.
 
 > This document is the walkthrough + handoff. It explains what's built, what's left, and how a new session resumes. Authoritative design lives in the two specs below; this file is the map.
 
@@ -16,7 +16,7 @@ An Azure Durable Functions app that turns a GitHub issue labeled **`agent-ready`
 ## Architecture (flow)
 ```
 GitHub issue labeled "agent-ready"
-  → GitHubWebhookReceiver (HTTP, HMAC-validated)  [Phase 5 will add idempotency + branch slug]
+  → GitHubWebhookReceiver (HTTP, HMAC-validated, idempotent, supplies branchName)  [Phases 0/5 — BUILT]
   → WorkflowOrchestrator (Durable)                 [Phase 4 — BUILT]
       → PostSlackNotification (informational)
       → StartAgentEdits ──► agent-runner loop (Claude on Foundry + in-process tools)
@@ -58,14 +58,17 @@ GitHub issue labeled "agent-ready"
 
 ---
 
-## ⬜ Remaining (Phases 5–7)
+### Phase 5.0 — Ingress completion (code)
+- `GitHubWebhookReceiver.js`: deterministic `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if a non-terminal instance exists; purge+restart if terminal); computes `branchName = agent/issue-{n}-{slug}` and supplies it in the orchestration input. **Closes the Phase-4 precondition** (reviewer confirmed the field name matches what the orchestrator reads).
 
-### Phase 5 — Ingress completion (NEXT, code + local emulator)
-> **HARD PRECONDITION for the pipeline to work end-to-end:** the orchestrator already reads `input.branchName` and passes it to the agent + validation polling. Phase 5 MUST make the receiver compute and supply it, or validation polling queries `?branch=undefined` and every run fails.
-- Amend `GitHubWebhookReceiver.js`: deterministic Durable `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if running, purge+restart if terminal); compute `branchName = agent/issue-{n}-{slug}` and pass in orchestration input. See plan §5.0.
-- Smoke test against Azurite + `func start` (plan §5.2).
+---
 
-### Phase 6 — GitHub Actions workflows (code)
+## ⬜ Remaining
+
+### Phase 5.2 — Local smoke test (manual/live, NOT done)
+Start Azurite + `func start`, POST a signed test webhook, confirm 202 + a Durable instance starts (plan §5.2). Requires the local emulator.
+
+### Phase 6 — GitHub Actions workflows (NEXT, code)
 - `.github/workflows/agent-execution.yml` (repository_dispatch `agent-validation` → checkout branch, npm ci, lint, test), `on-pullrequest-issue-to-pr.yml`, `deploy-issue-to-pr-function.yml` (uses existing `AZURE_CREDENTIALS` SP pattern). See plan §6.
 
 ### Phase 7 — E2E validation & runbook (needs live infra)
@@ -89,7 +92,7 @@ GitHub issue labeled "agent-ready"
 ## How to resume (new session)
 1. **Read this file + both specs.** Confirm Path B and the orchestrator-owned-polling design.
 2. **Process:** we're using **subagent-driven-development** (fresh implementer subagent per task → task review → fix loop). Ledger at `.superpowers/sdd/progress.md` (git-ignored scratch in this worktree; mirrors this doc). Check it + `git log --oneline main..HEAD` after any compaction.
-3. **Verify baseline:** `cd apps/issue-to-pr-function && npm test` → expect **80 passing**; `npm run lint` clean. `az bicep build --file infra/issue-to-pr/main.bicep` compiles (az is at `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, not on PATH; `az login` already done).
-4. **Next task:** Phase 5 (ingress completion — plan §5.0). Amend `GitHubWebhookReceiver.js`: deterministic `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if running, purge+restart if terminal) AND **compute `branchName = agent/issue-{n}-{slug}` and add it to the orchestration input** (the orchestrator already consumes it — this closes the hard precondition above). Then the local-emulator smoke test (§5.2).
+3. **Verify baseline:** `cd apps/issue-to-pr-function && npm test` → expect **93 passing**; `npm run lint` clean. `az bicep build --file infra/issue-to-pr/main.bicep` compiles (az is at `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, not on PATH; `az login` already done).
+4. **Next task:** Phase 6 (three GitHub Actions workflows — plan §6): `agent-execution.yml` (the validation runner dispatched by `run_validation`), `on-pullrequest-issue-to-pr.yml`, `deploy-issue-to-pr-function.yml`. Use the `update-github-actions` skill / existing `AZURE_CREDENTIALS` pattern. (Phase 5.2 local smoke test + Phase 7 need the emulator/deploy.)
 5. **Conventions:** ESM, Apache-2.0 header on new JS files, Jest (`npm test`), biome (`npm run lint`), no new deps without reason. Tell subagents: touch only their task's files; don't reformat unrelated files.
 6. **Accountability (MSDF policy):** this code is substantially AI-written — a human review is required before merge/deploy, and the deploy is Robert's.
