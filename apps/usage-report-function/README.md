@@ -62,9 +62,9 @@ When `SLACK_DRY_RUN=true`, the function skips Key Vault and the Slack post entir
 
 If using the local emulator, run this once to create the database and containers:
 
-```bash
+```pwsh
 cd ../fiona-slack
-NODE_TLS_REJECT_UNAUTHORIZED=0 npm run setup:emulator
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run setup:emulator
 ```
 
 ### Run the function

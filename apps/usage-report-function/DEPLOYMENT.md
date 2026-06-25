@@ -69,7 +69,7 @@ az functionapp config appsettings set \
   --settings \
     REPORT_SCHEDULE='0 0 9 * * 1' \
     COSMOS_ENDPOINT='https://fiona.documents.azure.com:443/' \
-    COSMOS_DATABASE='fiona' \
+    COSMOS_DATABASE='chatbot' \
     COSMOS_INTERACTIONS_CONTAINER='interactions' \
     COSMOS_FEEDBACK_CONTAINER='feedback' \
     DEPLOYMENT_TYPE='production' \

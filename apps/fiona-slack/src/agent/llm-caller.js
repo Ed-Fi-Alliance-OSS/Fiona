@@ -15,6 +15,8 @@ import { normalizeSources } from './utils/source-normalizer.js';
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'sonar';
+export const LLM_MODEL = PERPLEXITY_API_MODEL;
+export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
   ? process.env.PERPLEXITY_DOMAIN_FILTER.split(',').map((d) => d.trim())
   : ['www.ed-fi.org', 'docs.ed-fi.org'];
@@ -347,7 +349,7 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer
  * @param {Array} prompts
- * @returns {Promise<string[]>} Citation URL strings (may be empty)
+ * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and citation URL strings
  */
 export async function callPerplexityChat(streamer, prompts) {
   if (!perplexityClient) {
@@ -412,13 +414,14 @@ export async function callPerplexityChat(streamer, prompts) {
   // Linkify [n] markers using the now-populated source_index_map, then emit
   // a single append call.  Skipping the append entirely when there is no text
   // avoids sending an empty markdown block to Slack.
+  let botText = '';
   if (textBuffer) {
     const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    const linkifiedText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
-    await streamer.append({ markdown_text: linkifiedText });
+    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    await streamer.append({ markdown_text: botText });
   }
 
-  return citations;
+  return { botText, citations };
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────
@@ -430,7 +433,7 @@ export async function callPerplexityChat(streamer, prompts) {
  * @param {Array} prompts - OpenAI-style message array
  * @param {import("@slack/logger").Logger} logger - Logger instance
  *
- * @returns {Promise<MetadataEnvelope>} Metadata envelope with citation metadata
+ * @returns {Promise<{ metadata: MetadataEnvelope, botText: string, systemPromptVersion: string }>} Metadata envelope and full bot response text
  *
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  */
@@ -446,8 +449,9 @@ export async function callLLM(streamer, prompts, logger) {
 
   const metadataWaitStart = Date.now();
 
+  let botText = '';
   try {
-    await callPerplexityChat(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts]);
+    ({ botText } = await callPerplexityChat(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts]));
 
     // Gate finalization: transition to READY_TO_FINALIZE from any pre-finalize state once
     // the LLM call has completed synchronously.
@@ -478,5 +482,5 @@ export async function callLLM(streamer, prompts, logger) {
     throw error;
   }
 
-  return metadata;
+  return { metadata, botText, systemPromptVersion: SYSTEM_PROMPT_VERSION };
 }

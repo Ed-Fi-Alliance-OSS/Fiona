@@ -91,6 +91,7 @@ jobs:
             cosmosDatabase="${{ vars.COSMOS_DATABASE || 'chatbot' }}" \
             cosmosContainer="${{ vars.COSMOS_CONTAINER || 'feedback' }}" \
             cosmosAccountName="${{ vars.COSMOS_ACCOUNT_NAME }}" \
+            captureAllConversations=${{ vars.CAPTURE_ALL_CONVERSATIONS || 'false' }} \
             deploymentType="${{ inputs.environment || 'insiders' }}" \
             skipRoleAssignments=true
 

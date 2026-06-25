@@ -60,7 +60,7 @@ COSMOS_CONNECTION_STRING=AccountEndpoint=https://localhost:8081/;AccountKey=C2y6
 
 Also configure the Perplexity API key and Slack app credentials as needed.
 
-Start `fiona-slack` following its README, then confirm it connects to Slack, e.g. `npm run slack:unsafe` or `slack run` depending on your setup.
+Start `fiona-slack` following its README, then confirm it connects to Slack, e.g. in PowerShell run `$env:NODE_TLS_REJECT_UNAUTHORIZED=0; slack run`.
 
 ---
 
@@ -111,7 +111,7 @@ Confirm `local.settings.json` contains:
 {
   "Values": {
     "COSMOS_ENDPOINT": "https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
-    "COSMOS_DATABASE": "fiona",
+    "COSMOS_DATABASE": "chatbot",
     "DEPLOYMENT_TYPE": "local",
     "SLACK_DRY_RUN": "true",
     "REPORT_SCHEDULE": "* * * * * *"

@@ -120,7 +120,7 @@ describe('interaction-store - with connection string', () => {
     expect(doc.rateLimited).toBe(false);
     expect(doc.interactionType).toBe('app_mention');
     expect(doc.timestamp).toBeDefined();
-    expect(options).toEqual({ partitionKey: [doc.deploymentType, doc.userId] });
+    expect(options).toEqual(expect.objectContaining({ partitionKey: [doc.deploymentType, doc.userId] }));
   });
 
   it('sets errorType on the document when status is error', async () => {

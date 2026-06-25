@@ -15,7 +15,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import https from 'node:https';
 import { CosmosClient } from '@azure/cosmos';
 
 // Load .env if present so COSMOS_CONNECTION_STRING etc. are available
@@ -31,17 +30,16 @@ try {
 
 const DATABASE_NAME = process.env.COSMOS_DATABASE || 'chatbot';
 const FEEDBACK_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
-const INTERACTIONS_CONTAINER = 'interactions';
+const INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
+const CONVERSATIONS_CONTAINER = process.env.COSMOS_CONVERSATIONS_CONTAINER || 'conversations';
 
 // Build CosmosClient from connection string if available, otherwise fall back
 // to the well-known emulator endpoint + key.
-const tlsAgent = new https.Agent({ rejectUnauthorized: false });
 let client;
 
 if (process.env.COSMOS_CONNECTION_STRING) {
   client = new CosmosClient({
     connectionString: process.env.COSMOS_CONNECTION_STRING,
-    agent: tlsAgent,
   });
   console.log('Using COSMOS_CONNECTION_STRING from environment.');
 } else {
@@ -51,8 +49,9 @@ if (process.env.COSMOS_CONNECTION_STRING) {
   // system tray icon → "Copy Connection String", then set COSMOS_CONNECTION_STRING
   // in your .env.
   const key =
-    process.env.COSMOS_KEY || 'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
-  client = new CosmosClient({ endpoint, key, agent: tlsAgent });
+    process.env.COSMOS_KEY ||
+    'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
+  client = new CosmosClient({ endpoint, key });
   console.log(`Using endpoint ${endpoint} (set COSMOS_CONNECTION_STRING in .env to override).`);
 }
 
@@ -145,6 +144,23 @@ async function main() {
     },
   });
   console.log(`Container '${USERS_CONTAINER}' ready.`);
+
+  // --- conversations container ---
+  await database.containers.createIfNotExists({
+    id: CONVERSATIONS_CONTAINER,
+    partitionKey: {
+      paths: ['/deploymentType', '/userId'],
+      kind: 'MultiHash',
+      version: 2,
+    },
+    defaultTtl: 15552000, // 180 days in seconds
+    indexingPolicy: {
+      indexingMode: 'consistent',
+      includedPaths: [{ path: '/*' }],
+      excludedPaths: [{ path: '/"_etag"/?' }],
+    },
+  });
+  console.log(`Container '${CONVERSATIONS_CONTAINER}' ready.`);
 
   if (!process.env.COSMOS_CONNECTION_STRING) {
     console.log('\nDone. Add this to your .env to connect the app:');
