@@ -1,8 +1,8 @@
 # AI-98 Issue-to-PR Pipeline — Implementation Status & Resume Guide
 
 **Last updated:** 2026-06-24
-**Branch:** `ai-98-hitl-bug` (HEAD `4d7f4ae`)
-**Status:** Phases 0–3 implemented & reviewed; Phases 4–7 remain. 66 unit tests passing.
+**Branch:** `ai-98-hitl-bug` (HEAD `e37643f`)
+**Status:** Phases 0–4 implemented & reviewed; Phases 5–7 remain. 80 unit tests passing.
 
 > This document is the walkthrough + handoff. It explains what's built, what's left, and how a new session resumes. Authoritative design lives in the two specs below; this file is the map.
 
@@ -17,7 +17,7 @@ An Azure Durable Functions app that turns a GitHub issue labeled **`agent-ready`
 ```
 GitHub issue labeled "agent-ready"
   → GitHubWebhookReceiver (HTTP, HMAC-validated)  [Phase 5 will add idempotency + branch slug]
-  → WorkflowOrchestrator (Durable)                 [Phase 4 — NOT YET BUILT]
+  → WorkflowOrchestrator (Durable)                 [Phase 4 — BUILT]
       → PostSlackNotification (informational)
       → StartAgentEdits ──► agent-runner loop (Claude on Foundry + in-process tools)
             agent dispatches run_validation, then YIELDS
@@ -49,18 +49,19 @@ GitHub issue labeled "agent-ready"
 - `src/lib/foundry-client.js` — lazy `AnthropicFoundry` client (managed-identity Entra ID; base URL `ANTHROPIC_FOUNDRY_BASE_URL`; model `CLAUDE_DEPLOYMENT_NAME`).
 - `src/lib/run-store.js` — Cosmos `agent-runs` create (upsert) + update (patch).
 
+### Phase 4 — Durable orchestrator & activities
+- `src/functions/WorkflowActivities.js` — `PostSlackNotification` (fire-and-forget), `StartAgentEdits`, `GetValidationStatus`, `AgentReactToResult`, `PostIssueComment` (all wired to the real agent-runner/handler interfaces).
+- `src/functions/WorkflowOrchestrator.js` — deterministic generator: Slack → StartAgentEdits → `while dispatched { df.createTimer(+30s); GetValidationStatus until completed; AgentReactToResult }` (MAX_ROUNDS=5, MAX_POLLS=120 guards) → PostIssueComment on failure. Replay-safe (verified). Reads `input.branchName` (← Phase 5 must supply it).
+- `package.json` gained `"main": "src/functions/*.js"` (host function discovery — was missing).
+
 **Already present from scaffold:** `src/functions/GitHubWebhookReceiver.js`, `src/lib/webhook-validator.js` (+ tests).
 
 ---
 
-## ⬜ Remaining (Phases 4–7)
+## ⬜ Remaining (Phases 5–7)
 
-### Phase 4 — Durable orchestrator & activities (NEXT, code)
-- `src/functions/WorkflowActivities.js` — `PostSlackNotification`, `StartAgentEdits` (→ agent-runner), `GetValidationStatus` (→ handler), `AgentReactToResult` (→ agent-runner), `PostIssueComment`.
-- `src/functions/WorkflowOrchestrator.js` — generator: Slack → StartAgentEdits → `while dispatched { df.createTimer(+30s); GetValidationStatus until completed; AgentReactToResult }` → PostIssueComment on failure. Use `context.df.currentUtcDateTime` (deterministic), `MAX_ROUNDS` guard. See plan §4.2 for the exact shape.
-- Tests for activities; verify polling-loop termination.
-
-### Phase 5 — Ingress completion (code + local emulator)
+### Phase 5 — Ingress completion (NEXT, code + local emulator)
+> **HARD PRECONDITION for the pipeline to work end-to-end:** the orchestrator already reads `input.branchName` and passes it to the agent + validation polling. Phase 5 MUST make the receiver compute and supply it, or validation polling queries `?branch=undefined` and every run fails.
 - Amend `GitHubWebhookReceiver.js`: deterministic Durable `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if running, purge+restart if terminal); compute `branchName = agent/issue-{n}-{slug}` and pass in orchestration input. See plan §5.0.
 - Smoke test against Azurite + `func start` (plan §5.2).
 
@@ -88,7 +89,7 @@ GitHub issue labeled "agent-ready"
 ## How to resume (new session)
 1. **Read this file + both specs.** Confirm Path B and the orchestrator-owned-polling design.
 2. **Process:** we're using **subagent-driven-development** (fresh implementer subagent per task → task review → fix loop). Ledger at `.superpowers/sdd/progress.md` (git-ignored scratch in this worktree; mirrors this doc). Check it + `git log --oneline main..HEAD` after any compaction.
-3. **Verify baseline:** `cd apps/issue-to-pr-function && npm test` → expect **66 passing**; `npm run lint` clean. `az bicep build --file infra/issue-to-pr/main.bicep` compiles (az is at `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, not on PATH; `az login` already done).
-4. **Next task:** Phase 4 (orchestrator + activities). Dispatch an implementer per the plan §4; the agent-runner exports `startAgentEdits`/`agentReactToResult` already match the activities' needs.
+3. **Verify baseline:** `cd apps/issue-to-pr-function && npm test` → expect **80 passing**; `npm run lint` clean. `az bicep build --file infra/issue-to-pr/main.bicep` compiles (az is at `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, not on PATH; `az login` already done).
+4. **Next task:** Phase 5 (ingress completion — plan §5.0). Amend `GitHubWebhookReceiver.js`: deterministic `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if running, purge+restart if terminal) AND **compute `branchName = agent/issue-{n}-{slug}` and add it to the orchestration input** (the orchestrator already consumes it — this closes the hard precondition above). Then the local-emulator smoke test (§5.2).
 5. **Conventions:** ESM, Apache-2.0 header on new JS files, Jest (`npm test`), biome (`npm run lint`), no new deps without reason. Tell subagents: touch only their task's files; don't reformat unrelated files.
 6. **Accountability (MSDF policy):** this code is substantially AI-written — a human review is required before merge/deploy, and the deploy is Robert's.
