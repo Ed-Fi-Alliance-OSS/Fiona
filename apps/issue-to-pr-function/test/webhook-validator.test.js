@@ -25,7 +25,7 @@ describe('validateWebhookSignature', () => {
   });
 
   it('returns false when the body has been tampered with', () => {
-    const tampered = BODY + ' ';
+    const tampered = `${BODY} `;
     expect(validateWebhookSignature(tampered, sign(BODY, SECRET), SECRET)).toBe(false);
   });
 
