@@ -62,6 +62,23 @@ app.http('GitHubWebhookReceiver', {
     }
 
     const repoFullName = payload.repository.full_name;
+
+    // Defense-in-depth repo allowlist. AGENT_ALLOWED_REPOS is a comma-separated
+    // list of `owner/repo` values. When set, only those repos may drive the agent;
+    // when unset, all repos are accepted (the GitHub App install scope is the
+    // boundary). Read per-request so it can be configured without a redeploy.
+    const allowedRepos = (process.env.AGENT_ALLOWED_REPOS ?? '')
+      .split(',')
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (allowedRepos.length > 0 && !allowedRepos.includes(repoFullName)) {
+      context.log(`Repository ${repoFullName} is not in AGENT_ALLOWED_REPOS — ignoring`);
+      return { status: 200, body: 'Ignored' };
+    }
+    if (allowedRepos.length === 0) {
+      context.log('AGENT_ALLOWED_REPOS is not set — accepting all installed repositories');
+    }
+
     const issueNumber = payload.issue.number;
     const issueTitle = payload.issue.title;
 

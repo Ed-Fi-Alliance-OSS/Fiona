@@ -41,4 +41,13 @@ describe('validateWebhookSignature', () => {
   it('returns false when signature is an empty string', () => {
     expect(validateWebhookSignature(BODY, '', SECRET)).toBe(false);
   });
+
+  it('fails closed when the secret is empty (forged-with-empty-key is rejected)', () => {
+    // An attacker who knows the secret is empty could sign with the empty key.
+    expect(validateWebhookSignature(BODY, sign(BODY, ''), '')).toBe(false);
+  });
+
+  it('fails closed when the secret is undefined', () => {
+    expect(validateWebhookSignature(BODY, sign(BODY, SECRET), undefined)).toBe(false);
+  });
 });

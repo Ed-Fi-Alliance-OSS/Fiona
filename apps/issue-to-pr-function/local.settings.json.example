@@ -9,6 +9,7 @@
     "ANTHROPIC_FOUNDRY_BASE_URL": "https://fiona-ai-hub.services.ai.azure.com/anthropic",
     "CLAUDE_DEPLOYMENT_NAME": "claude-opus-4-8",
     "COSMOS_ENDPOINT": "https://fiona-db-dev-cosmos.documents.azure.com:443/",
-    "SLACK_WEBHOOK_URL": ""
+    "SLACK_WEBHOOK_URL": "",
+    "AGENT_ALLOWED_REPOS": "Ed-Fi-Alliance-OSS/Fiona"
   }
 }

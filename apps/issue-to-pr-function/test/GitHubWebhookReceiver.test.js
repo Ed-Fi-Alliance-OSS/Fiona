@@ -75,6 +75,12 @@ function makeContext({ existingStatus = undefined } = {}) {
 describe('GitHubWebhookReceiver', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default to no allowlist so existing tests accept the Fiona fixture repo.
+    delete process.env.AGENT_ALLOWED_REPOS;
+  });
+
+  afterEach(() => {
+    delete process.env.AGENT_ALLOWED_REPOS;
   });
 
   it('returns 400 when webhook signature is invalid', async () => {
@@ -289,6 +295,36 @@ describe('GitHubWebhookReceiver', () => {
       const slugPart = input.branchName.slice(prefix.length);
       expect(slugPart.length).toBeLessThanOrEqual(30);
       expect(slugPart).not.toMatch(/-$/);
+    });
+  });
+
+  describe('repo allowlist (AGENT_ALLOWED_REPOS)', () => {
+    it('ignores (200) a repo not in the allowlist and does not start an orchestration', async () => {
+      validateWebhookSignature.mockReturnValue(true);
+      process.env.AGENT_ALLOWED_REPOS = 'Ed-Fi-Alliance-OSS/SomeOtherRepo';
+      const ctx = makeContext();
+      const { status, body } = await handler(makeRequest(), ctx); // fixture repo is .../Fiona
+      expect(status).toBe(200);
+      expect(body).toBe('Ignored');
+      expect(ctx.mockStartNew).not.toHaveBeenCalled();
+    });
+
+    it('allows a repo that is in the allowlist', async () => {
+      validateWebhookSignature.mockReturnValue(true);
+      process.env.AGENT_ALLOWED_REPOS = 'foo/bar, Ed-Fi-Alliance-OSS/Fiona ,baz/qux';
+      const ctx = makeContext();
+      const { status } = await handler(makeRequest(), ctx);
+      expect(status).toBe(202);
+      expect(ctx.mockStartNew).toHaveBeenCalled();
+    });
+
+    it('accepts all repos when the allowlist is unset (backward compatible)', async () => {
+      validateWebhookSignature.mockReturnValue(true);
+      // AGENT_ALLOWED_REPOS is deleted in beforeEach
+      const ctx = makeContext();
+      const { status } = await handler(makeRequest(), ctx);
+      expect(status).toBe(202);
+      expect(ctx.mockStartNew).toHaveBeenCalled();
     });
   });
 });

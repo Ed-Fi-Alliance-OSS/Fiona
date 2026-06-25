@@ -13,6 +13,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * @returns {boolean}
  */
 export function validateWebhookSignature(body, signature, secret) {
+  // Fail closed: an empty/missing secret (e.g. an unresolved Key Vault reference)
+  // must never validate — otherwise an attacker could forge a signature with the
+  // empty-string key. Reject before computing any HMAC.
+  if (!secret) return false;
   if (!signature || !signature.startsWith('sha256=')) return false;
   const expected = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
   const expectedBuf = Buffer.from(expected, 'utf8');

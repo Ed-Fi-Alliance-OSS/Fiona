@@ -18,6 +18,9 @@ The app reads these (set via Key Vault references / app settings in prod, `local
 | `ANTHROPIC_FOUNDRY_BASE_URL`, `CLAUDE_DEPLOYMENT_NAME` | `foundry-client.js` | Claude-on-Foundry; auth is managed-identity Entra ID (no key) |
 | `COSMOS_ENDPOINT` | `run-store.js` | `agent-runs` tracking; `DefaultAzureCredential` |
 | `SLACK_WEBHOOK_URL` | `PostSlackNotification` | informational only |
+| `AGENT_ALLOWED_REPOS` | webhook receiver | comma-separated `owner/repo` allowlist; only these repos may drive the agent. Empty = accept all installed repos. Defaults to `Ed-Fi-Alliance-OSS/Fiona` in Bicep. |
+
+> **Auth gate hardening:** the webhook validator **fails closed** if the secret is empty/unresolved (a forged empty-key signature is rejected), and the receiver enforces `AGENT_ALLOWED_REPOS` when set — both added as defense-in-depth from the security review.
 
 ---
 

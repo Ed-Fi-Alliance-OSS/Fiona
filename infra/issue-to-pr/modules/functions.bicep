@@ -9,6 +9,9 @@ param location string
 @description('GitHub App ID (plain value, not a secret)')
 param githubAppId string
 
+@description('Comma-separated owner/repo allowlist; only these repos may drive the agent. Empty = accept all installed repos.')
+param allowedRepos string = 'Ed-Fi-Alliance-OSS/Fiona'
+
 @description('Key Vault name for secret references')
 param keyVaultName string
 
@@ -118,6 +121,10 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         {
           name: 'COSMOS_ENDPOINT'
           value: 'https://fiona-db-dev-cosmos.documents.azure.com:443/'
+        }
+        {
+          name: 'AGENT_ALLOWED_REPOS'
+          value: allowedRepos
         }
       ]
       ftpsState: 'Disabled'
