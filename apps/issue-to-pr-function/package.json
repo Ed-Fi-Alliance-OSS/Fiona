@@ -20,7 +20,7 @@
     "url": "https://github.com/Ed-Fi-Alliance-OSS/Fiona/issues"
   },
   "dependencies": {
-    "@azure/ai-projects": "^1.0.0-beta.8",
+    "@anthropic-ai/foundry-sdk": "^0.4.0",
     "@azure/cosmos": "^4.1.0",
     "@azure/functions": "^4.6.0",
     "@azure/identity": "^4.0.0",
