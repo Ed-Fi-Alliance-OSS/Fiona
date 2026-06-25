@@ -51,28 +51,27 @@ export async function createRunRecord({ instanceId, repoFullName, issueNumber })
 }
 
 /**
- * Reads the existing agent-run record and patches it with terminal status and outcome.
+ * Patches the agent-run record with terminal status and outcome using Cosmos
+ * partial-update (patch) operations.  This avoids the read-then-replace race
+ * condition that could resurrect a thin document or lose concurrent writes.
  *
  * @param {{ instanceId: string, repoFullName: string, status: string, prUrl?: string, error?: string }} params
  * @returns {Promise<void>}
  */
 export async function updateRunRecord({ instanceId, repoFullName, status, prUrl, error }) {
   const container = getContainer();
-  const item = container.item(instanceId, repoFullName);
-  const { resource } = await item.read();
 
-  const updated = {
-    ...(resource ?? { id: instanceId, repoFullName }),
-    status,
-    completedAt: new Date().toISOString(),
-  };
+  const operations = [
+    { op: 'set', path: '/status', value: status },
+    { op: 'set', path: '/completedAt', value: new Date().toISOString() },
+  ];
 
   if (prUrl !== undefined) {
-    updated.prUrl = prUrl;
+    operations.push({ op: 'set', path: '/prUrl', value: prUrl });
   }
   if (error !== undefined) {
-    updated.error = error;
+    operations.push({ op: 'set', path: '/error', value: error });
   }
 
-  await item.replace(updated);
+  await container.item(instanceId, repoFullName).patch(operations);
 }

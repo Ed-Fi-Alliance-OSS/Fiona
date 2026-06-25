@@ -34,6 +34,15 @@ function toolUseMessage(id, name, input = {}) {
   };
 }
 
+/** Helper: an assistant message that calls multiple tools in one turn. */
+function multiToolUseMessage(toolUses) {
+  return {
+    role: 'assistant',
+    stop_reason: 'tool_use',
+    content: toolUses.map(([id, name, input = {}]) => ({ type: 'tool_use', id, name, input })),
+  };
+}
+
 /** Helper: an assistant message that ends the turn with text only. */
 function textMessage(text) {
   return { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] };
@@ -120,6 +129,47 @@ describe('startAgentEdits', () => {
 
     expect(result.status).toBe('failed');
     expect(result.error).toMatch(/model exploded/);
+    expect(updateRunRecord).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'inst-1', status: 'failed' }));
+  });
+
+  it('passes tool_choice with disable_parallel_tool_use:true on every model call', async () => {
+    // Turn 1: read_issue. Turn 2: run_validation (yield).
+    createMessage
+      .mockResolvedValueOnce(toolUseMessage('tu-1', 'read_issue', {}))
+      .mockResolvedValueOnce(toolUseMessage('tu-2', 'run_validation', {}));
+
+    dispatchTool
+      .mockResolvedValueOnce({ number: 42, title: 'Bug' })
+      .mockResolvedValueOnce({ dispatchedAt: '2026-06-24T01:00:00.000Z' });
+
+    await startAgentEdits(startInput);
+
+    // Every createMessage call must include the tool_choice constraint.
+    for (const callArgs of createMessage.mock.calls) {
+      const params = callArgs[0];
+      expect(params).toHaveProperty('tool_choice');
+      expect(params.tool_choice).toMatchObject({
+        type: 'auto',
+        disable_parallel_tool_use: true,
+      });
+    }
+  });
+
+  it('routes to failed when run_validation appears with other tool_use blocks in one turn', async () => {
+    // Simulate the model violating the single-tool-per-turn constraint:
+    // return a message with both read_issue and run_validation in one turn.
+    createMessage.mockResolvedValueOnce(
+      multiToolUseMessage([
+        ['tu-a', 'read_issue'],
+        ['tu-b', 'run_validation'],
+      ]),
+    );
+
+    const result = await startAgentEdits(startInput);
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/run_validation/);
+    expect(result.error).toMatch(/invariant/i);
     expect(updateRunRecord).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'inst-1', status: 'failed' }));
   });
 

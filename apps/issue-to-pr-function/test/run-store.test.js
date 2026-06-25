@@ -12,9 +12,8 @@ jest.unstable_mockModule('@azure/identity', () => ({
 
 // Mock the Cosmos client. We capture the container handle so we can assert on it.
 const mockItemsUpsert = jest.fn();
-const mockItemRead = jest.fn();
-const mockItemReplace = jest.fn();
-const mockItem = jest.fn(() => ({ read: mockItemRead, replace: mockItemReplace }));
+const mockItemPatch = jest.fn();
+const mockItem = jest.fn(() => ({ patch: mockItemPatch }));
 const mockContainer = jest.fn(() => ({
   items: { upsert: mockItemsUpsert },
   item: mockItem,
@@ -33,8 +32,7 @@ describe('run-store', () => {
   beforeEach(() => {
     process.env.COSMOS_ENDPOINT = 'https://example.documents.azure.com:443/';
     mockItemsUpsert.mockReset();
-    mockItemRead.mockReset();
-    mockItemReplace.mockReset();
+    mockItemPatch.mockReset();
     mockItem.mockClear();
     mockContainer.mockClear();
     mockDatabase.mockClear();
@@ -64,17 +62,8 @@ describe('run-store', () => {
     expect(Number.isNaN(new Date(doc.createdAt).getTime())).toBe(false);
   });
 
-  it('updateRunRecord reads then replaces with status, completedAt, and prUrl', async () => {
-    mockItemRead.mockResolvedValueOnce({
-      resource: {
-        id: 'inst-1',
-        repoFullName: 'org/repo',
-        issueNumber: 42,
-        status: 'running',
-        createdAt: '2026-06-24T00:00:00.000Z',
-      },
-    });
-    mockItemReplace.mockResolvedValueOnce({});
+  it('updateRunRecord uses patch with set operations for status, completedAt, and prUrl', async () => {
+    mockItemPatch.mockResolvedValueOnce({});
 
     await updateRunRecord({
       instanceId: 'inst-1',
@@ -83,24 +72,32 @@ describe('run-store', () => {
       prUrl: 'https://github.com/org/repo/pull/7',
     });
 
-    // read uses id + partition key
+    // item() must be called with id + partition key
     expect(mockItem).toHaveBeenCalledWith('inst-1', 'org/repo');
 
-    const replaced = mockItemReplace.mock.calls[0][0];
-    expect(replaced.status).toBe('completed');
-    expect(replaced.prUrl).toBe('https://github.com/org/repo/pull/7');
-    expect(typeof replaced.completedAt).toBe('string');
-    // original fields preserved
-    expect(replaced.id).toBe('inst-1');
-    expect(replaced.createdAt).toBe('2026-06-24T00:00:00.000Z');
-    expect(replaced.error).toBeUndefined();
+    // patch() must be called exactly once
+    expect(mockItemPatch).toHaveBeenCalledTimes(1);
+    const ops = mockItemPatch.mock.calls[0][0];
+
+    // Must include set ops for status and completedAt
+    expect(ops).toEqual(
+      expect.arrayContaining([
+        { op: 'set', path: '/status', value: 'completed' },
+        { op: 'set', path: '/prUrl', value: 'https://github.com/org/repo/pull/7' },
+      ]),
+    );
+    const completedAtOp = ops.find((o) => o.path === '/completedAt');
+    expect(completedAtOp).toBeDefined();
+    expect(completedAtOp.op).toBe('set');
+    expect(typeof completedAtOp.value).toBe('string');
+    expect(Number.isNaN(new Date(completedAtOp.value).getTime())).toBe(false);
+
+    // No error op when none provided
+    expect(ops.some((o) => o.path === '/error')).toBe(false);
   });
 
-  it('updateRunRecord records an error when status is failed', async () => {
-    mockItemRead.mockResolvedValueOnce({
-      resource: { id: 'inst-1', repoFullName: 'org/repo', issueNumber: 42, status: 'running' },
-    });
-    mockItemReplace.mockResolvedValueOnce({});
+  it('updateRunRecord includes error set-op and no prUrl op when status is failed', async () => {
+    mockItemPatch.mockResolvedValueOnce({});
 
     await updateRunRecord({
       instanceId: 'inst-1',
@@ -109,9 +106,16 @@ describe('run-store', () => {
       error: 'boom',
     });
 
-    const replaced = mockItemReplace.mock.calls[0][0];
-    expect(replaced.status).toBe('failed');
-    expect(replaced.error).toBe('boom');
-    expect(replaced.prUrl).toBeUndefined();
+    expect(mockItemPatch).toHaveBeenCalledTimes(1);
+    const ops = mockItemPatch.mock.calls[0][0];
+
+    expect(ops).toEqual(
+      expect.arrayContaining([
+        { op: 'set', path: '/status', value: 'failed' },
+        { op: 'set', path: '/error', value: 'boom' },
+      ]),
+    );
+    // No prUrl op when none provided
+    expect(ops.some((o) => o.path === '/prUrl')).toBe(false);
   });
 });

@@ -106,8 +106,21 @@ function assistantText(message) {
 async function runLoop({ messages, context, dispatchedStatus, draftPrResult = null }) {
   let capturedDraftPr = draftPrResult;
 
+  // Disable parallel tool use on every call so that run_validation (our durable
+  // yield point) is always the sole tool_use block in its assistant turn.  The
+  // Anthropic API requires every tool_use in an assistant turn to receive a
+  // tool_result in the following user turn; deferring run_validation's result
+  // across a Durable Function checkpoint means we can only safely defer when it
+  // is the only call in that turn.
+  const TOOL_CHOICE = { type: 'auto', disable_parallel_tool_use: true };
+
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
-    const assistant = await createMessage({ messages, system: SYSTEM_PROMPT, tools: toolDefinitions });
+    const assistant = await createMessage({
+      messages,
+      system: SYSTEM_PROMPT,
+      tools: toolDefinitions,
+      tool_choice: TOOL_CHOICE,
+    });
     messages.push({ role: assistant.role ?? 'assistant', content: assistant.content });
 
     const toolUses = toolUseBlocks(assistant);
@@ -116,6 +129,18 @@ async function runLoop({ messages, context, dispatchedStatus, draftPrResult = nu
       // No tools requested — the agent is done talking.
       const prUrl = extractPrUrl(capturedDraftPr, assistant);
       return { status: 'completed', prUrl, summary: assistantText(assistant) };
+    }
+
+    // DEFENSIVE GUARD: even with disable_parallel_tool_use the API contract
+    // should never produce multiple tool_use blocks including run_validation,
+    // but guard anyway so we fail loudly rather than produce an invalid
+    // conversation sequence.
+    if (toolUses.length > 1 && toolUses.some((t) => t.name === 'run_validation')) {
+      throw new Error(
+        `Invariant violation: run_validation appeared alongside ${toolUses.length - 1} other tool_use ` +
+          `block(s) in the same assistant turn. This would produce an un-resumable conversation sequence. ` +
+          `Tool names in this turn: ${toolUses.map((t) => t.name).join(', ')}`,
+      );
     }
 
     const toolResults = [];
