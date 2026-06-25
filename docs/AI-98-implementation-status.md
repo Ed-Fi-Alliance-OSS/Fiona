@@ -1,8 +1,8 @@
 # AI-98 Issue-to-PR Pipeline — Implementation Status & Resume Guide
 
 **Last updated:** 2026-06-24
-**Branch:** `ai-98-hitl-bug` (HEAD `39e78d0`)
-**Status:** Phases 0–5 (code) implemented & reviewed; Phase 5.2 smoke test (manual/live) + Phases 6–7 remain. 93 unit tests passing.
+**Branch:** `ai-98-hitl-bug` (HEAD `02cd49e`)
+**Status:** Phases 0–6 (code) implemented & reviewed; Phase 5.2 smoke test (manual/live) + Phase 7 remain. 93 unit tests passing.
 
 > This document is the walkthrough + handoff. It explains what's built, what's left, and how a new session resumes. Authoritative design lives in the two specs below; this file is the map.
 
@@ -61,6 +61,11 @@ GitHub issue labeled "agent-ready"
 ### Phase 5.0 — Ingress completion (code)
 - `GitHubWebhookReceiver.js`: deterministic `instanceId = sanitize(${repoFullName}#${issueNumber})` (no-op if a non-terminal instance exists; purge+restart if terminal); computes `branchName = agent/issue-{n}-{slug}` and supplies it in the orchestration input. **Closes the Phase-4 precondition** (reviewer confirmed the field name matches what the orchestrator reads).
 
+### Phase 6 — GitHub Actions workflows (code)
+- `.github/workflows/agent-execution.yml` — `repository_dispatch:[agent-validation]`, checks out `client_payload.branch`, runs lint + test:ci (the validation runner `run_validation` triggers).
+- `on-pullrequest-issue-to-pr.yml` — PR gate (lint/test/coverage + CodeQL/dependency-review) on `apps/issue-to-pr-function/**` + `infra/issue-to-pr/**`.
+- `deploy-issue-to-pr-function.yml` — push-to-main: calls the PR workflow, then deploys **Bicep first** (`az deployment group create` w/ `githubAppId`) then the code zip; settings come from Bicep KV refs (no `appsettings set`). Uses the existing `AZURE_CREDENTIALS` SP pattern; actions SHA-pinned to the allowed list.
+
 ---
 
 ## ⬜ Remaining
@@ -68,11 +73,9 @@ GitHub issue labeled "agent-ready"
 ### Phase 5.2 — Local smoke test (manual/live, NOT done)
 Start Azurite + `func start`, POST a signed test webhook, confirm 202 + a Durable instance starts (plan §5.2). Requires the local emulator.
 
-### Phase 6 — GitHub Actions workflows (NEXT, code)
-- `.github/workflows/agent-execution.yml` (repository_dispatch `agent-validation` → checkout branch, npm ci, lint, test), `on-pullrequest-issue-to-pr.yml`, `deploy-issue-to-pr-function.yml` (uses existing `AZURE_CREDENTIALS` SP pattern). See plan §6.
-
-### Phase 7 — E2E validation & runbook (needs live infra)
-- Integration test (Azurite + mocked agent), staging happy-path, failure-path, operator runbook `docs/runbooks/issue-to-pr-operator.md`. See plan §7.
+### Phase 7 — E2E validation & runbook
+- **Operator runbook** `docs/runbooks/issue-to-pr-operator.md` — delegatable now (doc; see plan §7.4).
+- Integration test (Azurite + mocked agent, §7.1), staging happy-path (§7.2), failure-path (§7.3) — **need the local emulator / a deploy**.
 
 ---
 
@@ -93,6 +96,6 @@ Start Azurite + `func start`, POST a signed test webhook, confirm 202 + a Durabl
 1. **Read this file + both specs.** Confirm Path B and the orchestrator-owned-polling design.
 2. **Process:** we're using **subagent-driven-development** (fresh implementer subagent per task → task review → fix loop). Ledger at `.superpowers/sdd/progress.md` (git-ignored scratch in this worktree; mirrors this doc). Check it + `git log --oneline main..HEAD` after any compaction.
 3. **Verify baseline:** `cd apps/issue-to-pr-function && npm test` → expect **93 passing**; `npm run lint` clean. `az bicep build --file infra/issue-to-pr/main.bicep` compiles (az is at `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, not on PATH; `az login` already done).
-4. **Next task:** Phase 6 (three GitHub Actions workflows — plan §6): `agent-execution.yml` (the validation runner dispatched by `run_validation`), `on-pullrequest-issue-to-pr.yml`, `deploy-issue-to-pr-function.yml`. Use the `update-github-actions` skill / existing `AZURE_CREDENTIALS` pattern. (Phase 5.2 local smoke test + Phase 7 need the emulator/deploy.)
+4. **Next task:** the only remaining delegatable code/doc is the **Phase 7 operator runbook** (`docs/runbooks/issue-to-pr-operator.md`, plan §7.4). Everything else left — Phase 5.2 smoke test, Phase 7 integration/staging/failure-path, and the deploy — needs the local emulator or a live Azure deploy (operator-gated).
 5. **Conventions:** ESM, Apache-2.0 header on new JS files, Jest (`npm test`), biome (`npm run lint`), no new deps without reason. Tell subagents: touch only their task's files; don't reformat unrelated files.
 6. **Accountability (MSDF policy):** this code is substantially AI-written — a human review is required before merge/deploy, and the deploy is Robert's.
