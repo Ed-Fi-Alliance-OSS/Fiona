@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Azure Durable Functions app that automates TDD-driven draft PRs from agent-ready GitHub issues",
   "type": "module",
+  "main": "src/functions/*.js",
   "scripts": {
     "start": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 func start",
     "lint": "npx @biomejs/biome check src/ test/",
