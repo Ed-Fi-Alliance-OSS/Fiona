@@ -118,7 +118,16 @@ describe('WorkflowOrchestrator', () => {
         completedResult, // AgentReactToResult
       ];
 
-      const { df: dfCtx, activityCalls, timerCalls } = makeDfContext({ input: BASE_INPUT });
+      // Fixed deterministic clock so we can assert the timer fire time.
+      const fixedNow = new Date('2026-06-24T00:00:00.000Z');
+      const {
+        df: dfCtx,
+        activityCalls,
+        timerCalls,
+      } = makeDfContext({
+        input: BASE_INPUT,
+        currentUtcDateTime: fixedNow,
+      });
       const gen = orchestratorFn({ df: dfCtx });
 
       const finalResult = driveOrchestrator(gen, activityReturns);
@@ -136,6 +145,13 @@ describe('WorkflowOrchestrator', () => {
 
       // A timer was scheduled before each poll (2 polls → 2 timers)
       expect(timerCalls.length).toBe(2);
+
+      // POSITIVE determinism check: the timer date is derived from the durable
+      // clock (currentUtcDateTime + 30s), NOT wall time. addSeconds consumed the
+      // deterministic clock.
+      const expectedFire = new Date(fixedNow.getTime() + 30000);
+      expect(timerCalls[0].getTime()).toBe(expectedFire.getTime());
+      expect(timerCalls[1].getTime()).toBe(expectedFire.getTime());
 
       // Final result is the completed result
       expect(finalResult).toEqual(completedResult);
@@ -309,14 +325,70 @@ describe('WorkflowOrchestrator', () => {
     });
   });
 
+  describe('MAX_POLLS give-up guard', () => {
+    it('stops polling after MAX_POLLS and reacts with a failure conclusion', () => {
+      // MAX_POLLS = 120. The inner loop calls GetValidationStatus once per poll
+      // (polls 1..120) while it keeps returning 'queued'; on poll 121 the guard
+      // fires (++polls > 120) BEFORE another timer/GetValidationStatus call, sets
+      // a synthetic { conclusion: 'failure' }, and breaks. AgentReactToResult is
+      // then invoked with validationConclusion: 'failure'.
+      const dispatchedAgent = {
+        status: 'dispatched',
+        dispatchedAt: '2026-06-24T00:00:00.000Z',
+        messages: [],
+        pendingToolUseId: 'tu-1',
+        context: {},
+      };
+      const failedResult = { status: 'failed', summary: 'Agent run failed.', error: 'gave up waiting' };
+
+      const queued = { status: 'queued', conclusion: null, runId: null, runUrl: null };
+
+      const activityReturns = [
+        undefined, // PostSlackNotification
+        dispatchedAgent, // StartAgentEdits
+        // Exactly MAX_POLLS (120) 'queued' responses are consumed — the 121st poll
+        // hits the guard before another GetValidationStatus call. Feeding more would
+        // leak into the next activity (AgentReactToResult), since the driver is FIFO.
+        ...Array(120).fill(queued),
+        failedResult, // AgentReactToResult (validationConclusion: 'failure')
+        undefined, // PostIssueComment
+      ];
+
+      const { df: dfCtx, activityCalls } = makeDfContext({ input: BASE_INPUT });
+      const gen = orchestratorFn({ df: dfCtx });
+      driveOrchestrator(gen, activityReturns);
+
+      // GetValidationStatus called exactly MAX_POLLS (120) times, then the guard
+      // stops the inner loop WITHOUT another GetValidationStatus call.
+      const getValidationCalls = activityCalls.filter((c) => c.name === 'GetValidationStatus');
+      expect(getValidationCalls.length).toBe(120);
+
+      // AgentReactToResult invoked with the synthetic failure conclusion.
+      const reactCall = activityCalls.find((c) => c.name === 'AgentReactToResult');
+      expect(reactCall).toBeDefined();
+      expect(reactCall.input.validationConclusion).toBe('failure');
+
+      // The failed react result triggers a PostIssueComment.
+      const issueCommentCall = activityCalls.find((c) => c.name === 'PostIssueComment');
+      expect(issueCommentCall).toBeDefined();
+      expect(issueCommentCall.input.body).toContain('gave up waiting');
+    });
+  });
+
   describe('determinism', () => {
-    it('orchestrator source does not call Date.now or fetch directly', async () => {
+    it('orchestrator source does not use non-deterministic APIs (Date.now/fetch/Math.random/process.env)', async () => {
       const { readFileSync } = await import('node:fs');
       const src = readFileSync(new URL('../src/functions/WorkflowOrchestrator.js', import.meta.url), 'utf8');
       // Must not call Date.now() in orchestrator body
       expect(src).not.toMatch(/\bDate\.now\s*\(/);
       // Must not call fetch directly
       expect(src).not.toMatch(/\bfetch\s*\(/);
+      // Must not use Math.random (non-deterministic)
+      expect(src).not.toMatch(/\bMath\.random\b/);
+      // Must not read process.env (non-deterministic on replay)
+      expect(src).not.toMatch(/\bprocess\.env\b/);
+      // NOTE: `new Date(` is intentionally NOT forbidden — the pure addSeconds
+      // helper legitimately constructs a Date from the deterministic clock value.
     });
   });
 });
