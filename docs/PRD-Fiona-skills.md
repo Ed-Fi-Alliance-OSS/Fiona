@@ -2,7 +2,7 @@
 
 > **Status:** Living document — updated as the product evolves \
 > **Owner:** Stephen Fuqua \
-> **Parent document:** [Fiona Slack PRD](fiona-slack-prd.md) (§2.9) \
+> **Parent document:** [Fiona Slack PRD](PRD-Fiona-slack) (§2.9) \
 > **Jira Project:** AI \
 > **Repository:** `Ed-Fi-Alliance-OSS/Fiona` (monorepo)
 

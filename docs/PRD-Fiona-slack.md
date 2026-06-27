@@ -1,7 +1,7 @@
 # Fiona — Product Requirements Document
 
 > **Status:** Living document — updated as the product evolves \
-> **Owner:** Ed-Fi Alliance, AI Team \
+> **Owner:** Stephen Fuqua \
 > **Jira Project:** AI \
 > **Repository:** `Ed-Fi-Alliance-OSS/Fiona` (monorepo)
 
@@ -114,13 +114,13 @@ To ensure citation indices in the text always correspond to real source URLs,
 `callLLM` maintains a metadata envelope that advances through a state machine
 before the stream is finalized:
 
-| State                  | Meaning                                             |
-| ---------------------- | --------------------------------------------------- |
-| `streaming_text`       | Initial state; LLM is generating text               |
-| `collecting_metadata`  | Citation URLs are being aggregated from Perplexity  |
-| `ready_to_finalize`    | Metadata resolved; ready to close the stream        |
-| `finalized`            | Stream closed; envelope is immutable                |
-| `degraded_no_metadata` | Timeout expired before metadata arrived; no links   |
+| State                  | Meaning                                            |
+| ---------------------- | -------------------------------------------------- |
+| `streaming_text`       | Initial state; LLM is generating text              |
+| `collecting_metadata`  | Citation URLs are being aggregated from Perplexity |
+| `ready_to_finalize`    | Metadata resolved; ready to close the stream       |
+| `finalized`            | Stream closed; envelope is immutable               |
+| `degraded_no_metadata` | Timeout expired before metadata arrived; no links  |
 
 If the metadata does not arrive within `CITATION_METADATA_TIMEOUT_MS`
 (default: 2 000 ms), the envelope transitions to `degraded_no_metadata` and
@@ -143,12 +143,12 @@ the response is finalized with plain `[n]` markers left as-is.
 
 **Citation policy env vars** (see also §7):
 
-| Variable                       | Default | Purpose                                         |
-| ------------------------------ | ------- | ----------------------------------------------- |
-| `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
-| `CITATION_MAX_SOURCES`         | `10`    | Maximum sources normalised per response         |
-| `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
-| `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
+| Variable                       | Default                                                | Purpose                                    |
+| ------------------------------ | ------------------------------------------------------ | ------------------------------------------ |
+| `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering    |
+| `CITATION_MAX_SOURCES`         | `10`                                                   | Maximum sources normalised per response    |
+| `CITATION_METADATA_TIMEOUT_MS` | `2000`                                                 | Milliseconds to wait for citation metadata |
+| `CITATION_INCLUDE_EVIDENCE`    | `false`                                                | Include evidence snippets (feature flag)   |
 
 **Telemetry:** `citation-telemetry.js` records per-response metadata wait
 durations and source counts (bounded arrays, capped at 1 000 entries) for
@@ -214,18 +214,18 @@ quality. Records are automatically purged after 90 days.
 
 **Feedback document schema:**
 
-| Field            | Description                                                      |
-| ---------------- | ---------------------------------------------------------------- |
-| `feedbackId`     | `{userId}_{messageTs}` — composite key enabling upsert on change |
-| `userId`         | Slack user ID                                                    |
-| `channelId`      | Slack channel ID                                                 |
-| `messageTs`      | Message timestamp                                                |
-| `value`          | `good-feedback` or `bad-feedback`                                |
-| `reason`         | User-provided reason (string or null)                            |
-| `userMessage`    | The user's original prompt (retrieved from thread history)       |
-| `botResponse`    | Fiona's response text                                            |
-| `deploymentType` | `local`, `insiders`, or `production`                             |
-| `timestamp`      | ISO 8601 timestamp                                               |
+| Field            | Description                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| `feedbackId`     | `{userId}_{messageTs}` — composite key enabling upsert on change                                  |
+| `userId`         | Slack user ID                                                                                     |
+| `channelId`      | Slack channel ID                                                                                  |
+| `messageTs`      | Message timestamp                                                                                 |
+| `value`          | `good-feedback` or `bad-feedback`                                                                 |
+| `reason`         | User-provided reason (string or null)                                                             |
+| `userMessage`    | The user's original prompt (retrieved from thread history)                                        |
+| `botResponse`    | Fiona's response text                                                                             |
+| `deploymentType` | `local`, `insiders`, or `production`                                                              |
+| `timestamp`      | ISO 8601 timestamp                                                                                |
 | `ttl`            | Time-to-live (seconds). Cosmos DB automatically deletes records after 90 days (7,776,000 seconds) |
 
 **Data retention:** All feedback records are subject to Cosmos DB's TTL policy
@@ -271,20 +271,20 @@ Cosmos DB `interactions` container for long-term engagement analysis.
 
 **Interaction document schema:**
 
-| Field             | Description                                                            |
-| ----------------- | ---------------------------------------------------------------------- |
-| `id`              | `{userId}_{threadTs}_{messageTs}` — composite key for idempotency      |
-| `userId`          | Slack user ID (opaque token, no PII)                                   |
-| `teamId`          | Slack team/workspace ID                                                |
-| `channelId`       | Slack channel ID                                                       |
-| `threadTs`        | Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands) |
-| `messageTs`       | Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands) |
-| `interactionType` | `app_mention`, `assistant_message`, `slash_help`, `slash_ask`, `slash_search`, or `slash_unknown` |
-| `status`          | `success` or `error`                                                   |
+| Field             | Description                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `{userId}_{threadTs}_{messageTs}` — composite key for idempotency                                                      |
+| `userId`          | Slack user ID (opaque token, no PII)                                                                                   |
+| `teamId`          | Slack team/workspace ID                                                                                                |
+| `channelId`       | Slack channel ID                                                                                                       |
+| `threadTs`        | Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands)                        |
+| `messageTs`       | Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands)                         |
+| `interactionType` | `app_mention`, `assistant_message`, `slash_help`, `slash_ask`, `slash_search`, or `slash_unknown`                      |
+| `status`          | `success` or `error`                                                                                                   |
 | `errorType`       | `rate_limited`, `llm_error`, `llm_rate_limited`, `cosmos_error`, `timeout`, `unknown` — only set when `status = error` |
-| `rateLimited`     | `true` if the rate limiter blocked this request                        |
-| `deploymentType`  | `local`, `insiders`, or `production`                                   |
-| `timestamp`       | ISO 8601 timestamp                                                     |
+| `rateLimited`     | `true` if the rate limiter blocked this request                                                                        |
+| `deploymentType`  | `local`, `insiders`, or `production`                                                                                   |
+| `timestamp`       | ISO 8601 timestamp                                                                                                     |
 
 > [!NOTE]
 > Message content is deliberately excluded from interaction records. Only
@@ -298,17 +298,17 @@ to a Slack channel via incoming webhook.
 
 **KPIs reported:**
 
-| Metric                  | Description                                              |
-| ----------------------- | -------------------------------------------------------- |
-| Distinct users          | Count of unique users with successful interactions       |
+| Metric                  | Description                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| Distinct users          | Count of unique users with successful interactions                                                  |
 | Sessions                | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions |
-| Total interactions      | All interactions (success + error) in the window         |
-| Error count & rate      | Absolute count and percentage of errored interactions    |
-| Rate-limited hits       | Count of rate-limiter blocks                             |
-| Good / bad feedback     | Feedback button click counts                             |
-| Feedback ratio          | `good / (good + bad) * 100`                              |
-| Avg interactions / user | Mean interactions per active user                        |
-| Feedback response rate  | Percentage of successful interactions that were rated    |
+| Total interactions      | All interactions (success + error) in the window                                                    |
+| Error count & rate      | Absolute count and percentage of errored interactions                                               |
+| Rate-limited hits       | Count of rate-limiter blocks                                                                        |
+| Good / bad feedback     | Feedback button click counts                                                                        |
+| Feedback ratio          | `good / (good + bad) * 100`                                                                         |
+| Avg interactions / user | Mean interactions per active user                                                                   |
+| Feedback response rate  | Percentage of successful interactions that were rated                                               |
 
 The lookback window defaults to the past 7 days. The webhook URL is retrieved
 from Azure Key Vault at runtime using Managed Identity.
@@ -346,19 +346,19 @@ Fiona monitors regular conversation for escalation intent (e.g., the word
 
 ### 3.1 Implemented
 
-| Category                  | Requirement                                                             | Implementation                                                                               |
-| ------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Availability**          | Bot must maintain a persistent connection to Slack                      | Fixed 1-replica deployment; Socket Mode (outbound WebSocket) eliminates ingress dependencies |
-| **Security — Auth**       | Azure services use Entra ID where possible                              | `DefaultAzureCredential` for Cosmos DB managed identity                                      |
-| **Security — Secrets**    | Secrets are not stored in code                                          | Environment variables injected at runtime; `.env` in `.gitignore`                            |
-| **Security — Guardrails** | LLM must not generate harmful content or leak its system prompt         | System prompt includes explicit guidelines; persona constraints; domain filtering            |
-| **Resilience**            | Optional subsystems must not block core functionality                   | Cosmos DB feedback, rate limiting degrade gracefully                                         |
-| **Code Quality**          | Consistent formatting and linting                                       | Biome 2.x with 120-char line width, single quotes, LF line endings                           |
-| **Testing**               | Comprehensive unit test coverage                                        | Jest with 100% coverage target; all listeners, tools, and agent modules covered              |
-| **CI/CD**                 | Automated build and deploy                                              | GitHub Actions → Docker build → ACR push → Azure Container Apps via Bicep                    |
-| **Observability**         | Configurable log verbosity                                              | `LOG_LEVEL` env var (debug, info, warn, error)                                               |
+| Category                  | Requirement                                                             | Implementation                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Availability**          | Bot must maintain a persistent connection to Slack                      | Fixed 1-replica deployment; Socket Mode (outbound WebSocket) eliminates ingress dependencies                        |
+| **Security — Auth**       | Azure services use Entra ID where possible                              | `DefaultAzureCredential` for Cosmos DB managed identity                                                             |
+| **Security — Secrets**    | Secrets are not stored in code                                          | Environment variables injected at runtime; `.env` in `.gitignore`                                                   |
+| **Security — Guardrails** | LLM must not generate harmful content or leak its system prompt         | System prompt includes explicit guidelines; persona constraints; domain filtering                                   |
+| **Resilience**            | Optional subsystems must not block core functionality                   | Cosmos DB feedback, rate limiting degrade gracefully                                                                |
+| **Code Quality**          | Consistent formatting and linting                                       | Biome 2.x with 120-char line width, single quotes, LF line endings                                                  |
+| **Testing**               | Comprehensive unit test coverage                                        | Jest with 100% coverage target; all listeners, tools, and agent modules covered                                     |
+| **CI/CD**                 | Automated build and deploy                                              | GitHub Actions → Docker build → ACR push → Azure Container Apps via Bicep                                           |
+| **Observability**         | Configurable log verbosity                                              | `LOG_LEVEL` env var (debug, info, warn, error)                                                                      |
 | **Observability**         | Usage analytics and weekly engagement reporting                         | Every interaction recorded to Cosmos DB `interactions` container; weekly summary posted to Slack via Azure Function |
-| **Thread context**        | Send thread context with each message to enable context-aware responses | Listeners retrieve channel history and include recent messages in LLM prompt                 |
+| **Thread context**        | Send thread context with each message to enable context-aware responses | Listeners retrieve channel history and include recent messages in LLM prompt                                        |
 
 ### 3.2 Suggested (Not Yet Implemented)
 
@@ -377,18 +377,18 @@ Fiona monitors regular conversation for escalation intent (e.g., the word
 
 ### 4.1 Technology Stack
 
-| Component  | Technology                                                     |
-| ---------- | -------------------------------------------------------------- |
-| Runtime    | Node.js 22 (Alpine for containers)                             |
-| Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                        |
+| Component  | Technology                                                            |
+| ---------- | --------------------------------------------------------------------- |
+| Runtime    | Node.js 22 (Alpine for containers)                                    |
+| Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                               |
 | LLM SDKs   | `openai` 6.x (used as a thin client against the Perplexity Sonar API) |
-| Database   | Azure Cosmos DB (optional, for feedback and interaction analytics) |
-| Auth       | `@azure/identity` (DefaultAzureCredential)                     |
-| Linting    | Biome 2.x                                                      |
-| Testing    | Jest 29.x                                                      |
-| Containers | Docker (node:22-alpine), Azure Container Apps                  |
-| Functions  | Azure Functions v4 (Node.js), TimerTrigger                     |
-| CI/CD      | GitHub Actions + Bicep                                         |
+| Database   | Azure Cosmos DB (optional, for feedback and interaction analytics)    |
+| Auth       | `@azure/identity` (DefaultAzureCredential)                            |
+| Linting    | Biome 2.x                                                             |
+| Testing    | Jest 29.x                                                             |
+| Containers | Docker (node:22-alpine), Azure Container Apps                         |
+| Functions  | Azure Functions v4 (Node.js), TimerTrigger                            |
+| CI/CD      | GitHub Actions + Bicep                                                |
 
 ### 4.2 Deployment Topology
 
@@ -516,20 +516,20 @@ Socket Mode (outbound WebSocket only — no public URL required).
 See `apps/fiona-slack/.env.sample` for the canonical list with inline
 documentation. Key groups:
 
-| Group         | Variables                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
-| LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
-| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
-| Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
+| Group         | Variables                                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                                                                            |
+| LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`                                                                     |
+| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE`                                             |
+| Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                                                                             |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
-| Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
+| Deployment    | `DEPLOYMENT_TYPE`                                                                                                                                             |
 
 ### 7.2 Usage Report Function (`apps/usage-report-function`)
 
-| Group      | Variables                                                                                                        |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| Schedule   | `REPORT_SCHEDULE` (cron expression, default: `0 9 * * 1`)                                                        |
-| Cosmos DB  | `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_FEEDBACK_CONTAINER`               |
-| Deployment | `DEPLOYMENT_TYPE`                                                                                                |
+| Group      | Variables                                                                                                         |
+| ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| Schedule   | `REPORT_SCHEDULE` (cron expression, default: `0 9 * * 1`)                                                         |
+| Cosmos DB  | `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_FEEDBACK_CONTAINER`                |
+| Deployment | `DEPLOYMENT_TYPE`                                                                                                 |
 | Key Vault  | `KEY_VAULT_URL`, `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME` (secret name, default: `slack-fiona-weekly-report-webhook`) |
