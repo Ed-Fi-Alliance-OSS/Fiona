@@ -15,3 +15,4 @@ When creating a new JavaScript file, always start with the following license hea
 
 Do not put horizontal lines before headings. Headings should be preceded by a blank line and followed by a blank line for proper Markdown rendering.
 
+After editing a markdown file, run `npx markdownlint-cli <filename>` to fix Markdown linting issues and ensure proper formatting.
