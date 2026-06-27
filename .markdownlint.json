@@ -3,7 +3,7 @@
   "MD013": false,
   "MD033": false,
   "MD041": true,
-  "MD029": { "style": "one" },
+  "MD029": { "style": "one_or_ordered" },
   "MD007": { "indent": 2 },
   "no-inline-html": false,
   "MD034": true
