@@ -1,8 +1,8 @@
 # Fiona Skills — Product Requirements Document
 
-> **Parent document:** [Fiona Slack PRD](fiona-slack-prd.md) (§2.9) \
-> **Status:** Draft \
-> **Jira Project:** AI
+> -**Owner:** Ed-Fi Alliance
+> -**Parent document:** [Fiona Slack PRD](fiona-slack-prd.md) (§2.9)
+> -**Jira Project:** AI
 
 ## 1. Overview
 
@@ -24,14 +24,12 @@ conversational interface (channel mentions, DMs, and the Assistant panel).
 All skills share a single Slack slash command: `/fiona`. The first token after
 `/fiona` is the **sub-command**; the remainder is the **argument text**.
 
-```
+```plaintext
 /fiona <sub-command> [argument text]
 ```
 
 If no recognized sub-command is provided, Fiona responds with the help output
 (equivalent to `/fiona help`).
-
----
 
 ## 2. Skills Reference
 
@@ -72,8 +70,6 @@ descriptions and example usage.
 - [ ] Response renders correctly in Slack desktop and mobile.
 - [ ] No LLM call is made.
 
----
-
 ### 2.2 `/fiona ask <question>`
 
 **Purpose:** Allow a user to ask Fiona a question without @-mentioning her in
@@ -106,8 +102,6 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 - [ ] Empty questions fall back to `/fiona help`.
 - [ ] Rate limiting applies (counts toward the user's rate-limit window).
 - [ ] Interaction is recorded to Cosmos DB with `interactionType: slash_ask`.
-
----
 
 ### 2.3 `/fiona search <query>`
 
@@ -157,8 +151,6 @@ themselves which documents to read.
 - [ ] Rate limiting applies.
 - [ ] Interaction is recorded to Cosmos DB with `interactionType: slash_search`.
 
----
-
 ### 2.4 `/fiona escalate`
 
 **Purpose:** Escalate the current conversation to a human agent by posting a
@@ -199,8 +191,6 @@ summary in the designated `#escalation` channel.
 - [ ] Rate limiting applies.
 - [ ] Interaction is recorded to Cosmos DB with
       `interactionType: slash_escalate`.
-
----
 
 ## 3. Proactive Escalation Detection
 
@@ -253,8 +243,6 @@ detects this intent and offers to escalate.
 - [ ] Detection does not trigger on every use of the word "help" — it should
       target phrases that indicate frustration or explicit escalation requests.
 
----
-
 ## 4. Slack App Configuration Changes
 
 Enabling Skills requires the following updates to the Slack app manifest
@@ -266,15 +254,11 @@ Enabling Skills requires the following updates to the Slack app manifest
 | **Slash command registration** | Register `/fiona` with a description and usage hint                   |
 | **Interactivity**              | Ensure interactivity is enabled (required for escalation buttons)     |
 
----
-
 ## 5. Environment Variables
 
 | Variable              | Default        | Purpose                                            |
 | --------------------- | -------------- | -------------------------------------------------- |
 | `ESCALATION_CHANNEL`  | `#escalation`  | Slack channel where escalation posts are created   |
-
----
 
 ## 6. Module Structure (Proposed)
 
@@ -292,8 +276,6 @@ src/
 │   ├── search.js                 # /fiona search handler
 │   └── escalate.js               # /fiona escalate handler + proactive detection
 ```
-
----
 
 ## 7. Analytics
 
