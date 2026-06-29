@@ -72,6 +72,11 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona search'));
     });
 
+    it('ack() response includes /fiona escalate', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona escalate'));
+    });
+
     it('calls recordInteraction with interactionType slash_help', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
