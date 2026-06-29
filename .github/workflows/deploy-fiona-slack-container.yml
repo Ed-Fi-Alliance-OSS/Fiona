@@ -93,6 +93,8 @@ jobs:
             cosmosAccountName="${{ vars.COSMOS_ACCOUNT_NAME }}" \
             captureAllConversations=${{ vars.CAPTURE_ALL_CONVERSATIONS || 'false' }} \
             deploymentType="${{ inputs.environment || 'insiders' }}" \
+            escalationUsergroupId=${{ vars.ESCALATION_USERGROUP_ID || '' }} \
+            escalationChannel="${{ vars.ESCALATION_CHANNEL || '' }}" \
             skipRoleAssignments=true
 
     - name: Verify deployment
