@@ -15,6 +15,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 /fiona help              Show this help message
 /fiona ask <question>    Ask Fiona a question about Ed-Fi (coming soon)
 /fiona search <query>    Search Ed-Fi documentation (coming soon)
+/fiona escalate          Escalate your conversation to a human responder
 \`\`\`
 _Tip: You can also @-mention Fiona in any channel, or send her a direct message._`;
 

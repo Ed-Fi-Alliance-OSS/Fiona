@@ -93,8 +93,12 @@ export async function postEscalation({
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
   const mention = usergroupId ? `<!subteam^${usergroupId}> ` : '';
-  const locationLink = permalink ? `<${permalink}|View conversation>` : `<#${channelId}>`;
 
+  const locationLink = isDm
+    ? 'Direct message (no permalink)'
+    : permalink
+      ? `<${permalink}|View conversation>`
+      : `<#${channelId}>`;
   const headerLines = [
     `${mention}:rotating_light: *Escalation requested* by *${displayName}*`,
     `*Where:* ${locationLink}`,

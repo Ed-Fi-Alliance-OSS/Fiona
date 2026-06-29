@@ -130,8 +130,8 @@ async function getContainer(logger) {
  * @param {Object} feedback
  * @param {string} feedback.userId - Slack user ID
  * @param {string} feedback.channelId - Slack channel ID
- * @param {string} feedback.messageTs - Timestamp of the bot message being rated
- * @param {string} feedback.value - 'good-feedback' or 'bad-feedback'
+ * @param {string} feedback.messageTs - Bot message timestamp or slash-command trigger_id for escalations
+ * @param {string} feedback.value - 'good-feedback', 'bad-feedback', or 'escalation'
  * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
