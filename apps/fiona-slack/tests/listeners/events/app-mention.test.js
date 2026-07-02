@@ -347,7 +347,7 @@ describe('appMentionCallback', () => {
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -393,7 +393,7 @@ describe('appMentionCallback', () => {
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 

@@ -126,22 +126,26 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       await streamer.stop({ blocks: [feedbackBlock] });
       finalizeMetadataEnvelope(metadata);
 
-      captureConversation({
-        userId: user,
-        teamId: team,
-        channelId: channel,
-        threadTs: thread_ts,
-        messageTs,
-        entryPoint: 'app_mention',
-        userMessage: text,
-        botResponse: botText,
-        threadHistory: prompts,
-        llmProvider: metadata?.provider ?? 'perplexity',
-        llmModel: LLM_MODEL,
-        systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
-        sources: metadata?.sources,
-        logger,
-      }).catch((err) => logger?.warn?.(`Failed to capture conversation: ${err.message}`));
+      try {
+        await captureConversation({
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          entryPoint: 'app_mention',
+          userMessage: text,
+          botResponse: botText,
+          threadHistory: prompts,
+          llmProvider: metadata?.provider ?? 'perplexity',
+          llmModel: LLM_MODEL,
+          systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
+          sources: metadata?.sources,
+          logger,
+        });
+      } catch (err) {
+        logger?.warn?.(`Failed to capture conversation: ${err.message}`);
+      }
     },
   );
 };

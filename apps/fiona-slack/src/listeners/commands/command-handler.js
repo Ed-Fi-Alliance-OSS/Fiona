@@ -8,9 +8,9 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 
 *Available commands:*
 \`\`\`
-/fiona help                    Show this help message
-/fiona ask <question>          Ask a question about Ed-Fi (coming soon)
-/fiona search <query>          Search Ed-Fi documentation (coming soon)
+help                    Show this help message
+ask <question>          Ask a question about Ed-Fi (coming soon)
+search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel

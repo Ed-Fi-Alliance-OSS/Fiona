@@ -545,7 +545,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -562,7 +562,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -628,7 +628,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -664,7 +664,7 @@ describe('message (assistant thread handler)', () => {
 
       expect(mockSay).toHaveBeenCalledTimes(1);
       expect(mockSay.mock.calls[0][0]).toContain('request limit');
-      expect(mockSay.mock.calls[0][0]).not.toContain('/fiona help');
+      expect(mockSay.mock.calls[0][0]).not.toContain('Available commands');
     });
 
     it('keyword command response does not invoke the LLM', async () => {

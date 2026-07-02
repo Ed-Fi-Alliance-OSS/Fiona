@@ -243,22 +243,26 @@ export const message = async ({ client, context, logger, message, say, setStatus
         await streamer.stop({ blocks: [feedbackBlock] });
         finalizeMetadataEnvelope(metadata);
 
-        captureConversation({
-          userId,
-          teamId,
-          channelId: channel,
-          threadTs: thread_ts,
-          messageTs,
-          entryPoint: 'assistant_message',
-          userMessage: text,
-          botResponse: botText,
-          threadHistory: prompts,
-          llmProvider: metadata?.provider ?? 'perplexity',
-          llmModel: LLM_MODEL,
-          systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
-          sources: metadata?.sources,
-          logger,
-        }).catch((err) => logger?.warn?.(`Failed to capture conversation: ${err.message}`));
+        try {
+          await captureConversation({
+            userId,
+            teamId,
+            channelId: channel,
+            threadTs: thread_ts,
+            messageTs,
+            entryPoint: 'assistant_message',
+            userMessage: text,
+            botResponse: botText,
+            threadHistory: prompts,
+            llmProvider: metadata?.provider ?? 'perplexity',
+            llmModel: LLM_MODEL,
+            systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
+            sources: metadata?.sources,
+            logger,
+          });
+        } catch (err) {
+          logger?.warn?.(`Failed to capture conversation: ${err.message}`);
+        }
       }
     },
   );

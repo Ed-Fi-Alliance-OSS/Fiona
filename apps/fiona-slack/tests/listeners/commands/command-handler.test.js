@@ -123,8 +123,8 @@ describe('parseCommandKeyword', () => {
 });
 
 describe('HELP_TEXT', () => {
-  it('mentions /fiona help for channel use', () => {
-    expect(HELP_TEXT).toMatch('/fiona help');
+  it('mentions /fiona slash command for channel use', () => {
+    expect(HELP_TEXT).toMatch('/fiona');
   });
 
   it('mentions @fiona as channel and thread alternative', () => {
