@@ -15,7 +15,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { CosmosClient } from '@azure/cosmos';
+import { getCosmosConfig, createCosmosClient } from '../src/agent/cosmos-utils.js';
 
 // Load .env if present so COSMOS_CONNECTION_STRING etc. are available
 try {
@@ -35,24 +35,21 @@ const CONVERSATIONS_CONTAINER = process.env.COSMOS_CONVERSATIONS_CONTAINER || 'c
 
 // Build CosmosClient from connection string if available, otherwise fall back
 // to the well-known emulator endpoint + key.
-let client;
+const emulatorEndpoint = process.env.COSMOS_ENDPOINT || 'https://localhost:8081';
+// Well-known fixed key used by every default Cosmos DB Emulator install.
+// If your emulator was reset or reconfigured, copy the key from the emulator's
+// system tray icon → "Copy Connection String", then set COSMOS_CONNECTION_STRING
+// in your .env.
+const emulatorKey =
+  process.env.COSMOS_KEY ||
+  'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
+const config = getCosmosConfig({ endpoint: emulatorEndpoint, key: emulatorKey });
+const client = createCosmosClient(config);
 
-if (process.env.COSMOS_CONNECTION_STRING) {
-  client = new CosmosClient({
-    connectionString: process.env.COSMOS_CONNECTION_STRING,
-  });
+if (config.connectionString) {
   console.log('Using COSMOS_CONNECTION_STRING from environment.');
 } else {
-  const endpoint = process.env.COSMOS_ENDPOINT || 'https://localhost:8081';
-  // Well-known fixed key used by every default Cosmos DB Emulator install.
-  // If your emulator was reset or reconfigured, copy the key from the emulator's
-  // system tray icon → "Copy Connection String", then set COSMOS_CONNECTION_STRING
-  // in your .env.
-  const key =
-    process.env.COSMOS_KEY ||
-    'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n5MBLzPU1z+OhS8OyX8+tU9J1A==';
-  client = new CosmosClient({ endpoint, key });
-  console.log(`Using endpoint ${endpoint} (set COSMOS_CONNECTION_STRING in .env to override).`);
+  console.log(`Using endpoint ${config.endpoint} (set COSMOS_CONNECTION_STRING in .env to override).`);
 }
 
 async function main() {

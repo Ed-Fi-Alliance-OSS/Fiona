@@ -3,9 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { CosmosClient } from '@azure/cosmos';
-import { DefaultAzureCredential } from '@azure/identity';
-import { isEmulatorTarget } from './cosmos-utils.js';
+import { createCosmosClient, isEmulatorTarget } from './cosmos-utils.js';
 
 let warnedMissingConfig = false;
 
@@ -33,13 +31,8 @@ function resetContainerCache() {
 async function _buildContainer(logger) {
   const config = getCosmosConfig();
   if (!cosmosClient) {
-    if (config.connectionString) {
-      cosmosClient = new CosmosClient(config.connectionString);
-    } else if (config.endpoint && config.key) {
-      cosmosClient = new CosmosClient({ endpoint: config.endpoint, key: config.key });
-    } else if (config.endpoint) {
-      cosmosClient = new CosmosClient({ endpoint: config.endpoint, aadCredentials: new DefaultAzureCredential() });
-    } else {
+    cosmosClient = createCosmosClient(config, logger);
+    if (!cosmosClient) {
       if (!warnedMissingConfig) {
         warnedMissingConfig = true;
         logger?.warn?.(

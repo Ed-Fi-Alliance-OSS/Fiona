@@ -3,8 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { CosmosClient } from '@azure/cosmos';
-import { DefaultAzureCredential } from '@azure/identity';
+import { createCosmosClient } from './cosmos-utils.js';
 
 const CAPTURE_ALL_CONVERSATIONS = process.env.CAPTURE_ALL_CONVERSATIONS === 'true';
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
@@ -21,7 +20,6 @@ const CONVERSATION_TTL_SECONDS = 15_552_000;
 let container = null;
 
 let warnedMissingConfig = false;
-let warnedInsecureProductionCosmosKey = false;
 const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
@@ -92,31 +90,18 @@ function getDelayMs(policy, attempt) {
 async function getContainer(logger) {
   if (container) return container;
 
-  let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    if (DEPLOYMENT_TYPE === 'production') {
-      if (!warnedInsecureProductionCosmosKey) {
-        warnedInsecureProductionCosmosKey = true;
+  const client = createCosmosClient(
+    { endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY, connectionString: COSMOS_CONNECTION_STRING },
+    logger,
+  );
+  if (!client) {
+    if (!COSMOS_ENDPOINT && !COSMOS_CONNECTION_STRING) {
+      if (!warnedMissingConfig) {
+        warnedMissingConfig = true;
         logger?.warn?.(
-          'Conversation capture does not support COSMOS_KEY auth in production. Use COSMOS_CONNECTION_STRING or managed identity (COSMOS_ENDPOINT only).',
+          'CosmosDB not configured — conversations will not be captured. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
         );
       }
-      return null;
-    }
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
-    client = new CosmosClient({
-      endpoint: COSMOS_ENDPOINT,
-      aadCredentials: new DefaultAzureCredential(),
-    });
-  } else {
-    if (!warnedMissingConfig) {
-      warnedMissingConfig = true;
-      logger?.warn?.(
-        'CosmosDB not configured — conversations will not be captured. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
-      );
     }
     return null;
   }

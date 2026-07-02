@@ -3,8 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { CosmosClient } from '@azure/cosmos';
-import { DefaultAzureCredential } from '@azure/identity';
+import { createCosmosClient } from './cosmos-utils.js';
 
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_KEY = process.env.COSMOS_KEY;
@@ -87,22 +86,18 @@ async function getContainer(logger) {
 
   const database = COSMOS_DATABASE;
   const cosmosContainer = COSMOS_CONTAINER;
-  let client;
-  if (COSMOS_CONNECTION_STRING) {
-    client = new CosmosClient(COSMOS_CONNECTION_STRING);
-  } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
-    client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-  } else if (COSMOS_ENDPOINT) {
-    client = new CosmosClient({
-      endpoint: COSMOS_ENDPOINT,
-      aadCredentials: new DefaultAzureCredential(),
-    });
-  } else {
-    if (!warnedMissingConfig) {
-      warnedMissingConfig = true;
-      logger?.warn?.(
-        'CosmosDB not configured — feedback will not be persisted. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
-      );
+  const client = createCosmosClient(
+    { endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY, connectionString: COSMOS_CONNECTION_STRING },
+    logger,
+  );
+  if (!client) {
+    if (!COSMOS_ENDPOINT && !COSMOS_CONNECTION_STRING) {
+      if (!warnedMissingConfig) {
+        warnedMissingConfig = true;
+        logger?.warn?.(
+          'CosmosDB not configured — feedback will not be persisted. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.',
+        );
+      }
     }
     return null;
   }
