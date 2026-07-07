@@ -35,6 +35,10 @@ exceptions. "May" denotes an optional capability.
 5. [Out of Scope](#5-out-of-scope)
 6. [Open Questions](#6-open-questions)
 7. [Development Phases](#7-development-phases)
+   - [MVP](#mvp--bug-fix-workflow-end-to-end)
+   - [Phase 1](#phase-1--core-team-jira-driven-workflows)
+   - [Phase 2](#phase-2--community-pipeline-and-feedback-loop)
+   - [Phase 3](#phase-3--self-identification-of-tech-debt)
 8. [Success Metrics](#8-success-metrics)
 9. [Glossary](#9-glossary)
 
@@ -645,7 +649,7 @@ platform for regular team use.
 - FR-CROSS-1: Consistent error handling and logging across all workflows (beyond basic MVP logging)
 - FR-CROSS-2: Full authentication policy per system, including Azure workload identity
 - FR-CROSS-3: Full externalized configuration management (version-controlled, no hardcoded values)
-- FR-CROSS-4: Modular and extendable pre-check suite
+- FR-CROSS-4: Modular and extendable pre-check suite (full architecture; basic suite delivered in MVP)
 - FR-CROSS-6: Cost attribution (may be delivered as a documented follow-on task if tooling is not
   yet available at Phase 1 launch — must not block workflow delivery)
 - FR-CROSS-7: OpenTelemetry-compatible telemetry emission
@@ -664,6 +668,8 @@ platform for regular team use.
 
 **Nice to have** — deferred capability; no impact on core team operation:
 
+- FR-CROSS-5 improvement: Structured acceptance criteria format (e.g., Given/When/Then) for the
+  readiness check; non-empty field is sufficient in MVP
 - OQ-6 resolution: Proactive operator alerting for guardrail trigger events (dashboard, Slack
   notification, or Jira comment); the events are observable in telemetry even without active
   alerting
