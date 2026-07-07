@@ -170,6 +170,22 @@ does not perform code review. Governance policies regulate loop termination thro
 Observability telemetry is emitted throughout the workflow, linking actions to outcomes and feeding
 back into meta-harness improvement over time (see JTBD-OBS, JTBD-FEEDBACK).
 
+```mermaid
+flowchart TD
+    CONTRIB["Contributor\n(Phase 1)"] --> GHISSUE["GitHub Issue"]
+    GHISSUE --> TRIAGE["Triage Workflow\n(Phase 1)"]
+    TRIAGE -->|rejected| CLOSED(["Closed with reason"])
+    TRIAGE -->|qualifying| JIRA
+
+    TRIGGER["Trigger"] -->|"button / API call"| JIRA["Jira Ticket\n(Refined)"]
+    META["Meta-Harness\nskills, config, hooks"] -.->|"loaded at start"| AGENT
+    JIRA --> AGENT["Cloud Agent\nexecutes ADLC"]
+    AGENT --> DRAFTPR["Draft PR\non working branch"]
+    DRAFTPR --> REVIEWER["Reviewer"]
+    REVIEWER -->|"changes requested"| AGENT
+    REVIEWER -->|"approved"| MERGE(["Merged"])
+```
+
 ## 3. Functional Requirements
 
 ### 3.1 Cross-Cutting Concerns
@@ -258,6 +274,25 @@ workflows (JTBD-BUG, JTBD-FEAT, JTBD-TECH). It is not a one-shot prompt but a go
 8. **Request review** — transition the PR from Draft to ready for review, update the PR body with
    the agent summary and test results, and notify the Reviewer per FR-CROSS-9
 
+```mermaid
+flowchart TD
+    START(["Trigger from Jira"]) --> LOAD["1 · Load Meta-Harness\nskills, config, Ed-Fi practices"]
+    LOAD --> READY{"2 · Readiness Check\nAC · estimate · epic link"}
+    READY -- fail --> RC["Comment on Jira\nspecific reason"]
+    RC --> HALT1(["Halt"])
+    READY -- pass --> BRANCH["3 · Create Working Branch\nai/{ticket-id}-{slug}"]
+    BRANCH --> TESTS["4 · Write Failing Tests\nBDD from AC / TDD for bug"]
+    TESTS --> DRAFT["5 · Open Draft PR\nearly reviewer steering"]
+    DRAFT --> IMPL["6 · Implement\nsmall focused commits"]
+    IMPL --> PCHECK{"7 · Pre-check Suite\nlint · tests · skills"}
+    PCHECK -- "fail, attempt < 3" --> IMPL
+    PCHECK -- "fail, attempt = 3" --> ESC["Comment on PR\nfailure + flakiness note"]
+    ESC --> HALT2(["Halt — Escalate"])
+    PCHECK -- pass --> RR["8 · Request Review\nupdate PR body · notify Reviewer"]
+    RR --> DONE(["PR Ready for Review"])
+    LOAD -. "token limit, timeout,\nor API failure" .-> GOVFAIL(["Comment on Jira\nHalt — preserve branch"])
+```
+
 ### 3.3 Agent–Jira Contract
 
 **FR-JIRA-1 — Fields Read**: The agent must read the following Jira fields when processing a
@@ -305,6 +340,52 @@ requirement.
 
 **FR-GH-5 — Draft Status**: PRs must be opened in Draft status immediately after the failing-test
 commit. The agent must not transition the PR to ready-for-review until the pre-check suite passes.
+
+The following sequence diagram illustrates how the agent interacts with Jira and GitHub across a
+complete workflow run.
+
+```mermaid
+sequenceDiagram
+    actor Trigger
+    participant Jira
+    participant Agent as Cloud Agent
+    participant GitHub
+    actor Reviewer
+
+    Trigger->>Jira: Move ticket to Refined
+    Trigger->>Agent: Fire workflow
+
+    Agent->>Jira: Read ticket fields
+    Agent->>Jira: Readiness check
+
+    alt Readiness check fails
+        Agent->>Jira: Comment: missing criterion
+        Agent-->>Trigger: Halt
+    else Readiness check passes
+        Agent->>Jira: Transition to In Progress
+        Agent->>Jira: Assign to Trigger user
+        Agent->>Jira: Apply ai-autonomous label
+        Agent->>GitHub: Create working branch
+        Agent->>GitHub: Commit failing tests
+        Agent->>GitHub: Open Draft PR (ai-generated label)
+        Agent->>Jira: Comment: PR link
+
+        loop ADLC — implement in small commits
+            Agent->>GitHub: Commit implementation
+        end
+
+        Agent->>GitHub: Run pre-check suite
+
+        alt Pre-checks pass
+            Agent->>GitHub: Transition PR to Ready for Review
+            Agent->>GitHub: Update PR body with summary and test results
+            GitHub->>Reviewer: Review requested
+        else Pre-checks fail after 3 retries
+            Agent->>GitHub: Comment: failure and flakiness analysis
+            Agent-->>Trigger: Halt — escalate
+        end
+    end
+```
 
 ### 3.5 Failure Modes and Recovery
 
