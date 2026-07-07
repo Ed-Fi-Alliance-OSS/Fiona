@@ -11,8 +11,10 @@ const COSMOS_KEY = process.env.COSMOS_KEY;
 const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
+const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
 
 let warnedMissingConfig = false;
+let warnedInsecureProductionCosmosKey = false;
 const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
@@ -91,6 +93,15 @@ async function getContainer(logger) {
   if (COSMOS_CONNECTION_STRING) {
     client = new CosmosClient(COSMOS_CONNECTION_STRING);
   } else if (COSMOS_ENDPOINT && COSMOS_KEY) {
+    if (DEPLOYMENT_TYPE === 'production') {
+      if (!warnedInsecureProductionCosmosKey) {
+        warnedInsecureProductionCosmosKey = true;
+        logger?.warn?.(
+          'Feedback store does not support COSMOS_KEY auth in production. Use COSMOS_CONNECTION_STRING or managed identity (COSMOS_ENDPOINT only).',
+        );
+      }
+      return null;
+    }
     client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
   } else if (COSMOS_ENDPOINT) {
     client = new CosmosClient({
