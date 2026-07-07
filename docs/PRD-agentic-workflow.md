@@ -29,8 +29,8 @@ exceptions. "May" denotes an optional capability.
    - 3.8 [Tech Debt Workflow](#38-tech-debt-workflow)
    - 3.9 [Dependabot Workflow](#39-dependabot-workflow)
    - 3.10 [Observability Workflow](#310-observability-workflow)
-   - 3.11 [Feedback Loop (Phase 1 stub)](#311-feedback-loop-phase-1--stub)
-   - 3.12 [Issue Triage (Phase 1 stub)](#312-issue-triage-workflow-phase-1--stub)
+   - 3.11 [Feedback Loop (Phase 2 stub)](#311-feedback-loop-phase-2--stub)
+   - 3.12 [Issue Triage (Phase 2 stub)](#312-issue-triage-workflow-phase-2--stub)
 4. [Non-Functional Requirements](#4-non-functional-requirements)
 5. [Out of Scope](#5-out-of-scope)
 6. [Open Questions](#6-open-questions)
@@ -87,14 +87,14 @@ learns from its own operation over time.
 
 | Role | Description | Phase |
 | ---- | ----------- | ----- |
-| **Product Owner** | Defines acceptance criteria, approves ticket refinement, and sets the direction for what gets built. Currently the primary stakeholder for Phase 0. | 0 |
-| **Operator** | Engineers and maintains the meta-harness: skills, `CLAUDE.md`, hooks, and agent configuration. Monitors observability telemetry and tunes governance policies. The Operator is the factory designer. | 0 |
-| **Trigger** | Any core team member who moves a ticket to "Refined" status and fires the workflow from Jira. The Trigger and Reviewer may be the same person or different people. | 0 |
-| **Reviewer** | Any core team member who reviews and approves (or requests changes on) an agent-produced Draft PR before merge. | 0 |
-| **Contributor** | A community member who submits a GitHub Issue that enters the triage pipeline. Reviewers may eventually include trusted Contributors. | 1 |
+| **Product Owner** | Defines acceptance criteria, approves ticket refinement, and sets the direction for what gets built. Currently the primary stakeholder for MVP and Phase 1. | MVP |
+| **Operator** | Engineers and maintains the meta-harness: skills, `CLAUDE.md`, hooks, and agent configuration. Monitors observability telemetry and tunes governance policies. The Operator is the factory designer. | MVP |
+| **Trigger** | Any core team member who moves a ticket to "Refined" status and fires the workflow from Jira. The Trigger and Reviewer may be the same person or different people. | MVP |
+| **Reviewer** | Any core team member who reviews and approves (or requests changes on) an agent-produced Draft PR before merge. | MVP |
+| **Contributor** | A community member who submits a GitHub Issue that enters the triage pipeline. Reviewers may eventually include trusted Contributors. | Phase 2 |
 
-In Phase 0, the Product Owner, Operator, and Trigger roles are held by the same small core team.
-As the platform matures, these roles will be held by distinct individuals.
+In MVP and Phase 1, the Product Owner, Operator, and Trigger roles are held by the same small core
+team. As the platform matures, these roles will be held by distinct individuals.
 
 ### 1.3 Jobs to be Done (JTBD)
 
@@ -121,14 +121,14 @@ escalates for human review.
 outcomes and pre-check results, so that I can observe the effectiveness of the meta-harness and
 identify improvements to skills, configuration, and governance policies.
 
-**JTBD-FEEDBACK** *(Phase 1 — stub)*: When a reviewer comments on an agent-produced PR, I want
+**JTBD-FEEDBACK** *(Phase 2 — stub)*: When a reviewer comments on an agent-produced PR, I want
 those comments to be captured and used to refine skills and configuration, so that the agent handles
 similar issues better in future runs and the meta-harness improves continuously.
 
-**JTBD-TRIAGE** *(Phase 1 — stub)*: When a GitHub Issue is submitted by a community contributor, I
+**JTBD-TRIAGE** *(Phase 2 — stub)*: When a GitHub Issue is submitted by a community contributor, I
 want an automated triage workflow to classify and route qualifying issues into the Jira pipeline, so
 that community contributions can enter the development workflow without requiring manual review for
-each submission. See the [Issue Triage Design Document](TBD) for detailed design.
+each submission. Detailed design is deferred to a separate document (see Section 3.12).
 
 ### 1.4 Inspiration
 
@@ -152,15 +152,16 @@ Skills may be adopted from <https://github.com/addyosmani/agent-skills> (credit 
 
 Two pipelines feed work into the agentic workflows:
 
-**Phase 0 — Jira pipeline (core team):** A Trigger refines a Jira ticket and fires the workflow
-directly from the ticket via a button or API call. The agent loads the meta-harness (Ed-Fi best
-practices, relevant skills, configuration), performs a lightweight readiness check, executes the
-ADLC autonomously on a dedicated working branch, and opens a Draft PR. A Reviewer reviews the PR.
-Local compute is not required during execution.
+**MVP / Phase 1 — Jira pipeline (core team):** A Trigger refines a Jira ticket and fires the
+workflow directly from the ticket via a button or API call. The agent loads the meta-harness
+(Ed-Fi best practices, relevant skills, configuration), performs a lightweight readiness check,
+executes the ADLC autonomously on a dedicated working branch, and opens a Draft PR. A Reviewer
+reviews the PR. Local compute is not required during execution. Delivery begins with an MVP scoped
+to the bug fix workflow before expanding to the full workflow suite.
 
-**Phase 1 — GitHub Issue pipeline (community):** A Contributor opens a GitHub Issue. An automated
+**Phase 2 — GitHub Issue pipeline (community):** A Contributor opens a GitHub Issue. An automated
 triage step classifies the issue, validates it, and promotes qualifying issues into the Jira
-pipeline as refined tickets. From that point, the Phase 0 workflow applies. Detailed design for
+pipeline as refined tickets. From that point, the Phase 1 workflow applies. Detailed design for
 this pipeline is deferred to a separate document.
 
 The boundary of agent responsibility is: ticket in "Refined" status → Draft PR open on a working
@@ -172,8 +173,8 @@ back into meta-harness improvement over time (see JTBD-OBS, JTBD-FEEDBACK).
 
 ```mermaid
 flowchart TD
-    CONTRIB["Contributor\n(Phase 1)"] --> GHISSUE["GitHub Issue"]
-    GHISSUE --> TRIAGE["Triage Workflow\n(Phase 1)"]
+    CONTRIB["Contributor\n(Phase 2)"] --> GHISSUE["GitHub Issue"]
+    GHISSUE --> TRIAGE["Triage Workflow\n(Phase 2)"]
     TRIAGE -->|rejected| CLOSED(["Closed with reason"])
     TRIAGE -->|qualifying| JIRA
 
@@ -191,13 +192,31 @@ flowchart TD
 ### 3.1 Cross-Cutting Concerns
 
 **FR-CROSS-1**: All workflows must have consistent error handling and logging so that failures and
-significant events are captured and analyzable across workflows.
+significant events are captured and analyzable across workflows. Basic error logging sufficient to
+diagnose failures is an MVP expectation; structured, consistent cross-workflow error handling and
+logging is a Phase 1 requirement.
 
-**FR-CROSS-2**: All workflows must use consistent authentication and authorization mechanisms to
-ensure only authorized users and agents can execute workflows and access sensitive resources.
+**FR-CROSS-2 — Authentication and Authorization**: All workflows must use the authentication
+mechanism appropriate to each external system. These mechanisms must not be mixed across systems.
+At minimum:
 
-**FR-CROSS-3**: All workflows must use consistent configuration management to allow customization
-and adaptation across environments.
+- **GitHub API**: authenticate via GitHub Actions `GITHUB_TOKEN` or a scoped personal access token
+  stored as a GitHub Actions secret.
+- **Jira API**: authenticate via a Jira API token stored as a GitHub Actions secret.
+- **Azure or other cloud-hosted resources** (e.g., Azure Functions, Cosmos DB, Storage): authenticate
+  via workload identity federation or managed identity using `DefaultAzureCredential`. Static API
+  keys or service account passwords must not be used for Azure resource access.
+- **Model API** (Claude, Copilot, etc.): authenticate via an API key stored as a GitHub Actions
+  secret.
+
+Only authorized principals — core team members and the designated agent service identity — may
+trigger or access workflow execution.
+
+**FR-CROSS-3 — Configuration Management**: Workflow behavior that is expected to vary across
+environments or change over time — such as governance thresholds, timeout values, and pre-check
+suite composition — must be externalized into configuration rather than hardcoded in workflow
+definitions. Configuration must be version-controlled alongside the codebase. The specific
+configuration mechanism is determined by FR-CROSS-8.
 
 **FR-CROSS-4 — Modular Pre-check Suite**: All workflows must run a defined pre-check suite before
 requesting human review. At minimum this includes linting, automated tests, and applicable agent
@@ -205,10 +224,11 @@ skills. The suite must be modular and extendable so that additional checks (e.g.
 review, security scans) can be added without modifying individual workflow definitions.
 
 **FR-CROSS-5 — Ticket Readiness Check**: Before beginning any work, the agent must validate that
-the Jira ticket meets readiness criteria: acceptance criteria are present, a story point estimate is
-set, and the ticket is linked to a parent epic (exempt if the ticket is investigative or a one-off
-task). If any criterion is not met, the agent must comment on the Jira ticket with the specific
-reason for failure and halt without making code changes.
+the Jira ticket meets readiness criteria: acceptance criteria are present (a non-empty field is
+sufficient for MVP; a structured format such as Given/When/Then is a Phase 1 improvement), a story
+point estimate is set, and the ticket is linked to a parent epic (exempt if the ticket is
+investigative or a one-off task). If any criterion is not met, the agent must comment on the Jira
+ticket with the specific reason for failure and halt without making code changes.
 
 **FR-CROSS-6 — Cost Attribution**: All workflow execution costs, including API key usage, must be
 attributable to the Fiona project and must not be commingled with personal or unrelated development
@@ -222,11 +242,14 @@ improvement.
 **FR-CROSS-8 — Governance and Guardrails**: All workflows must implement governance policies that
 define loop termination conditions — equivalent to a base case in recursion. Policies must be
 observable: when a guardrail is triggered, it must be logged and surfaced to the operator. Policies
-must be configurable without modifying workflow definitions.
+must be configurable without modifying workflow definitions — common mechanisms include a dedicated
+governance configuration file in the meta-harness, GitHub Actions repository variables, or
+environment settings scoped to the workflow. The specific mechanism is a design decision dependent
+on harness selection (see OQ-2).
 
-**FR-CROSS-9 — Jira Trigger**: Phase 0 workflows must be triggerable directly from a Jira ticket
-via a button or API call by any core team member. No local tooling must be required to initiate
-execution.
+**FR-CROSS-9 — Jira Trigger**: MVP and Phase 1 workflows must be triggerable directly from a Jira
+ticket via a button or API call by any core team member. No local tooling must be required to
+initiate execution.
 
 **FR-CROSS-10 — Meta-Harness Loading**: Upon trigger, the agent must load the current Ed-Fi
 best-practice configuration, applicable skills, and relevant context before beginning any
@@ -272,7 +295,8 @@ workflows (JTBD-BUG, JTBD-FEAT, JTBD-TECH). It is not a one-shot prompt but a go
 7. **Pre-check suite** — run all checks defined in FR-CROSS-4; retry up to 3 times on failure
    before escalating (FR-FAIL-2)
 8. **Request review** — transition the PR from Draft to ready for review, update the PR body with
-   the agent summary and test results, and notify the Reviewer per FR-CROSS-9
+   the agent summary, test results, and any governance events triggered during the run (per FR-GH-3),
+   and notify the Reviewer per FR-CROSS-9
 
 ```mermaid
 flowchart TD
@@ -290,7 +314,9 @@ flowchart TD
     ESC --> HALT2(["Halt — Escalate"])
     PCHECK -- pass --> RR["8 · Request Review\nupdate PR body · notify Reviewer"]
     RR --> DONE(["PR Ready for Review"])
-    LOAD -. "token limit, timeout,\nor API failure" .-> GOVFAIL(["Comment on Jira\nHalt — preserve branch"])
+    LOAD -. "token/time limit or API failure\n(applies at any step)" .-> GOVFAIL(["Comment on Jira\nHalt — preserve branch"])
+    IMPL -. "token/time limit or API failure" .-> GOVFAIL
+    PCHECK -. "token/time limit or API failure" .-> GOVFAIL
 ```
 
 ### 3.3 Agent–Jira Contract
@@ -353,14 +379,15 @@ sequenceDiagram
     actor Reviewer
 
     Trigger->>Jira: Move ticket to Refined
-    Trigger->>Agent: Fire workflow
+    Trigger->>Jira: Fire workflow (button / API call)
+    Jira-->>Agent: Workflow triggered
+    Note over Trigger,Jira: Trigger monitors Jira comments for halt and completion status
 
     Agent->>Jira: Read ticket fields
     Agent->>Jira: Readiness check
 
     alt Readiness check fails
-        Agent->>Jira: Comment: missing criterion
-        Agent-->>Trigger: Halt
+        Agent->>Jira: Comment: missing criterion — halt
     else Readiness check passes
         Agent->>Jira: Transition to In Progress
         Agent->>Jira: Assign to Trigger user
@@ -378,11 +405,11 @@ sequenceDiagram
 
         alt Pre-checks pass
             Agent->>GitHub: Transition PR to Ready for Review
-            Agent->>GitHub: Update PR body with summary and test results
+            Agent->>GitHub: Update PR body with summary, test results, and governance events
             GitHub->>Reviewer: Review requested
         else Pre-checks fail after 3 retries
             Agent->>GitHub: Comment: failure and flakiness analysis
-            Agent-->>Trigger: Halt — escalate
+            Agent->>Jira: Comment: halt — escalate for human review
         end
     end
 ```
@@ -392,7 +419,9 @@ sequenceDiagram
 **FR-FAIL-1 — Token and Time Limit**: When the agent exhausts its token budget or exceeds the
 configured wall-clock time limit, it must add a comment to the Jira ticket describing the reason
 and the execution state at the point of halt, then stop. The working branch and any commits made
-up to that point must be preserved for human review.
+up to that point must be preserved for human review. A suggested starting default for wall-clock
+time is 30 minutes per run; token budget defaults depend on harness selection (see OQ-2) and must
+be documented in the governance configuration.
 
 **FR-FAIL-2 — Pre-check Retries**: When the pre-check suite fails, the agent must retry up to
 3 times. If the suite continues to fail, the agent must add a comment to the PR with the failure
@@ -400,8 +429,8 @@ details and, where patterns suggest non-deterministic failure, indicate that fla
 The agent must not transition the PR to ready-for-review in a failed state.
 
 **FR-FAIL-3 — Duplicate Trigger**: When a workflow trigger is received for a Jira ticket that
-already has an active workflow run, the new trigger must be silently dropped. A comment must be
-added to the Jira ticket indicating an active run is already in progress.
+already has an active workflow run, the new trigger must be dropped. A comment must be added to
+the Jira ticket indicating an active run is already in progress.
 
 **FR-FAIL-4 — File Conflict Queuing**: When a new workflow run would modify files currently in use
 by another active run, the new run must be queued until the conflicting run completes. A comment
@@ -435,7 +464,7 @@ Addresses JTBD-FEAT.
 
 **FR-FEAT-1**: The agent must follow the ADLC defined in Section 3.2.
 
-**FR-FEAT-2 *(Phase 0 failure mode)***: If the ticket lacks sufficient specification —
+**FR-FEAT-2**: If the ticket lacks sufficient specification —
 missing acceptance criteria detail, ambiguous scope, or unresolved design questions — the agent
 must comment on the Jira ticket with the specific gap identified and halt. Resolution of
 underspecified tickets is a human responsibility upstream of this workflow.
@@ -455,9 +484,18 @@ Addresses JTBD-TECH.
 **FR-TECH-2**: Implementation commits must be small and focused. Scope must not expand beyond what
 is described in the ticket.
 
+**FR-TECH-3**: If the tech debt ticket lacks sufficient specification — missing a clear description
+of the debt, ambiguous scope, or no definition of done — the agent must comment on the Jira ticket
+with the specific gap identified and halt. Resolution of underspecified tickets is a human
+responsibility upstream of this workflow.
+
 ### 3.9 Dependabot Workflow
 
 Addresses JTBD-DEP.
+
+The Dependabot workflow intentionally does not follow the ADLC (Section 3.2) — it has no Jira
+ticket origin, no failing-test phase, and no Draft PR step. It operates as a validate-and-merge
+loop: run the pre-check suite, auto-merge on pass, escalate or comment on failure.
 
 **FR-DEP-1**: When a Dependabot PR is opened for a patch or minor version update, the agent must
 validate compatibility and run the full pre-check suite. If all checks pass, the agent must
@@ -483,7 +521,7 @@ supports future automated feedback into meta-harness improvement.
 **FR-OBS-3**: Governance policy activations (guardrail triggers, loop terminations, retries) must
 appear as distinct, observable events in the telemetry stream.
 
-### 3.11 Feedback Loop *(Phase 1 — stub)*
+### 3.11 Feedback Loop *(Phase 2 — stub)*
 
 Addresses JTBD-FEEDBACK. Detailed functional requirements are deferred. At a minimum, this
 capability must:
@@ -494,7 +532,7 @@ capability must:
   meta-harness configuration
 - Maintain a link between each piece of feedback, its source, and the resulting configuration change
 
-### 3.12 Issue Triage Workflow *(Phase 1 — stub)*
+### 3.12 Issue Triage Workflow *(Phase 2 — stub)*
 
 Addresses JTBD-TRIAGE. Detailed functional requirements are deferred to the Issue Triage Design
 Document. At a minimum, this workflow must:
@@ -506,8 +544,7 @@ Document. At a minimum, this workflow must:
 
 ## 4. Non-Functional Requirements
 
-**NFR-1 — Cost Attribution**: API keys and compute resources used by these workflows must be scoped
-to the Fiona project. Usage must not be attributable to personal accounts or other projects.
+**NFR-1 — Cost Attribution**: See FR-CROSS-6.
 
 **NFR-2 — Cloud Autonomy**: Workflows must execute entirely in cloud-hosted environments. Local
 machines must not be required to remain active or connected for a workflow to run to completion.
@@ -520,21 +557,22 @@ activity without inspecting logs manually.
 agentic workflows. Unbounded execution is not acceptable. Token and cost limits must be enforceable
 as governance policies.
 
-**NFR-5 — Security**: Agent credentials must use the minimum permissions required to execute the
-workflow. The agent must operate only on designated working branches. Ticket content must not be
-able to override agent operating policies (FR-CROSS-13).
+**NFR-5 — Security**: Security requirements are defined in FR-CROSS-11 (branch scoping),
+FR-CROSS-12 (credential management), FR-CROSS-13 (prompt injection defense), and
+FR-CROSS-14 (protected file scoping). Agent credentials must use the minimum permissions
+required to execute each workflow.
 
 ## 5. Out of Scope
 
-- Workflows not originating from a Jira ticket (Phase 0) or a GitHub Issue routed through triage
-  (Phase 1)
+- Workflows not originating from a Jira ticket (MVP / Phase 1) or a GitHub Issue routed through
+  triage (Phase 2)
 - Cross-repository workflows
 - Agent-performed code review (triggering an external review tool such as Copilot code review as a
   pre-check gate step is in scope; the agent itself is not a reviewer)
 - Automated deployment or release management
-- Self-identification of tech debt (deferred to Phase 2)
+- Self-identification of tech debt (deferred to Phase 3)
 - Automated meta-harness improvement without human review (feedback loop produces suggestions;
-  a human applies them in Phase 1)
+  a human applies them in Phase 2)
 - Workflows that modify protected paths (`.github/workflows/`, meta-harness files); deferred to a
   separately scoped workflow (see OQ-5)
 - Platform Admin role for managing API keys and governance policies at scale (deferred)
@@ -543,55 +581,139 @@ able to override agent operating policies (FR-CROSS-13).
 
 | # | Question | Status |
 | --- | -------- | ------ |
-| OQ-1 | Phase 0 trigger is Jira-initiated (FR-CROSS-9). The specific mechanism — Jira custom agent, GitHub Actions label-based trigger, or GitHub agent sandbox — remains a design decision. | Partially resolved |
+| OQ-1 | MVP/Phase 1 trigger is Jira-initiated (FR-CROSS-9). The specific mechanism — Jira custom agent, GitHub Actions label-based trigger, or GitHub agent sandbox — remains a design decision. | Partially resolved |
 | OQ-2 | Which AI harness(es) to designate for cloud execution? Harness selection is an implementation detail outside this PRD, but affects configuration and cost attribution. | Open |
-| OQ-3 | Should the issue triage workflow (Phase 1) live in this repository or a separate one? | Open |
+| OQ-3 | Should the issue triage workflow (Phase 2) live in this repository or a separate one? | Open |
 | OQ-4 | What OpenTelemetry backend or observability tooling will be used to receive and visualize workflow telemetry? | Open |
 | OQ-5 | Design and scope for a protected-path workflow — a separately authorized workflow for modifying `.github/workflows/`, meta-harness files, and other protected paths. | Deferred |
 | OQ-6 | How are guardrail trigger events surfaced to Operators? Dashboard, notification, Jira comment, or a combination? Instrumentation mechanism to be designed. | Open |
-| OQ-7 | Platform Admin role — managing API keys, billing attribution, and governance policy configuration at scale. Not required for Phase 0. | Deferred |
-| OQ-8 | Definition of "acceptance criteria present" for FR-CROSS-5 — is a non-empty field sufficient, or is a structured format (e.g., Given/When/Then) required? | Open |
+| OQ-7 | Platform Admin role — managing API keys, billing attribution, and governance policy configuration at scale. Not required for MVP. | Deferred |
+| OQ-8 | Definition of "acceptance criteria present" for FR-CROSS-5 — is a non-empty field sufficient, or is a structured format (e.g., Given/When/Then) required? | **Resolved** — non-empty field is sufficient for MVP; structured format is a Phase 1 improvement. See FR-CROSS-5. |
 
 ## 7. Development Phases
 
-### Phase 0 — Core team, Jira-driven workflows
+### MVP — Bug fix workflow end-to-end
 
-Deliver the four core implementation workflows (JTBD-BUG, JTBD-FEAT, JTBD-TECH, JTBD-DEP), the
-observability foundation (JTBD-OBS), all cross-cutting concerns (FR-CROSS-1 through FR-CROSS-14),
-the Jira and GitHub contracts (Section 3.3, 3.4), failure mode handling (Section 3.5), and the
-ADLC (Section 3.2) for the core development team.
+The MVP is the quickest, simplest, demonstrable path to delivering the must-haves: one complete
+workflow running end-to-end in the cloud with no local compute required. It establishes that the
+pipeline works before broadening its scope.
 
-Cost attribution (NFR-1) is a Phase 0 requirement but must not block delivery of functional
-workflows if attribution tooling is not yet available — workflows may be delivered with a documented
-gap addressed as a follow-on task.
+**Must have** — pipeline cannot demonstrate working without these:
 
-### Phase 1 — Feedback loop and community pipeline
+- JTBD-BUG: Bug fix workflow from Jira trigger to Draft PR
+- ADLC (Section 3.2): Full 8-step governed loop
+- FR-CROSS-5: Ticket readiness check
+- FR-CROSS-9: Jira trigger (button or API call; no local tooling required)
+- FR-CROSS-10: Meta-harness loading
+- FR-CROSS-11: Branch scoping (agent operates on working branches only)
+- FR-CROSS-12: Credential management (GitHub, Jira, and model API keys as GitHub Actions secrets)
+- Section 3.3 (FR-JIRA-1 through FR-JIRA-7): Full Jira contract
+- Section 3.4 (FR-GH-1 through FR-GH-5): Full GitHub contract
+- FR-FAIL-1: Token and time limit halt (30-minute default)
+- FR-FAIL-2: Pre-check retries (up to 3 attempts)
+- FR-FAIL-6: API failure recovery with exponential backoff
 
-Deliver the feedback loop capability (JTBD-FEEDBACK, Section 3.11) enabling reviewer comments to
-improve the meta-harness over time. Deliver the issue triage workflow (JTBD-TRIAGE, Section 3.12),
-enabling community-submitted GitHub Issues to enter the Jira pipeline. Detailed design for both is
-deferred to separate documents.
+**Should have** — strongly recommended; will not block the demo but improves reliability:
 
-### Phase 2 — Self-identification of tech debt
+- FR-CROSS-4: Basic pre-check suite (run lint and tests; modular/extendable architecture is Phase 1)
+- FR-CROSS-8: Basic governance config (time limit and retry policy in a config file; full external
+  configurability without touching workflow definitions is Phase 1)
+- FR-CROSS-1: Basic error logging (sufficient to diagnose failures; structured cross-workflow
+  telemetry and consistent error handling across all workflows is Phase 1)
 
-Extend the tech debt workflow to allow the agent to identify and create tech debt tickets without
-requiring a human to initiate the Jira ticket. Scope and design are deferred.
+**Nice to have** — enhances MVP; fully addressed in Phase 1:
+
+- FR-CROSS-2: Correct credential mechanism per system (Azure workload identity specifics and full
+  authorization policy are Phase 1)
+- FR-CROSS-3: Governance values externalized to a versioned config file (if deferred, values are
+  acceptable to hardcode for MVP only)
+- FR-FAIL-3: Duplicate trigger protection (low risk in a single-developer MVP context)
+- FR-FAIL-4: File conflict queuing (same reasoning as FR-FAIL-3)
+
+### Phase 1 — Core team, Jira-driven workflows
+
+Phase 1 builds on the validated MVP pipeline to deliver the complete workflow suite and harden the
+platform for regular team use.
+
+**Must have** — completes the core team platform:
+
+- JTBD-FEAT: New feature workflow
+- JTBD-TECH: Tech debt workflow
+- JTBD-DEP: Dependabot workflow
+- JTBD-OBS: Observability foundation (FR-OBS-1 through FR-OBS-3; structured telemetry linking
+  actions to outcomes)
+- FR-CROSS-1: Consistent error handling and logging across all workflows (beyond basic MVP logging)
+- FR-CROSS-2: Full authentication policy per system, including Azure workload identity
+- FR-CROSS-3: Full externalized configuration management (version-controlled, no hardcoded values)
+- FR-CROSS-4: Modular and extendable pre-check suite
+- FR-CROSS-6: Cost attribution (may be delivered as a documented follow-on task if tooling is not
+  yet available at Phase 1 launch — must not block workflow delivery)
+- FR-CROSS-7: OpenTelemetry-compatible telemetry emission
+- FR-CROSS-8: Full governance configurability without modifying workflow definitions
+- FR-CROSS-13: Prompt injection defense
+- FR-CROSS-14: Protected file scoping
+- FR-FAIL-3: Duplicate trigger protection
+- FR-FAIL-4: File conflict queuing
+- FR-FAIL-5: Dependabot revert support
+
+**Should have** — strongly recommended; enhances observability but not required for workflow operation:
+
+- OQ-4 resolution: Selection of an OpenTelemetry backend and visualization tooling; instrumentation
+  (FR-OBS-1 through FR-OBS-3) is must-have but the specific backend can follow as a Phase 1
+  follow-on task
+
+**Nice to have** — deferred capability; no impact on core team operation:
+
+- OQ-6 resolution: Proactive operator alerting for guardrail trigger events (dashboard, Slack
+  notification, or Jira comment); the events are observable in telemetry even without active
+  alerting
+
+### Phase 2 — Community pipeline and feedback loop
+
+Phase 2 opens the platform to community contributions and closes the meta-harness improvement loop.
+
+**Must have** (delivered first — enables community input):
+
+- JTBD-TRIAGE (Section 3.12): Issue triage workflow — classifies GitHub Issues and promotes
+  qualifying ones into the Jira pipeline, enabling community contributors to enter the development
+  workflow
+
+**Should have** (follows triage; can be developed in parallel once triage is stable):
+
+- JTBD-FEEDBACK (Section 3.11): Feedback loop — captures reviewer comments on agent-produced PRs
+  and provides a mechanism to improve skills and meta-harness configuration over time
+
+### Phase 3 — Self-identification of tech debt
+
+**Nice to have** — aspirational capability; scope and design are deferred:
+
+- JTBD-TECH extended: Extend the tech debt workflow to allow the agent to identify and create tech
+  debt tickets without requiring a human to initiate the Jira ticket
 
 ## 8. Success Metrics
 
-### Phase 0 Metrics
+### MVP and Phase 1 Metrics
+
+#### MVP Metrics
 
 | Metric | Description | Measurement |
 | ------ | ----------- | ----------- |
 | PR acceptance rate | % of agent-produced PRs approved without requested changes on first review | GitHub PR review data |
 | Pre-check pass rate | % of PRs where the pre-check suite passes on first open without post-open agent fixes | CI/CD run data |
-| Time to Draft PR | Elapsed time from workflow trigger event to Draft PR open | Workflow telemetry |
-| Estimated effort vs. agent time | Sprint story point estimate relative to wall-clock time to PR open (e.g., 5-pt ticket completed in under 30 min of elapsed time) | Story point field vs. workflow telemetry |
-| Workflow completion rate | % of triggered runs that complete without hitting token limits or unrecoverable API failures | Workflow telemetry |
-| Dependabot success rate | % of patch/minor Dependabot PRs auto-merged without subsequent rollback | GitHub merge + revert data |
-| Guardrail trigger rate | % of runs triggering at least one governance guardrail — a leading indicator of meta-harness tuning needed | Telemetry (pending OQ-6) |
+| Time to Draft PR | Elapsed time from workflow trigger event to Draft PR open | GitHub Actions timestamps |
+| Workflow completion rate | % of triggered runs that complete without hitting token limits or unrecoverable API failures | GitHub Actions run data |
 
-### Phase 1 Metrics (deferred)
+#### Phase 1 Additions
+
+Metrics below require observability telemetry (JTBD-OBS) or workflows not delivered until Phase 1.
+
+| Metric | Description | Measurement |
+| ------ | ----------- | ----------- |
+| Estimated effort vs. agent time | Sprint story point estimate relative to wall-clock time to PR open (e.g., 5-pt ticket completed in under 30 min of elapsed time) | Story point field vs. workflow telemetry |
+| Dependabot success rate | % of patch/minor Dependabot PRs auto-merged without subsequent rollback | GitHub merge + revert data |
+| Guardrail trigger rate | % of runs triggering at least one governance guardrail — a leading indicator of meta-harness tuning needed | Workflow telemetry (pending OQ-6) |
+
+### Phase 2 Metrics (deferred)
 
 | Metric | Description |
 | ------ | ----------- |
@@ -613,6 +735,7 @@ requiring a human to initiate the Jira ticket. Scope and design are deferred.
 | Harness | The AI development tool used to run an agent (e.g., Claude Code, GitHub Copilot). The agent is the combination of a model and a harness. |
 | JTBD | Jobs to be Done — a framework for expressing user needs as outcomes rather than feature descriptions. Format: "When [situation], I want to [action], so that [outcome]." |
 | Meta-harness | The configuration layer above the agent: skills, `CLAUDE.md`, hooks, agent definition files, and best-practice configuration that shape how the agent reasons and what context it loads. The artifact the Operator engineers. |
+| MVP | Minimum Viable Product — the quickest, simplest, demonstrable path to delivering the must-have requirements. In this platform, the MVP delivers one end-to-end working workflow (bug fix) to validate the full pipeline before expanding to the complete workflow suite. Everything not required to demonstrate that the pipeline works is deferred to Phase 1 or later. |
 | Operator | A core team member who engineers and maintains the meta-harness and monitors platform observability. See Section 1.2. |
 | Pre-check Suite | The modular set of automated validations (lint, tests, skills, and optional gates) that must pass before a PR is eligible for human review. |
 | Prompt Injection | An attack vector in which untrusted input (e.g., ticket content) attempts to override agent operating policies rather than merely influencing what the agent implements. |
