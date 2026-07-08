@@ -52,19 +52,19 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
     });
 
-    it('ack() response includes /fiona help', async () => {
+    it('ack() response lists available commands', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
-    it('ack() response includes /fiona ask', async () => {
+    it('ack() response includes ask command', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona ask'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('ask <question>'));
     });
 
-    it('ack() response includes /fiona search', async () => {
+    it('ack() response includes search command', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona search'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('search <query>'));
     });
 
     it('calls recordInteraction with interactionType slash_help', async () => {
@@ -163,7 +163,7 @@ describe('fionaCommandCallback', () => {
 
     it('ack() response does not show the full help menu', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
     it('records slash_ask telemetry', async () => {
@@ -192,7 +192,7 @@ describe('fionaCommandCallback', () => {
 
     it('ack() response does not show the full help menu', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
     it('records slash_search telemetry', async () => {
