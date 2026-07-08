@@ -19,7 +19,12 @@ COSMOS_CONNECTION_STRING=AccountEndpoint=https://localhost:8081/;AccountKey=C2y6
 
 ## Create Required Containers
 
-Call `npm run setup:emulator` in the `fiona-slack` app to create the required database and containers in the emulator.
+The emulator uses a self-signed TLS certificate, so `NODE_TLS_REJECT_UNAUTHORIZED=0` must be set when running the setup script. Call the following from the `fiona-slack` app:
+
+```pwsh
+cd apps/fiona-slack
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run setup:emulator
+```
 
 ## Smoke Testing Conversation Capture
 
@@ -37,9 +42,9 @@ DEPLOYMENT_TYPE=local
 
 ### 2. Create containers
 
-```bash
+```pwsh
 cd apps/fiona-slack
-npm run setup:emulator
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run setup:emulator
 ```
 
 ### 3. Run the bot

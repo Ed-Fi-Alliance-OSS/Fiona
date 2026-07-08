@@ -15,6 +15,7 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
+import { parseCommandKeyword, routeCommandViaSay } from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -92,6 +93,14 @@ export const message = async ({ client, context, logger, message, say, setStatus
           markInteractionRecorded,
         })
       ) {
+        return;
+      }
+
+      // Route command keywords (help, ask, search) before invoking the LLM.
+      // Only exact "help" matches; "help me with X" falls through to the LLM.
+      const cmd = parseCommandKeyword(text);
+      if (cmd) {
+        await routeCommandViaSay(say, logger, cmd);
         return;
       }
 
@@ -234,22 +243,26 @@ export const message = async ({ client, context, logger, message, say, setStatus
         await streamer.stop({ blocks: [feedbackBlock] });
         finalizeMetadataEnvelope(metadata);
 
-        await captureConversation({
-          userId,
-          teamId,
-          channelId: channel,
-          threadTs: thread_ts,
-          messageTs,
-          entryPoint: 'assistant_message',
-          userMessage: text,
-          botResponse: botText,
-          threadHistory: prompts,
-          llmProvider: metadata?.provider ?? 'perplexity',
-          llmModel: LLM_MODEL,
-          systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
-          sources: metadata?.sources,
-          logger,
-        });
+        try {
+          await captureConversation({
+            userId,
+            teamId,
+            channelId: channel,
+            threadTs: thread_ts,
+            messageTs,
+            entryPoint: 'assistant_message',
+            userMessage: text,
+            botResponse: botText,
+            threadHistory: prompts,
+            llmProvider: metadata?.provider ?? 'perplexity',
+            llmModel: LLM_MODEL,
+            systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
+            sources: metadata?.sources,
+            logger,
+          });
+        } catch (err) {
+          logger?.warn?.(`Failed to capture conversation: ${err.message}`);
+        }
       }
     },
   );

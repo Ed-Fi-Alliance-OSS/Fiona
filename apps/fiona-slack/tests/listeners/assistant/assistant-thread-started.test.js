@@ -36,6 +36,22 @@ describe('assistantThreadStarted', () => {
     expect(greeting.length).toBeGreaterThan(0);
   });
 
+  it('greeting includes a discovery hint directing users to type "help"', async () => {
+    const event = { assistant_thread: { context: { channel_id: 'C123' } } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    const [greeting] = mockSay.mock.calls[0];
+    // Must explicitly instruct users to type the keyword, not just mention "help" in passing
+    expect(greeting).toMatch(/type `?help`?/i);
+  });
+
   it('calls saveThreadContext', async () => {
     const event = { assistant_thread: { context: { channel_id: 'C123' } } };
 
