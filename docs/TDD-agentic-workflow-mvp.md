@@ -37,8 +37,21 @@ delegating the expensive cognitive work (understanding the bug, writing failing 
 implementing a fix) to GitHub's hosted Copilot coding agent, which already provides sandboxing
 and session management.
 
+**Relationship to AI-98 (prior spike).** A sibling story under the same MS5 epic (AI-98, "HITL
+automation of bug fixes") prototyped an issue-to-PR pipeline on a Claude-on-Foundry + Azure
+Durable Functions stack — effectively a variant of the rejected Option B, where we own the
+orchestration loop end to end. That spike proved the ADLC steps are automatable and surfaced the
+governance and Jira-contract requirements this design formalizes. For the MVP, the hybrid Option C
+supersedes it: it reaches "quickest, simplest, demonstrable" faster by not operating our own
+sandboxing/session infrastructure. AI-98's telemetry and governance learnings feed forward into
+the Phase 1 observability work (Section 4.10); its custom-loop architecture remains a fallback
+should Copilot's hosted agent prove insufficiently steerable.
+
 **What's in scope.** JTBD-BUG only — the bug fix workflow, end to end, from a refined Jira
-ticket to a review-ready PR with no local compute. Phase 1 extensibility (feature/tech-debt/
+ticket to a review-ready PR with no local compute. MVP bug tickets are further scoped to the
+`apps/fiona-slack` app, because that is the app whose CI (`on-pullrequest-fiona-slack.yml`)
+supplies the pre-check suite reused here (Section 2); extending the pre-check suite to
+`apps/usage-report-function` is a Phase 1 concern. Phase 1 extensibility (feature/tech-debt/
 dependabot workflows, and hardened test-board tooling) is addressed as forward-looking notes in
 Section 4.10, not built now.
 
@@ -96,12 +109,12 @@ flowchart TD
     COPILOT --> GOV["Actions Workflow: governance-watchdog.yml\npolls run duration (FR-FAIL-1, 2hr default)"]
     GOV -- timeout --> HALT["Comment on Jira + PR: halted, branch preserved\n(FR-JIRA-7)"]
     COPILOT --> DRAFTPR["Draft PR opened"]
-    DRAFTPR --> JLINK["Actions Workflow: pr-link-sync.yml\nComment PR URL on Jira (FR-JIRA-6)"]
+    DRAFTPR --> JLINK["Actions Workflow: pr-sync.yml (on PR opened)\nComment PR URL on Jira (FR-JIRA-6)"]
     COPILOT --> PRECHECK["Existing CI: on-pullrequest-fiona-slack.yml\nlint + test:ci (FR-CROSS-4)"]
     PRECHECK -- fail, retries < 3 --> COPILOT
-    PRECHECK -- fail at 3rd attempt --> ESCALATE["Comment on PR + Jira: escalate\n(FR-FAIL-2)"]
+    PRECHECK -- fail at 3rd attempt --> ESCALATE["Actions Workflow: precheck-retry-tracker.yml\nComment on PR + Jira: escalate (FR-FAIL-2)"]
     PRECHECK -- pass --> READYFORREVIEW["Copilot marks PR ready for review"]
-    READYFORREVIEW --> FINALIZE["Actions Workflow: pr-ready-sync.yml\nrequest Reviewer (FR-GH-6), update PR body (FR-GH-3),\nfinal Jira sync"]
+    READYFORREVIEW --> FINALIZE["Actions Workflow: pr-sync.yml (on ready_for_review)\nrequest Reviewer (FR-GH-6), update PR body (FR-GH-3),\nfinal Jira sync"]
     FINALIZE --> REVIEWER["Reviewer notified"]
 ```
 
@@ -114,8 +127,9 @@ flowchart TD
 | `automate-bug-fix` SKILL.md (existing, extended) | Branch naming, fail-first test, scoped implementation, draft PR content | FR-GH-1/2/5, ADLC steps 3–6 |
 | `copilot-setup-steps.yml` (existing) | Sandbox environment for the coding agent | FR-CROSS-10 |
 | `on-pullrequest-fiona-slack.yml` (existing, unchanged) | Pre-check suite: lint + test | FR-CROSS-4 |
-| `governance-watchdog.yml` (new Actions workflow) | Wall-clock halt, halt comment | FR-FAIL-1 |
-| `pr-link-sync.yml` / `pr-ready-sync.yml` (new Actions workflows) | Jira↔GitHub cross-linking, reviewer request, PR body finalization | FR-JIRA-6/7, FR-GH-3/4/6 |
+| `governance-watchdog.yml` (new Actions workflow) | Wall-clock halt detection, halt comment on Jira + PR | FR-FAIL-1, FR-JIRA-7 |
+| `precheck-retry-tracker.yml` (new Actions workflow) | Count consecutive pre-check failures, escalate on the 3rd | FR-FAIL-2 |
+| `pr-sync.yml` (new Actions workflow) | On PR opened: PR-URL comment on Jira. On ready-for-review: reviewer request, PR-body finalization, final Jira sync | FR-JIRA-6, FR-GH-3/4/6 |
 
 **Credentials (FR-CROSS-2/12):** Jira API token and `GITHUB_TOKEN`/scoped PAT as separate GitHub
 Actions secrets, each used only against its own system — no shared credentials. Model API key is
@@ -179,7 +193,7 @@ body (see FR-CROSS-13)._
   working branch it creates.
 - **PR title (FR-GH-2):** `[{ticketKey}] {summary}` — same pattern as the Issue title, so
   Copilot's default "PR mirrors Issue title" behavior satisfies this for free.
-- **PR labels (FR-GH-4):** `ai-generated` applied by `pr-link-sync.yml` once Copilot's PR is
+- **PR labels (FR-GH-4):** `ai-generated` applied by `pr-sync.yml` once Copilot's PR is
   detected, since Copilot does not automatically carry Issue labels onto the PR it opens.
 
 ### 4.4 `automate-bug-fix` SKILL.md extensions
@@ -219,12 +233,21 @@ Reviewer, consistent with FR-FAIL-2's "must not transition to ready-for-review i
 state," which is enforced separately by branch protection (Section 4.8) blocking the
 ready-for-review transition while required checks are red.
 
-### 4.7 `pr-ready-sync.yml` — finalization
+### 4.7 `pr-sync.yml` — Jira↔GitHub cross-linking and finalization
 
-Triggered on `pull_request: ready_for_review` for PRs labeled `ai-generated`. Steps: apply the
-`ai-generated` label if not already present, request review from the configured Reviewer
-(FR-GH-6), verify the PR body contains the required sections and append any missing
-governance-event summary (FR-GH-3), post a final Jira comment with the PR URL and status.
+A single workflow handles both PR lifecycle events for PRs opened against `ai/*` branches
+(replacing what would otherwise be two near-identical workflows sharing the same secrets and
+Jira-comment logic):
+
+- **On `pull_request: opened`:** apply the `ai-generated` label (Copilot does not carry the
+  Issue label onto its PR), then comment the PR URL back on the linked Jira ticket (FR-JIRA-6).
+- **On `pull_request: ready_for_review`:** request review from the configured Reviewer (FR-GH-6),
+  verify the PR body contains the required sections and append any missing governance-event
+  summary (FR-GH-3), and post a final Jira comment with the PR URL and status.
+
+The `governance-watchdog.yml` halt comment (FR-JIRA-7) and the `precheck-retry-tracker.yml`
+escalation (FR-FAIL-2) remain separate workflows because they fire on different triggers (a cron
+schedule and `check_suite: completed`, respectively), not on PR lifecycle events.
 
 ### 4.8 Branch protection & prompt-injection notes (MVP posture)
 
@@ -246,7 +269,7 @@ precheckMaxRetries: 3
 reviewer: "roberthunterjr" # MVP: single named Reviewer; becomes a team in Phase 1
 ```
 
-Read by `governance-watchdog.yml`, `precheck-retry-tracker.yml`, and `pr-ready-sync.yml` at
+Read by `governance-watchdog.yml`, `precheck-retry-tracker.yml`, and `pr-sync.yml` at
 runtime rather than hardcoded, satisfying FR-CROSS-3/8 cheaply even though MVP only strictly
 requires it as "should have." `reviewer` names a single GitHub handle for MVP, consistent with
 the PRD's note that Product Owner, Operator, Trigger, and Reviewer are the same small core team
@@ -261,7 +284,7 @@ at this stage (PRD §1.2); it becomes a team reference once Phase 1 broadens par
   it's a separate, simpler validate-and-merge workflow, out of scope here.
 - **Observability (Phase 1)** replaces the ad-hoc GitHub Actions logs + Jira/PR comments used
   here with structured OTel emission from each new workflow (`jira-bug-intake`,
-  `governance-watchdog`, `precheck-retry-tracker`, `pr-ready-sync`) — designed as thin wrappers
+  `governance-watchdog`, `precheck-retry-tracker`, `pr-sync`) — designed as thin wrappers
   now specifically so a telemetry emission call can be inserted per step later without
   restructuring.
 - **Throwaway test board.** MVP validates end to end with disposable, manually labeled tickets in
@@ -269,7 +292,7 @@ at this stage (PRD §1.2); it becomes a team reference once Phase 1 broadens par
   a single supervised demonstration run. Once the team needs *repeatable* regression rehearsal
   before risky meta-harness changes (a Phase 1 concern), introduce a second Jira project (e.g.
   `AITEST`) sharing the same workflow code, differentiated only via a config lookup in
-  `governance.yml` (e.g., a `jiraProjects` map keyed by ticket prefix, each entry specifying its
+  the governance config (e.g., a `jiraProjects` map keyed by ticket prefix, each entry specifying its
   own `reviewer` and trigger label). Keeping the same workflow code path for both projects at that
   point ensures rehearsal validates the true production path rather than a divergent simulation.
 
@@ -319,9 +342,9 @@ executed by a human Trigger, observing:
    within its usual pickup window.
 1. Working branch follows `ai/{ticketKey}-{slug}`; first commit is a failing test; Draft PR
    appears.
-1. `pr-link-sync` posts the PR URL back to the Jira ticket.
+1. `pr-sync` posts the PR URL back to the Jira ticket.
 1. Existing lint/test CI runs automatically on each Copilot push.
-1. On green checks, Copilot marks the PR ready for review; `pr-ready-sync` requests the Reviewer
+1. On green checks, Copilot marks the PR ready for review; `pr-sync` requests the Reviewer
    and finalizes the PR body.
 1. Negative case: a deliberately under-specified ticket (missing acceptance criteria) is fired
    and confirmed to halt with the correct Jira comment and zero code changes.
@@ -376,7 +399,8 @@ halt on the happy path.
 
 - GitHub's Copilot coding agent entitlement is available and licensed for this repo (not
   independently verified in this session).
-- A single named Reviewer (configured in `governance.yml`, Section 4.9) is sufficient for MVP,
+- A single named Reviewer (configured in `.github/agentic-workflow-governance.yml`, Section 4.9)
+  is sufficient for MVP,
   consistent with the PRD's note that Product Owner, Operator, Trigger, and Reviewer are the same
   small core team at this stage; this becomes a team reference in Phase 1.
 - Jira Automation (the no-code rule engine) is available on the Foundation's Jira plan and can
@@ -391,7 +415,8 @@ halt on the happy path.
 | D-1 | Hybrid orchestration (Option C): Actions owns governance + Jira contract, Copilot coding agent owns implementation | Reuses existing repo assets; avoids reimplementing agent sandboxing GitHub already provides; keeps auditable control where precision matters |
 | D-2 | Governance watchdog is detection/report-only, not a hard kill switch | Copilot's hosted session is not directly controllable from our Actions workflows at MVP |
 | D-3 | MVP E2E validation uses disposable, manually labeled tickets in the real `AI` project — no dedicated test board | A single supervised demonstration run doesn't justify standing up a second Jira project; deferred to Phase 1 once repeatable regression rehearsal is needed (Section 4.10) |
-| D-4 | Governance config (`governance.yml`) externalized from day one, with a single named `reviewer` field for MVP | Cheap to do now; matches the PRD's single-core-team framing; avoids a later refactor when Phase 1 requires full externalization and multi-project support (FR-CROSS-8) |
+| D-4 | Governance config (`.github/agentic-workflow-governance.yml`) externalized from day one, with a single named `reviewer` field for MVP | Cheap to do now; matches the PRD's single-core-team framing; avoids a later refactor when Phase 1 requires full externalization and multi-project support (FR-CROSS-8) |
+| D-5 | Hybrid Option C supersedes AI-98's Claude-on-Foundry + Durable Functions spike for the MVP; AI-98's custom loop is retained as a documented fallback | Option C reaches a demonstrable end-to-end run fastest by not operating our own sandboxing/session infrastructure; AI-98's governance/telemetry learnings still feed Phase 1 (Section 1, Section 4.10) |
 
 ### Open questions carried forward from the PRD, resolved or narrowed by this design
 
