@@ -28,7 +28,9 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
      * The `say` utility sends this metadata along automatically behind the scenes.
      * !! Please note: this is only intended for development and demonstrative purposes.
      */
-    await say('Hi, how can I help?');
+    await say(
+      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi, or type `help` to see available commands.",
+    );
 
     await saveThreadContext();
 

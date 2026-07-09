@@ -4,25 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordInteraction } from '../../agent/interaction-store.js';
-
-const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
-
-*Available commands:*
-\`\`\`
-/fiona help              Show this help message
-/fiona ask <question>    Ask Fiona a question about Ed-Fi (coming soon)
-/fiona search <query>    Search Ed-Fi documentation (coming soon)
-\`\`\`
-_Tip: You can also @-mention Fiona in any channel, or send her a direct message._`;
-
-const ASK_NOT_YET_TEXT =
-  `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
-
-const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
+import { ASK_NOT_YET_TEXT, HELP_TEXT, SEARCH_NOT_YET_TEXT } from './command-handler.js';
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls

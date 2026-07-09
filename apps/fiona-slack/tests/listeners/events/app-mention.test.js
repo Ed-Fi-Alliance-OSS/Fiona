@@ -339,4 +339,83 @@ describe('appMentionCallback', () => {
       expect(captureConversation).not.toHaveBeenCalled();
     });
   });
+
+  describe('keyword command routing', () => {
+    it('responds with help text when mention text is exactly "help"', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not call setStatus (thinking) when routing to help command', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.assistant.threads.setStatus).not.toHaveBeenCalled();
+    });
+
+    it('passes "@fiona help me with X" to the LLM, not treated as command', async () => {
+      mockEvent.text = '<@UFIONA> help me understand the ODS API';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when mention text starts with "ask "', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when mention text starts with "search "', async () => {
+      mockEvent.text = '<@UFIONA> search Data Standard 6.0';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with help text when mention text is "fiona help"', async () => {
+      mockEvent.text = '<@UFIONA> fiona help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('keyword command response does not invoke the LLM', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(callLLM).not.toHaveBeenCalled();
+      // Telemetry recording via the handleInteractionWithTelemetry finally block
+      // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+      mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+  });
 });
