@@ -301,6 +301,7 @@ to a Slack channel via incoming webhook.
 | Metric                  | Description                                              |
 | ----------------------- | -------------------------------------------------------- |
 | Distinct users          | Count of unique users with successful interactions       |
+| New users (count & %)   | Distinct users in the window with no prior successful interaction, and their share of distinct users (`newUsersCount / distinctUsers * 100`) (AI-141) |
 | Sessions                | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions |
 | Total interactions      | All interactions (success + error) in the window         |
 | Error count & rate      | Absolute count and percentage of errored interactions    |
@@ -309,6 +310,13 @@ to a Slack channel via incoming webhook.
 | Feedback ratio          | `good / (good + bad) * 100`                              |
 | Avg interactions / user | Mean interactions per active user                        |
 | Feedback response rate  | Percentage of successful interactions that were rated    |
+
+> [!NOTE]
+> AI-141 also calls for a returning-users (repeat rate) calculation and for
+> both metrics to appear in the trend report accompanying the Sprint report.
+> Only the new-users calculation is implemented in the weekly Slack report so
+> far; the returning-users metric and trend-report integration are not yet
+> built.
 
 The lookback window defaults to the past 7 days. The webhook URL is retrieved
 from Azure Key Vault at runtime using Managed Identity.
@@ -471,7 +479,7 @@ WeeklyReportTrigger/
 ├── function.json                  # TimerTrigger binding config
 └── index.js                       # Queries Cosmos DB, formats report, posts to Slack
 lib/
-├── cosmos-queries.js              # 8 KPI query functions (distinct users, sessions, etc.)
+├── cosmos-queries.js              # 9 KPI query functions (distinct users, new users, sessions, etc.)
 ├── slack-formatter.js             # Formats the weekly Slack message string
 └── key-vault-client.js            # Retrieves Slack webhook URL from Azure Key Vault
 ```
