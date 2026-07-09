@@ -5,6 +5,7 @@ import {
   getErrorCount,
   getFeedbackBreakdown,
   getFeedbackResponseRate,
+  getNewUsersCount,
   getRateLimitedCount,
   getSessionCount,
   getTotalInteractions,
@@ -164,6 +165,62 @@ describe('cosmos-queries', () => {
       });
       const result = await getAvgInteractionsPerUser(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
       expect(result).toBe(0);
+    });
+  });
+
+  describe('getNewUsersCount', () => {
+    it('returns count of current-period users with no prior successful interaction', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2', 'user-3'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-2'] }),
+        });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(2);
+    });
+
+    it('returns 0 when there are no users in the period', async () => {
+      mockInteractionsContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(0);
+      expect(mockInteractionsContainer.items.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 0 when all current-period users are returning users', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(0);
+    });
+
+    it('passes the current-period userIds as a parameter to the prior-history query', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+        });
+
+      await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+
+      const [, secondQuerySpec] = mockInteractionsContainer.items.query.mock.calls;
+      expect(secondQuerySpec[0].parameters).toContainEqual({
+        name: '@currentUsers',
+        value: ['user-1', 'user-2'],
+      });
     });
   });
 

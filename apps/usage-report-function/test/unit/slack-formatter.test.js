@@ -14,6 +14,8 @@ describe('formatWeeklyReport', () => {
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
+    newUsersCount: 15,
+    newUserPercentage: 35.7,
     environment: 'production',
     startDate: '2026-03-10',
     endDate: '2026-03-16',
@@ -60,6 +62,11 @@ describe('formatWeeklyReport', () => {
     expect(message).toContain('9.8%');
   });
 
+  it('includes new users count and percentage with one decimal place', () => {
+    const message = formatWeeklyReport(baseKpis);
+    expect(message).toContain('New users:              15 (35.7% of unique users)');
+  });
+
   it('includes the environment in the footer', () => {
     const message = formatWeeklyReport(baseKpis);
     expect(message).toContain('production');
@@ -78,6 +85,8 @@ describe('formatWeeklyReport', () => {
       feedbackRatio: 0,
       avgInteractionsPerUser: 0,
       feedbackResponseRate: 0,
+      newUsersCount: 0,
+      newUserPercentage: 0,
       environment: 'insiders',
       startDate: '2026-03-10',
       endDate: '2026-03-16',

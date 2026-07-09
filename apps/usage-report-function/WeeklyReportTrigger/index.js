@@ -13,6 +13,7 @@ import {
   getErrorCount,
   getFeedbackBreakdown,
   getFeedbackResponseRate,
+  getNewUsersCount,
   getRateLimitedCount,
   getSessionCount,
   getTotalInteractions,
@@ -103,6 +104,7 @@ app.timer('WeeklyReportTrigger', {
         feedbackBreakdown,
         avgInteractionsPerUser,
         feedbackResponseRate,
+        newUsersCount,
       ] = await Promise.all([
         getDistinctUsers(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getSessionCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
@@ -112,6 +114,7 @@ app.timer('WeeklyReportTrigger', {
         getFeedbackBreakdown(feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getAvgInteractionsPerUser(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
+        getNewUsersCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
       ]);
 
       logger(
@@ -124,6 +127,7 @@ app.timer('WeeklyReportTrigger', {
       const badFeedback = feedbackBreakdown.find((f) => f.feedbackValue === 'bad-feedback')?.count ?? 0;
       const feedbackRatio = goodFeedback + badFeedback > 0 ? (goodFeedback / (goodFeedback + badFeedback)) * 100 : 0;
       const errorRate = totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0;
+      const newUserPercentage = distinctUsers > 0 ? (newUsersCount / distinctUsers) * 100 : 0;
 
       // Build week label dates
       const endOfReport = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -140,6 +144,8 @@ app.timer('WeeklyReportTrigger', {
         feedbackRatio,
         avgInteractionsPerUser,
         feedbackResponseRate,
+        newUsersCount,
+        newUserPercentage,
         environment: DEPLOYMENT_TYPE,
         startDate: oneWeekAgo.toISOString().split('T')[0],
         endDate: endOfReport.toISOString().split('T')[0],

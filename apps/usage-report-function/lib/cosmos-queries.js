@@ -123,6 +123,44 @@ export async function getAvgInteractionsPerUser(container, deploymentType, oneWe
 }
 
 /**
+ * Returns the count of distinct users in the period who have no successful
+ * interaction prior to the period. Only checks prior history for users seen
+ * in the period, rather than scanning all-time history.
+ */
+export async function getNewUsersCount(container, deploymentType, oneWeekAgoISO) {
+  const { resources: currentUsers } = await container.items
+    .query({
+      query: `SELECT DISTINCT VALUE i.userId
+       FROM interactions i
+       WHERE i.deploymentType = @deploymentType
+         AND i.timestamp > @oneWeekAgoISO
+         AND i.status = 'success'
+         AND i.rateLimited = false`,
+      parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO),
+    })
+    .fetchAll();
+
+  if (currentUsers.length === 0) {
+    return 0;
+  }
+
+  const { resources: returningUsers } = await container.items
+    .query({
+      query: `SELECT DISTINCT VALUE i.userId
+       FROM interactions i
+       WHERE i.deploymentType = @deploymentType
+         AND i.timestamp <= @oneWeekAgoISO
+         AND i.status = 'success'
+         AND i.rateLimited = false
+         AND ARRAY_CONTAINS(@currentUsers, i.userId)`,
+      parameters: [...BASE_PARAMS(deploymentType, oneWeekAgoISO), { name: '@currentUsers', value: currentUsers }],
+    })
+    .fetchAll();
+
+  return currentUsers.length - returningUsers.length;
+}
+
+/**
  * Returns the percentage of successful interactions that received feedback.
  *
  * Queries the interactions and feedback containers separately, then computes
