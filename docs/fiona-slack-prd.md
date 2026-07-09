@@ -302,6 +302,7 @@ to a Slack channel via incoming webhook.
 | ----------------------- | -------------------------------------------------------- |
 | Distinct users          | Count of unique users with successful interactions       |
 | New users (count & %)   | Distinct users in the window with no prior successful interaction, and their share of distinct users (`newUsersCount / distinctUsers * 100`) (AI-141) |
+| Returning users & repeat rate | Derived, not queried: `distinctUsers - newUsersCount` and `100 - newUserPercentage` (AI-141) |
 | Sessions                | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions |
 | Total interactions      | All interactions (success + error) in the window         |
 | Error count & rate      | Absolute count and percentage of errored interactions    |
@@ -312,10 +313,8 @@ to a Slack channel via incoming webhook.
 | Feedback response rate  | Percentage of successful interactions that were rated    |
 
 > [!NOTE]
-> AI-141 also calls for a returning-users (repeat rate) calculation and for
-> both metrics to appear in the trend report accompanying the Sprint report.
-> Only the new-users calculation is implemented in the weekly Slack report so
-> far; the returning-users metric and trend-report integration are not yet
+> AI-141 also calls for both metrics to appear in the trend report that
+> accompanies the Sprint report. That trend-report integration is not yet
 > built.
 
 The lookback window defaults to the past 7 days. The webhook URL is retrieved

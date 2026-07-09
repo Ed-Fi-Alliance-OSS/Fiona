@@ -34,6 +34,8 @@ function formatWeekLabel(startDate, endDate) {
  * @param {number} kpis.feedbackResponseRate
  * @param {number} kpis.newUsersCount
  * @param {number} kpis.newUserPercentage
+ * @param {number} kpis.returningUsersCount
+ * @param {number} kpis.repeatRate
  * @param {string} kpis.environment
  * @param {string} kpis.startDate  ISO date string (YYYY-MM-DD)
  * @param {string} kpis.endDate    ISO date string (YYYY-MM-DD)
@@ -54,6 +56,8 @@ export function formatWeeklyReport(kpis) {
     feedbackResponseRate,
     newUsersCount,
     newUserPercentage,
+    returningUsersCount,
+    repeatRate,
     environment,
     startDate,
     endDate,
@@ -64,7 +68,7 @@ export function formatWeeklyReport(kpis) {
   return [
     `📊 *Fiona Usage Report* — Week of ${weekLabel}`,
     '',
-    `👤 Unique users:           ${distinctUsers}`,
+    `👤 Unique users:           ${distinctUsers} (🔁 ${returningUsersCount} returning, ${repeatRate.toFixed(1)}% repeat rate)`,
     `🆕 New users:              ${newUsersCount} (${newUserPercentage.toFixed(1)}% of unique users)`,
     `💬 Sessions:               ${sessionCount}`,
     `📨 Total interactions:     ${totalInteractions}`,

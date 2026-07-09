@@ -128,6 +128,8 @@ app.timer('WeeklyReportTrigger', {
       const feedbackRatio = goodFeedback + badFeedback > 0 ? (goodFeedback / (goodFeedback + badFeedback)) * 100 : 0;
       const errorRate = totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0;
       const newUserPercentage = distinctUsers > 0 ? (newUsersCount / distinctUsers) * 100 : 0;
+      const returningUsersCount = distinctUsers - newUsersCount;
+      const repeatRate = distinctUsers > 0 ? 100 - newUserPercentage : 0;
 
       // Build week label dates
       const endOfReport = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -146,6 +148,8 @@ app.timer('WeeklyReportTrigger', {
         feedbackResponseRate,
         newUsersCount,
         newUserPercentage,
+        returningUsersCount,
+        repeatRate,
         environment: DEPLOYMENT_TYPE,
         startDate: oneWeekAgo.toISOString().split('T')[0],
         endDate: endOfReport.toISOString().split('T')[0],

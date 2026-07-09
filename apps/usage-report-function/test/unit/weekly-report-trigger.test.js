@@ -240,6 +240,36 @@ describe('WeeklyReportTrigger', () => {
       expect(kpis.newUserPercentage).toBe(0);
     });
 
+    it('calculates returningUsersCount as distinctUsers minus newUsersCount', async () => {
+      mockGetDistinctUsers.mockResolvedValue(50);
+      mockGetNewUsersCount.mockResolvedValue(10);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.returningUsersCount).toBe(40);
+    });
+
+    it('calculates repeatRate as 100 minus newUserPercentage', async () => {
+      mockGetDistinctUsers.mockResolvedValue(50);
+      mockGetNewUsersCount.mockResolvedValue(10);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.repeatRate).toBeCloseTo(80.0);
+    });
+
+    it('calculates repeatRate as 0 when there are no distinct users', async () => {
+      mockGetDistinctUsers.mockResolvedValue(0);
+      mockGetNewUsersCount.mockResolvedValue(0);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.repeatRate).toBe(0);
+    });
+
     it('assembles KPIs with correct date range', async () => {
       await handler({}, context);
 
@@ -263,6 +293,7 @@ describe('WeeklyReportTrigger', () => {
         avgInteractionsPerUser: 8.3,
         feedbackResponseRate: 9.8,
         newUsersCount: 15,
+        returningUsersCount: 27,
         environment: 'production',
       });
     });
