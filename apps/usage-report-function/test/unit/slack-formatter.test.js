@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { formatFeedbackSection, formatWeeklyReport } from '../../lib/slack-formatter.js';
+import { formatFeedbackSection, formatLongitudinalReport, formatWeeklyReport } from '../../lib/slack-formatter.js';
 
 describe('formatWeeklyReport', () => {
   const baseKpis = {
@@ -231,5 +231,85 @@ describe('formatWeeklyReport with representativeFeedback', () => {
   it('shows the no-feedback message when representativeFeedback is empty', () => {
     const message = formatWeeklyReport({ ...baseKpis, representativeFeedback: [] });
     expect(message).toContain('No feedback recorded for this period.');
+  });
+});
+
+describe('formatLongitudinalReport', () => {
+  const weekA = {
+    weekStart: '2026-04-13',
+    weekEnd: '2026-04-19',
+    uniqueUsers: 1,
+    sessions: 1,
+    totalInteractions: 3,
+    errors: 1,
+    errorRate: 33.333,
+    rateLimited: 0,
+    goodFeedback: 1,
+    badFeedback: 0,
+    feedbackRatio: 100,
+    avgInteractionsPerUser: 2,
+    feedbackResponseRate: 50,
+    newUsers: 1,
+    returningUsers: 0,
+    repeatRate: 0,
+    usersWowPct: null,
+    interactionsWowPct: null,
+    errorRateWowPp: null,
+  };
+
+  const weekB = {
+    weekStart: '2026-04-20',
+    weekEnd: '2026-04-26',
+    uniqueUsers: 3,
+    sessions: 3,
+    totalInteractions: 3,
+    errors: 0,
+    errorRate: 0,
+    rateLimited: 0,
+    goodFeedback: 0,
+    badFeedback: 1,
+    feedbackRatio: 0,
+    avgInteractionsPerUser: 1,
+    feedbackResponseRate: 33.333,
+    newUsers: 1,
+    returningUsers: 2,
+    repeatRate: 66.667,
+    usersWowPct: 200,
+    interactionsWowPct: 0,
+    errorRateWowPp: -33.333,
+  };
+
+  const options = { deploymentType: 'production', startDate: '2026-04-13', endDate: '2026-04-26' };
+
+  it('includes a header with the date range and environment', () => {
+    const message = formatLongitudinalReport([weekA, weekB], options);
+    expect(message).toContain('Longitudinal Usage Trends');
+    expect(message).toContain('Apr 13–26, 2026');
+    expect(message).toContain('production');
+  });
+
+  it('renders one block per week with its own week label', () => {
+    const message = formatLongitudinalReport([weekA, weekB], options);
+    expect(message).toContain('Week of Apr 13–19, 2026');
+    expect(message).toContain('Week of Apr 20–26, 2026');
+  });
+
+  it('includes new/returning users and repeat rate on the unique users line', () => {
+    const message = formatLongitudinalReport([weekA, weekB], options);
+    expect(message).toContain('Unique users: 1 (🆕 1 new, 🔁 0 returning, 0.0% repeat rate)');
+    expect(message).toContain('Unique users: 3 (🆕 1 new, 🔁 2 returning, 66.7% repeat rate)');
+  });
+
+  it('omits the WoW line for the first week and includes it for subsequent weeks', () => {
+    const message = formatLongitudinalReport([weekA, weekB], options);
+    const weekABlockEnd = message.indexOf('Week of Apr 20');
+    const weekABlock = message.slice(0, weekABlockEnd);
+    expect(weekABlock).not.toContain('WoW:');
+    expect(message).toContain('WoW: +200.0% users, +0.0% interactions, -33.3pp error rate');
+  });
+
+  it('shows a no-data message when the series is empty', () => {
+    const message = formatLongitudinalReport([], options);
+    expect(message).toContain('No interaction data recorded for this period.');
   });
 });

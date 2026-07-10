@@ -10,7 +10,7 @@ function truncate(text, maxLength = 150) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
-function formatWeekLabel(startDate, endDate) {
+export function formatWeekLabel(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
   const startMonth = MONTH_NAMES[start.getUTCMonth()];
@@ -114,4 +114,51 @@ export function formatWeeklyReport(kpis) {
     '',
     formatFeedbackSection(representativeFeedback),
   ].join('\n');
+}
+
+/**
+ * Formats week-over-week trend data (from getWeeklyTrendSeries) as a Slack
+ * message string — one block per week, oldest to newest.
+ *
+ * @param {Array<Object>} weeklySeries
+ * @param {Object} options
+ * @param {string} options.deploymentType
+ * @param {string} options.startDate  ISO date string (YYYY-MM-DD)
+ * @param {string} options.endDate    ISO date string (YYYY-MM-DD)
+ * @returns {string}
+ */
+export function formatLongitudinalReport(weeklySeries, { deploymentType, startDate, endDate }) {
+  const rangeLabel = formatWeekLabel(startDate, endDate);
+  const header = [`📈 *Fiona Longitudinal Usage Trends* — ${rangeLabel}`, `_Environment: ${deploymentType}_`, ''];
+
+  if (!weeklySeries || weeklySeries.length === 0) {
+    return [...header, 'No interaction data recorded for this period.'].join('\n');
+  }
+
+  const signed = (value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
+
+  const blocks = weeklySeries.map((week) => {
+    const weekLabel = formatWeekLabel(week.weekStart, week.weekEnd);
+    const lines = [
+      `📊 *Week of ${weekLabel}*`,
+      `👤 Unique users: ${week.uniqueUsers} (🆕 ${week.newUsers} new, 🔁 ${week.returningUsers} returning, ${week.repeatRate.toFixed(1)}% repeat rate)`,
+      `💬 Sessions: ${week.sessions}`,
+      `📨 Total interactions: ${week.totalInteractions}`,
+      `⛔ Errors: ${week.errors} (${week.errorRate.toFixed(1)}% error rate)`,
+      `🚫 Rate-limited: ${week.rateLimited}`,
+      `👍 Good feedback: ${week.goodFeedback}  👎 Bad feedback: ${week.badFeedback} (${week.feedbackRatio.toFixed(1)}% positive)`,
+      `📊 Avg interactions/user: ${week.avgInteractionsPerUser.toFixed(1)}`,
+      `📝 Feedback response rate: ${week.feedbackResponseRate.toFixed(1)}%`,
+    ];
+
+    if (week.usersWowPct !== null) {
+      lines.push(
+        `📈 WoW: ${signed(week.usersWowPct)}% users, ${signed(week.interactionsWowPct)}% interactions, ${signed(week.errorRateWowPp)}pp error rate`,
+      );
+    }
+
+    return lines.join('\n');
+  });
+
+  return [...header, blocks.join('\n\n')].join('\n');
 }
