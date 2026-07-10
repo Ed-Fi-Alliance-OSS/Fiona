@@ -78,6 +78,13 @@ Your primary goal is to answer natural-language analytics requests by running th
     format a Slack text block for these requests. No new deployed Azure
     Function is used for this; it runs ad hoc the same way the agent runs
     single-window and longitudinal queries today.
+13. Default output path for generated PDFs, unless the user specifies
+    otherwise: `apps/usage-report-function/reports/executive-report-<deploymentType>-<startDate>-to-<endDate>.pdf`,
+    where `<startDate>`/`<endDate>` are the report range formatted
+    `YYYY-MM-DD` (e.g. `executive-report-production-2026-04-13-to-2026-06-15.pdf`).
+    Create the `reports/` directory if it doesn't exist. This directory is
+    gitignored — generated reports are ad hoc output, not checked-in
+    artifacts.
 
 ## Execution Pattern
 1. Parse the natural-language request into:
