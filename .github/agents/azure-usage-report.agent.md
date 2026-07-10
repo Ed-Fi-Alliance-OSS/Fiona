@@ -24,6 +24,9 @@ Your primary goal is to answer natural-language analytics requests by running th
   - average interactions per user
   - feedback response rate
   - 5 representative feedback examples (question, response, thumb-derived sentiment, restated reason) when a weekly-style report is requested
+- Reproduce week-over-week longitudinal trend data whenever the user asks for
+  a trend, comparison, or "over time" view spanning more than one week (e.g.
+  "trend over the last 2 months", "compare weekly growth since April").
 - Provide short analysis of key changes/drivers when asked.
 
 ## Ground Rules
@@ -36,12 +39,19 @@ Your primary goal is to answer natural-language analytics requests by running th
 4. For weekly report requests, preserve parity with WeeklyReportTrigger formulas and output semantics.
 5. When representative feedback is requested, reuse `getRepresentativeFeedback` and `formatFeedbackSection` rather than re-deriving sentiment or re-selecting examples — sentiment is always the raw thumbs rating restated (good-feedback → Positive, bad-feedback → Negative), never LLM-classified.
 6. Never post to Slack unless explicitly requested.
+7. For requests spanning more than one week, use `getWeeklyTrendSeries`
+   (`apps/usage-report-function/lib/longitudinal-queries.js`) and
+   `formatLongitudinalReport` (`apps/usage-report-function/lib/slack-formatter.js`)
+   instead of looping the single-window helpers across weeks — the
+   longitudinal query fetches raw records for the whole range once, so
+   looping single-window helpers would multiply query cost unnecessarily.
 
 ## Execution Pattern
 1. Parse the natural-language request into:
    - requested date range (default to last 7 days if unspecified),
    - deployment type (default to `production` if unspecified),
-   - output shape (Slack-style report text vs analytical summary vs raw KPI table).
+   - output shape (single-window Slack-style report text vs. multi-week
+     longitudinal trend report vs. analytical summary vs. raw KPI table).
 2. Run commands/scripts in `apps/usage-report-function` to compute KPIs using existing query helpers.
 3. Return:
    - report period,
