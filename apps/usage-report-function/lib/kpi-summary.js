@@ -84,6 +84,8 @@ export async function getKpiSummary(interactionsContainer, feedbackContainer, de
     avgInteractionsPerUser: uniqueUsers > 0 ? successRecords / uniqueUsers : 0,
     errorRate: totalInteractions > 0 ? (errors / totalInteractions) * 100 : 0,
     rateLimitedEvents,
+    goodFeedback,
+    badFeedback,
     positiveFeedbackPct: feedbackTotal > 0 ? (goodFeedback / feedbackTotal) * 100 : 0,
   };
 }

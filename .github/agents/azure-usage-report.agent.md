@@ -27,6 +27,10 @@ Your primary goal is to answer natural-language analytics requests by running th
 - Reproduce week-over-week longitudinal trend data whenever the user asks for
   a trend, comparison, or "over time" view spanning more than one week (e.g.
   "trend over the last 2 months", "compare weekly growth since April").
+- Generate an executive PDF report — including feedback details, daily
+  summary stats, and new-user stats — whenever the user asks for a PDF,
+  document, or executive report artifact rather than a Slack-style text
+  summary.
 - Provide short analysis of key changes/drivers when asked.
 
 ## Ground Rules
@@ -66,6 +70,14 @@ Your primary goal is to answer natural-language analytics requests by running th
     structured data instead of parsed JSON and doesn't require a separate
     `az login` session. Fall back to `az` only if the MCP server is
     unavailable.
+12. When a PDF/document/executive report is requested, call
+    `buildExecutiveReportData` (`apps/usage-report-function/lib/report-data.js`)
+    to fetch all data slices, then `generateExecutiveReportPdf`
+    (`apps/usage-report-function/lib/pdf/executive-report-pdf.js`) to render
+    the PDF, and return the output file path in the response — do not
+    format a Slack text block for these requests. No new deployed Azure
+    Function is used for this; it runs ad hoc the same way the agent runs
+    single-window and longitudinal queries today.
 
 ## Execution Pattern
 1. Parse the natural-language request into:

@@ -120,8 +120,18 @@ No formatting/rendering logic lives here — same separation of concerns as
   Week Trends (6-chart grid + table) → Weekly Snapshots (table) → Daily
   Summary (3-chart row + table) → Feedback Details (pie chart + table) → Top
   Users by Feedback (table) → Top Users by Interaction Count (bar chart +
-  table) → Executive Notes. Page breaks placed the same as the notebook
-  (after Executive Summary, before Feedback Details).
+  table) → Executive Notes. **One page per subsection** (not 2 page breaks as
+  originally planned): pdfkit has no Platypus-style auto-reflow, so if our
+  own manually-tracked `y` cursor were allowed to exceed one page's height
+  across multiple subsections, every subsequent absolute-positioned
+  `doc.text()` call downstream would also land past the page bottom —
+  pdfkit inserts its own implicit page break the moment that happens, and
+  since our y coordinates don't reset per page, each following call
+  repeats the problem, producing one blank page per text call. Giving each
+  subsection its own page keeps our layout math within a single page's
+  bounds so pdfkit's implicit pagination never engages. Confirmed via the
+  manual smoke test (Testing section below) — the fixed version produces
+  exactly 8 pages, matching the reference PDF's structure.
 
 ## Dependency
 

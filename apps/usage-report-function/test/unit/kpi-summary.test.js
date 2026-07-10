@@ -36,6 +36,8 @@ describe('getKpiSummary', () => {
     expect(kpi.avgInteractionsPerUser).toBe(2); // 2 successful u1 records / 1 unique user
     expect(kpi.errorRate).toBe(25); // 1 error / 4 total
     expect(kpi.rateLimitedEvents).toBe(1);
+    expect(kpi.goodFeedback).toBe(2);
+    expect(kpi.badFeedback).toBe(1);
     expect(kpi.positiveFeedbackPct).toBeCloseTo(66.667, 2);
   });
 
@@ -52,6 +54,8 @@ describe('getKpiSummary', () => {
       avgInteractionsPerUser: 0,
       errorRate: 0,
       rateLimitedEvents: 0,
+      goodFeedback: 0,
+      badFeedback: 0,
       positiveFeedbackPct: 0,
     });
   });
