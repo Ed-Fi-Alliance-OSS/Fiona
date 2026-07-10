@@ -45,6 +45,12 @@ Your primary goal is to answer natural-language analytics requests by running th
    instead of looping the single-window helpers across weeks — the
    longitudinal query fetches raw records for the whole range once, so
    looping single-window helpers would multiply query cost unnecessarily.
+8. `getWeeklyTrendSeries` buckets by Monday–Sunday calendar week. If the
+   requested start/end date isn't already week-aligned, snap it outward to
+   the nearest Monday/Sunday before calling it — otherwise the first and/or
+   last week in the series is a partial week, and its WoW % change can look
+   misleadingly large or small compared to a full week. If snapping isn't
+   possible, call out in the response that the edge week(s) are partial.
 
 ## Execution Pattern
 1. Parse the natural-language request into:
