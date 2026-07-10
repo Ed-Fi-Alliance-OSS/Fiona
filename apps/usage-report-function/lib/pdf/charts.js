@@ -5,6 +5,18 @@
 
 const TITLE_HEIGHT = 14;
 const LABEL_HEIGHT = 12;
+const MAX_LEGIBLE_LABELS = 15;
+
+/**
+ * Returns how many bars to skip between rendered labels so that, once a
+ * chart has more categories than can legibly fit (e.g. a multi-month daily
+ * summary), labels thin out to roughly `maxLabels` instead of wrapping
+ * character-by-character in an ever-narrower slot. Exported separately so
+ * the thinning math is directly testable.
+ */
+export function computeLabelStep(count, maxLabels = MAX_LEGIBLE_LABELS) {
+  return count > maxLabels ? Math.ceil(count / maxLabels) : 1;
+}
 
 /**
  * Draws a simple bar chart directly with pdfkit vector primitives (no
@@ -27,6 +39,7 @@ export function drawBarChart(doc, { x, y, width, height, data, labels = [], titl
   const barPadding = barSlotWidth * 0.15;
   const barWidth = barSlotWidth - barPadding * 2;
   const maxValue = Math.max(0, ...data);
+  const labelStep = computeLabelStep(labels.length);
 
   data.forEach((value, i) => {
     const barHeight = maxValue > 0 ? (value / maxValue) * chartHeight : 0;
@@ -35,11 +48,11 @@ export function drawBarChart(doc, { x, y, width, height, data, labels = [], titl
     doc.rect(barX, barY, barWidth, barHeight).fill(color);
 
     const label = labels[i];
-    if (label) {
+    if (label && i % labelStep === 0) {
       doc
         .fontSize(6)
         .fillColor('#333333')
-        .text(label, x + i * barSlotWidth, chartBottom + 2, { width: barSlotWidth, align: 'center' });
+        .text(label, x + i * barSlotWidth, chartBottom + 2, { width: barSlotWidth * labelStep, align: 'center' });
     }
   });
 }
@@ -69,6 +82,7 @@ export function drawStackedBarChart(doc, { x, y, width, height, series, labels =
 
   const totals = Array.from({ length: categoryCount }, (_, i) => series.reduce((sum, s) => sum + (s.data[i] || 0), 0));
   const maxTotal = Math.max(0, ...totals);
+  const labelStep = computeLabelStep(labels.length);
 
   for (let i = 0; i < categoryCount; i += 1) {
     let cumulative = 0;
@@ -83,11 +97,11 @@ export function drawStackedBarChart(doc, { x, y, width, height, series, labels =
     }
 
     const label = labels[i];
-    if (label) {
+    if (label && i % labelStep === 0) {
       doc
         .fontSize(6)
         .fillColor('#333333')
-        .text(label, x + i * barSlotWidth, chartBottom + 2, { width: barSlotWidth, align: 'center' });
+        .text(label, x + i * barSlotWidth, chartBottom + 2, { width: barSlotWidth * labelStep, align: 'center' });
     }
   }
 

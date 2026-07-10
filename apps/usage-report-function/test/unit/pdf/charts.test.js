@@ -4,7 +4,13 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it, jest } from '@jest/globals';
-import { computePieSlices, drawBarChart, drawPieChart, drawStackedBarChart } from '../../../lib/pdf/charts.js';
+import {
+  computeLabelStep,
+  computePieSlices,
+  drawBarChart,
+  drawPieChart,
+  drawStackedBarChart,
+} from '../../../lib/pdf/charts.js';
 
 const makeMockDoc = () => {
   const doc = {};
@@ -57,6 +63,34 @@ describe('drawBarChart', () => {
     expect(doc.text).toHaveBeenCalledWith('My Chart', expect.any(Number), expect.any(Number), expect.any(Object));
     expect(doc.text).toHaveBeenCalledWith('Mon', expect.any(Number), expect.any(Number), expect.any(Object));
     expect(doc.text).toHaveBeenCalledWith('Tue', expect.any(Number), expect.any(Number), expect.any(Object));
+  });
+
+  it('thins labels to stay legible when there are far more bars than fit', () => {
+    const doc = makeMockDoc();
+    const count = 60;
+    const data = Array.from({ length: count }, (_, i) => i + 1);
+    const labels = Array.from({ length: count }, (_, i) => `d${i}`);
+
+    drawBarChart(doc, { x: 0, y: 0, width: 300, height: 50, data, labels });
+
+    expect(doc.rect).toHaveBeenCalledTimes(count); // every bar still drawn
+    const labelCalls = doc.text.mock.calls.filter(([text]) => /^d\d+$/.test(text));
+    expect(labelCalls.length).toBeLessThanOrEqual(15);
+    expect(labelCalls.length).toBeGreaterThan(0);
+    // rendered labels always include the first bar's label
+    expect(labelCalls.some(([text]) => text === 'd0')).toBe(true);
+  });
+});
+
+describe('computeLabelStep', () => {
+  it('returns 1 (render every label) when count is within the legible max', () => {
+    expect(computeLabelStep(9)).toBe(1);
+    expect(computeLabelStep(15)).toBe(1);
+  });
+
+  it('returns a step that thins count down to roughly maxLabels', () => {
+    expect(computeLabelStep(60)).toBe(4); // ceil(60/15)
+    expect(computeLabelStep(30, 10)).toBe(3);
   });
 });
 
