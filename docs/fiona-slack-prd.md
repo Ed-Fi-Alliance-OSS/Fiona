@@ -311,6 +311,7 @@ to a Slack channel via incoming webhook.
 | Feedback ratio          | `good / (good + bad) * 100`                              |
 | Avg interactions / user | Mean interactions per active user                        |
 | Feedback response rate  | Percentage of successful interactions that were rated    |
+| Representative feedback | Up to 5 feedback examples (question, response, thumb-derived sentiment, restated reason), prioritizing entries with a reason, then most-recent reason-less entries (AI-141) |
 
 > [!NOTE]
 > AI-141 also calls for both metrics to appear in the trend report that
