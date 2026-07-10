@@ -9,9 +9,14 @@ const HEADER_COLOR = '#366092';
 const DEFAULT_BAND_COLORS = ['#ffffff', '#f9fbfd'];
 const CELL_PADDING = 3;
 
+// Hard length cap only — a safety net against feeding pdfkit multi-KB
+// strings, not the visual truncation mechanism. Single-line visual
+// truncation (with "…") is handled by `ellipsis: true` at render time,
+// which measures against the actual column width instead of guessing a
+// character count.
 function truncate(value, limit) {
   const text = value === null || value === undefined ? '' : String(value);
-  return limit && text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
+  return limit && text.length > limit ? text.slice(0, limit) : text;
 }
 
 function columnWidths(columns, width) {
@@ -58,7 +63,15 @@ export function drawTable(doc, { x, y, width, columns, rows, maxRows = 20, bandC
       doc
         .fontSize(7)
         .fillColor('#1a1a1a')
-        .text(text, rowCellX + CELL_PADDING, cursorY + 2, { width: widths[i] - CELL_PADDING * 2 });
+        // `ellipsis: true` + a fixed `height` keep every cell to a single
+        // line, truncating with "…" instead of wrapping — a row is only
+        // ROW_HEIGHT tall, so a wrapped second line would bleed into the
+        // row below it rather than being clipped.
+        .text(text, rowCellX + CELL_PADDING, cursorY + 2, {
+          width: widths[i] - CELL_PADDING * 2,
+          height: ROW_HEIGHT - 2,
+          ellipsis: true,
+        });
       rowCellX += widths[i];
     });
     cursorY += ROW_HEIGHT;

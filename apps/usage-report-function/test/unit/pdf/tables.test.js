@@ -96,7 +96,7 @@ describe('drawTable', () => {
     );
   });
 
-  it('truncates cell text longer than the configured limit', () => {
+  it('hard-caps cell text length as a safety net for the configured limit', () => {
     const doc = makeMockDoc();
     const longText = 'x'.repeat(300);
 
@@ -109,7 +109,25 @@ describe('drawTable', () => {
     });
 
     const textCalls = doc.text.mock.calls.map(([text]) => text);
-    expect(textCalls.some((t) => t === 'xxxxxxx...')).toBe(true);
+    expect(textCalls.some((t) => t === 'x'.repeat(10))).toBe(true);
+  });
+
+  it('renders data cells as single-line with pdfkit ellipsis truncation, not manual wrapping', () => {
+    const doc = makeMockDoc();
+
+    drawTable(doc, {
+      x: 0,
+      y: 0,
+      width: 100,
+      columns: [{ key: 'a', header: 'A', weight: 1 }],
+      rows: [{ a: 'some value' }],
+    });
+
+    const dataCall = doc.text.mock.calls.find(([text]) => text === 'some value');
+    expect(dataCall).toBeDefined();
+    const [, , , options] = dataCall;
+    expect(options.ellipsis).toBe(true);
+    expect(options.height).toBeGreaterThan(0);
   });
 
   it('caps rendered rows at maxRows', () => {
