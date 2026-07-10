@@ -136,8 +136,9 @@ export function formatLongitudinalReport(weeklySeries, { deploymentType, startDa
   }
 
   const signed = (value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
+  const formatWow = (value) => (value === null ? 'N/A' : signed(value));
 
-  const blocks = weeklySeries.map((week) => {
+  const blocks = weeklySeries.map((week, index) => {
     const weekLabel = formatWeekLabel(week.weekStart, week.weekEnd);
     const lines = [
       `📊 *Week of ${weekLabel}*`,
@@ -151,9 +152,9 @@ export function formatLongitudinalReport(weeklySeries, { deploymentType, startDa
       `📝 Feedback response rate: ${week.feedbackResponseRate.toFixed(1)}%`,
     ];
 
-    if (week.usersWowPct !== null) {
+    if (index !== 0) {
       lines.push(
-        `📈 WoW: ${signed(week.usersWowPct)}% users, ${signed(week.interactionsWowPct)}% interactions, ${signed(week.errorRateWowPp)}pp error rate`,
+        `📈 WoW: ${formatWow(week.usersWowPct)}% users, ${formatWow(week.interactionsWowPct)}% interactions, ${formatWow(week.errorRateWowPp)}pp error rate`,
       );
     }
 

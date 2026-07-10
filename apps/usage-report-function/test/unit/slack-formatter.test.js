@@ -279,6 +279,28 @@ describe('formatLongitudinalReport', () => {
     errorRateWowPp: -33.333,
   };
 
+  const weekC = {
+    weekStart: '2026-04-27',
+    weekEnd: '2026-05-03',
+    uniqueUsers: 5,
+    sessions: 5,
+    totalInteractions: 5,
+    errors: 0,
+    errorRate: 0,
+    rateLimited: 0,
+    goodFeedback: 0,
+    badFeedback: 0,
+    feedbackRatio: 0,
+    avgInteractionsPerUser: 1,
+    feedbackResponseRate: 0,
+    newUsers: 5,
+    returningUsers: 0,
+    repeatRate: 0,
+    usersWowPct: null, // previous week (weekB variant with 0 uniqueUsers) had no users to compare against
+    interactionsWowPct: 66.667,
+    errorRateWowPp: -10,
+  };
+
   const options = { deploymentType: 'production', startDate: '2026-04-13', endDate: '2026-04-26' };
 
   it('includes a header with the date range and environment', () => {
@@ -306,6 +328,16 @@ describe('formatLongitudinalReport', () => {
     const weekABlock = message.slice(0, weekABlockEnd);
     expect(weekABlock).not.toContain('WoW:');
     expect(message).toContain('WoW: +200.0% users, +0.0% interactions, -33.3pp error rate');
+  });
+
+  it('still renders the WoW line when only some WoW fields are null for a non-first week', () => {
+    const message = formatLongitudinalReport([weekA, weekB, weekC], options);
+    const weekCBlockStart = message.indexOf('Week of Apr 27');
+    const weekCBlock = message.slice(weekCBlockStart);
+    expect(weekCBlock).toContain('WoW:');
+    expect(weekCBlock).toContain('N/A% users');
+    expect(weekCBlock).toContain('+66.7% interactions');
+    expect(weekCBlock).toContain('-10.0pp error rate');
   });
 
   it('shows a no-data message when the series is empty', () => {
