@@ -15,6 +15,7 @@ import {
   getFeedbackResponseRate,
   getNewUsersCount,
   getRateLimitedCount,
+  getRepresentativeFeedback,
   getSessionCount,
   getTotalInteractions,
 } from '../lib/cosmos-queries.js';
@@ -105,6 +106,7 @@ app.timer('WeeklyReportTrigger', {
         avgInteractionsPerUser,
         feedbackResponseRate,
         newUsersCount,
+        representativeFeedback,
       ] = await Promise.all([
         getDistinctUsers(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getSessionCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
@@ -115,6 +117,7 @@ app.timer('WeeklyReportTrigger', {
         getAvgInteractionsPerUser(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getNewUsersCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
+        getRepresentativeFeedback(feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
       ]);
 
       logger(
@@ -153,6 +156,7 @@ app.timer('WeeklyReportTrigger', {
         environment: DEPLOYMENT_TYPE,
         startDate: oneWeekAgo.toISOString().split('T')[0],
         endDate: endOfReport.toISOString().split('T')[0],
+        representativeFeedback,
       };
 
       const message = formatWeeklyReport(kpis);
