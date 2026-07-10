@@ -4,6 +4,7 @@ import {
   getDistinctUsers,
   getErrorCount,
   getFeedbackBreakdown,
+  getFeedbackDetails,
   getFeedbackResponseRate,
   getNewUsersCount,
   getRateLimitedCount,
@@ -358,6 +359,87 @@ describe('cosmos-queries', () => {
       const [querySpec] = mockFeedbackContainer.items.query.mock.calls[0];
       expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: 'production' });
       expect(querySpec.parameters).toContainEqual({ name: '@oneWeekAgoISO', value: oneWeekAgoISO });
+    });
+  });
+
+  describe('getFeedbackDetails', () => {
+    const startISO = '2026-04-13T00:00:00.000Z';
+    const endISO = '2026-04-20T00:00:00.000Z';
+
+    it('returns a chronological (newest-first) unfiltered feedback listing', async () => {
+      // Resources arrive already newest-first, as Cosmos's ORDER BY f.timestamp DESC would return them.
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({
+          resources: [
+            {
+              timestamp: '2026-04-16T00:00:00.000Z',
+              userId: 'u1',
+              feedbackValue: 'good-feedback',
+              userMessage: 'q1',
+              botResponse: 'a1',
+            },
+            {
+              timestamp: '2026-04-15T00:00:00.000Z',
+              userId: 'u2',
+              feedbackValue: 'bad-feedback',
+              userMessage: 'q2',
+              botResponse: 'a2',
+            },
+          ],
+        }),
+      });
+
+      const result = await getFeedbackDetails(mockFeedbackContainer, deploymentType, startISO, endISO);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        timestamp: '2026-04-16T00:00:00.000Z',
+        userId: 'u1',
+        value: 'good-feedback',
+        userMessage: 'q1',
+        botResponse: 'a1',
+      });
+      expect(result[1].userId).toBe('u2');
+    });
+
+    it('caps results at the given limit', async () => {
+      const resources = Array.from({ length: 30 }, (_, i) => ({
+        timestamp: `2026-04-${(i % 28) + 1}T00:00:00.000Z`,
+        userId: `u${i}`,
+        feedbackValue: 'good-feedback',
+        userMessage: `msg-${i}`,
+        botResponse: `resp-${i}`,
+      }));
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources }),
+      });
+
+      const result = await getFeedbackDetails(mockFeedbackContainer, deploymentType, startISO, endISO, 25);
+
+      expect(result).toHaveLength(25);
+    });
+
+    it('returns an empty array when there is no feedback in range', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      const result = await getFeedbackDetails(mockFeedbackContainer, deploymentType, startISO, endISO);
+
+      expect(result).toEqual([]);
+    });
+
+    it('passes correct query parameters', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      await getFeedbackDetails(mockFeedbackContainer, deploymentType, startISO, endISO);
+
+      const [querySpec] = mockFeedbackContainer.items.query.mock.calls[0];
+      expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: deploymentType });
+      expect(querySpec.parameters).toContainEqual({ name: '@startISO', value: startISO });
+      expect(querySpec.parameters).toContainEqual({ name: '@endISO', value: endISO });
     });
   });
 });

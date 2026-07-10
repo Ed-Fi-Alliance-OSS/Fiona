@@ -226,3 +226,37 @@ export async function getRepresentativeFeedback(container, deploymentType, oneWe
     hasReason: Boolean(f.reason),
   }));
 }
+
+/**
+ * Returns an unfiltered, chronological (newest-first) feedback listing for
+ * [startISO, endISO), capped at `limit`. Unlike `getRepresentativeFeedback`
+ * (5 items, reason-prioritized, for the Slack report's qualitative
+ * highlights), this is a plain recency-ordered listing for the PDF report's
+ * Feedback Details table.
+ */
+export async function getFeedbackDetails(container, deploymentType, startISO, endISO, limit = 25) {
+  const { resources } = await container.items
+    .query({
+      // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
+      query: `SELECT f.timestamp, f.userId, f["value"] AS feedbackValue, f.userMessage, f.botResponse
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp >= @startISO
+         AND f.timestamp < @endISO
+       ORDER BY f.timestamp DESC`,
+      parameters: [
+        { name: '@deploymentType', value: deploymentType },
+        { name: '@startISO', value: startISO },
+        { name: '@endISO', value: endISO },
+      ],
+    })
+    .fetchAll();
+
+  return resources.slice(0, limit).map((f) => ({
+    timestamp: f.timestamp,
+    userId: f.userId,
+    value: f.feedbackValue,
+    userMessage: f.userMessage,
+    botResponse: f.botResponse,
+  }));
+}
