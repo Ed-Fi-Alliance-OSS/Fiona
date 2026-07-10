@@ -93,7 +93,7 @@ New:
   delay) → prints to PDF with a `footerTemplate` (page numbers) → writes the
   file → closes the browser.
 
-## Backend Query Change
+## Backend Query Changes
 
 `getDailySummary` (`lib/daily-queries.js`) gains `newUsers`, `returningUsers`,
 `repeatRate` per day, mirroring `getWeeklyTrendSeries`'s existing logic:
@@ -105,8 +105,22 @@ pattern (matching this codebase's existing style of per-module query logic)
 rather than a shared helper — no third consumer exists yet to justify
 extracting one.
 
-No other backend changes: `buildExecutiveReportData`, `kpiSummary`, and the
-weekly data already have everything the new pages need.
+`getRepresentativeFeedbackInRange` (new, `lib/cosmos-queries.js`) — a
+range-bound sibling of the existing `getRepresentativeFeedback`. Discovered
+during implementation planning: `getRepresentativeFeedback` takes only
+`oneWeekAgoISO` with no upper bound, which is correct for
+`WeeklyReportTrigger`'s "last 7 days up to now" usage but would silently
+include feedback past `endISO` for the executive report's arbitrary past
+range. Added as a separate function rather than changing
+`getRepresentativeFeedback`'s signature, since that function is actively
+used by `WeeklyReportTrigger` with passing tests that assume its current
+open-ended behavior.
+
+`buildExecutiveReportData` gains a `representativeFeedback` field, sourced
+from `getRepresentativeFeedbackInRange`.
+
+No other backend changes: `kpiSummary` and the weekly data already have
+everything the new pages need.
 
 ## Page-by-Page Content Mapping
 
@@ -115,7 +129,7 @@ weekly data already have everything the new pages need.
 | 1 — Cover / Executive Summary | Title; `Period / Environment / Generated` header; static intro paragraph; 2×3 KPI card grid (Total Interactions, Unique Users, Total Sessions, Avg Interactions/User, System Error Rate, Positive Feedback); Readout bullet list |
 | 2 — Usage Trends | One enlarged Chart.js combo chart (bar: Interactions; 2 lines: Users, Sessions; dual y-axis; diagonal week labels; legend); Observation table below |
 | 3 — Reliability and Feedback | Weekly Error Rate bar chart; Weekly Feedback Volume stacked bar chart (Good/Bad legend); Takeaway table below |
-| 4 — Representative Feedback | Cards from `getRepresentativeFeedback` (existing reason-prioritized selection, limit 5) — colored background by sentiment (light red/green), header "Good/Bad feedback - DATE", `Q:` (userMessage), `A:` (verbatim `botResponse`, truncated — **not paraphrased**, consistent with the existing ground rule that feedback content is restated, never reinterpreted) |
+| 4 — Representative Feedback | Cards from `getRepresentativeFeedbackInRange` (new range-bound variant of `getRepresentativeFeedback`'s reason-prioritized selection, limit 5 — added because the existing function is open-ended-to-now and not safe for an arbitrary past `[startISO, endISO)` range; see Backend Query Change below) — colored background by sentiment (light red/green), header "Good/Bad feedback - DATE", `Q:` (userMessage), `A:` (verbatim `botResponse`, truncated — **not paraphrased**, consistent with the existing ground rule that feedback content is restated, never reinterpreted) |
 | 5 — Top Users | Top Users by Feedback (5 rows), Top Users by Interaction Count (6 rows), narrowed to decision-useful columns |
 | 6 — Appendix | Weekly Snapshot table (adds `new_users`/`returning_users`/`repeat_rate%` columns, already in `weeklyTrend`); Daily Summary — 3 Chart.js bar charts (interactions, unique users, error rate) + table (adds `new_users`/`returning_users` columns, from the `getDailySummary` extension above); Executive Notes |
 
