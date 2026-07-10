@@ -9,6 +9,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import {
   formatCompactTimestamp,
+  formatWeekChartLabel,
   formatWeekLabel,
   generateExecutiveReportPdf,
 } from '../../../lib/pdf/executive-report-pdf.js';
@@ -20,6 +21,13 @@ describe('formatWeekLabel', () => {
 
   it('formats a week spanning two months as "Mon D-Mon D, YYYY"', () => {
     expect(formatWeekLabel('2026-04-27', '2026-05-03')).toBe('Apr 27-May 3, 2026');
+  });
+});
+
+describe('formatWeekChartLabel', () => {
+  it('formats a week-start date as a short single-line "M/D" label', () => {
+    expect(formatWeekChartLabel('2026-04-13')).toBe('4/13');
+    expect(formatWeekChartLabel('2026-12-01')).toBe('12/1');
   });
 });
 

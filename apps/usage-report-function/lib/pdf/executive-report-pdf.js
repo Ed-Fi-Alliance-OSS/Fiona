@@ -25,6 +25,17 @@ export function formatWeekLabel(weekStartISO, weekEndISO) {
     : `${startMonth} ${start.getUTCDate()}-${endMonth} ${end.getUTCDate()}, ${year}`;
 }
 
+/**
+ * Formats a week-start date as a short single-line label (e.g. "4/13") for
+ * chart x-axes, where bar slots are too narrow for the full "Apr 13-19,
+ * 2026" table label — that wraps to 2-3 lines and overflows the space
+ * budgeted for axis labels, bleeding into whatever renders next.
+ */
+export function formatWeekChartLabel(weekStartISO) {
+  const start = new Date(`${weekStartISO}T00:00:00.000Z`);
+  return `${start.getUTCMonth() + 1}/${start.getUTCDate()}`;
+}
+
 /** Formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC, for crowded table columns. */
 export function formatCompactTimestamp(iso) {
   const d = new Date(iso);
@@ -95,7 +106,7 @@ function renderExecutiveSummary(doc, { kpiSummary }, marginX, contentWidth, y) {
 function renderWeeklyTrends(doc, { weeklyTrend }, marginX, contentWidth, y) {
   y = drawSectionTitle(doc, 'Week-over-Week Longitudinal Trends', marginX, y);
 
-  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const labels = weeklyTrend.map((w) => formatWeekChartLabel(w.weekStart));
   const cellWidth = contentWidth / 3;
   const cellHeight = 95;
 
@@ -130,7 +141,7 @@ function renderWeeklyTrends(doc, { weeklyTrend }, marginX, contentWidth, y) {
     color: '#9370db',
   });
 
-  y += cellHeight + 6;
+  y += cellHeight + 10;
 
   drawBarChart(doc, {
     x: marginX,
@@ -257,34 +268,41 @@ function renderWeeklySnapshots(doc, { weeklyTrend }, marginX, contentWidth, y) {
 function renderDailySummary(doc, { dailySummary }, marginX, contentWidth, y) {
   y = drawSectionTitle(doc, 'Daily Summary', marginX, y);
 
-  const cellWidth = contentWidth / 3;
-  const cellHeight = 85;
+  // Stacked full-width (rather than 3 side-by-side, 1/3-width charts) so
+  // each bar stays as wide as possible regardless of how many days the
+  // range spans — a daily range routinely has far more categories than the
+  // weekly charts, so splitting width 3 ways compounds the crowding.
+  const cellHeight = 70;
   const dates = dailySummary.map((d) => d.date.slice(5)); // MM-DD, keeps labels short
 
   drawBarChart(doc, {
     x: marginX,
     y,
-    width: cellWidth,
+    width: contentWidth,
     height: cellHeight,
     data: dailySummary.map((d) => d.totalInteractions),
     labels: dates,
     title: 'Daily Interactions',
     color: '#4682b4',
   });
+  y += cellHeight + 4;
+
   drawBarChart(doc, {
-    x: marginX + cellWidth,
+    x: marginX,
     y,
-    width: cellWidth,
+    width: contentWidth,
     height: cellHeight,
     data: dailySummary.map((d) => d.uniqueUsers),
     labels: dates,
     title: 'Daily Unique Users',
     color: '#2e8b57',
   });
+  y += cellHeight + 4;
+
   drawBarChart(doc, {
-    x: marginX + cellWidth * 2,
+    x: marginX,
     y,
-    width: cellWidth,
+    width: contentWidth,
     height: cellHeight,
     data: dailySummary.map((d) => d.errorRate),
     labels: dates,
@@ -292,7 +310,7 @@ function renderDailySummary(doc, { dailySummary }, marginX, contentWidth, y) {
     color: '#ff6347',
   });
 
-  y += cellHeight + 20;
+  y += cellHeight + 16;
 
   const rows = dailySummary.map((d) => ({
     date: d.date,
