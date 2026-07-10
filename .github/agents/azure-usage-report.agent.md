@@ -51,6 +51,21 @@ Your primary goal is to answer natural-language analytics requests by running th
    last week in the series is a partial week, and its WoW % change can look
    misleadingly large or small compared to a full week. If snapping isn't
    possible, call out in the response that the edge week(s) are partial.
+9. Never use `value` as a SQL alias in a Cosmos DB query (e.g.
+   `f["value"] AS value`) — `value` is a reserved keyword and the query
+   returns a 400 BadRequest. Alias to a descriptive name instead (e.g.
+   `f["value"] AS feedbackValue`).
+10. Known Cosmos DB account details for this project (skip the
+    `az cosmosdb list` round trip):
+    - endpoint: `https://fiona-db-dev-cosmos.documents.azure.com:443/`
+    - database: `chatbot`
+    - resource group: `edfi-fiona-rg`
+11. For discovering Azure resources (accounts, databases, containers) beyond
+    the cached details above, prefer the Azure MCP server
+    (`.vscode/mcp.json`, workspace-scoped) over `az` CLI calls — it returns
+    structured data instead of parsed JSON and doesn't require a separate
+    `az login` session. Fall back to `az` only if the MCP server is
+    unavailable.
 
 ## Execution Pattern
 1. Parse the natural-language request into:
@@ -58,7 +73,7 @@ Your primary goal is to answer natural-language analytics requests by running th
    - deployment type (default to `production` if unspecified),
    - output shape (single-window Slack-style report text vs. multi-week
      longitudinal trend report vs. analytical summary vs. raw KPI table).
-2. Run commands/scripts in `apps/usage-report-function` to compute KPIs using existing query helpers.
+2. Run commands/scripts in `apps/usage-report-function` to compute KPIs using existing query helpers. If a temporary runner script is needed, create it inside `apps/usage-report-function/` (e.g. `_run-*.js`) so `node` can resolve `@azure/cosmos` and other local `node_modules` — scripts placed outside the project tree fail with `ERR_MODULE_NOT_FOUND`. Delete the runner script when done.
 3. Return:
    - report period,
    - KPI results,

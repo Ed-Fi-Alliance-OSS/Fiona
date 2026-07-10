@@ -60,7 +60,8 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
 
   const { resources: feedback } = await feedbackContainer.items
     .query({
-      query: `SELECT f["value"] AS value, f.timestamp
+      // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
+      query: `SELECT f["value"] AS feedbackValue, f.timestamp
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp >= @startISO
@@ -106,9 +107,9 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
     const weekKey = getWeekStartISO(record.timestamp);
     const bucket = ensureWeekBucket(weekKey);
     bucket.feedbackCount += 1;
-    if (record.value === 'good-feedback') {
+    if (record.feedbackValue === 'good-feedback') {
       bucket.goodFeedback += 1;
-    } else if (record.value === 'bad-feedback') {
+    } else if (record.feedbackValue === 'bad-feedback') {
       bucket.badFeedback += 1;
     }
   }

@@ -34,8 +34,8 @@ describe('getWeeklyTrendSeries', () => {
   ];
   const allInteractions = [...weekAInteractions, ...weekBInteractions];
 
-  const weekAFeedback = [{ value: 'good-feedback', timestamp: '2026-04-13T12:00:00.000Z' }];
-  const weekBFeedback = [{ value: 'bad-feedback', timestamp: '2026-04-22T12:00:00.000Z' }];
+  const weekAFeedback = [{ feedbackValue: 'good-feedback', timestamp: '2026-04-13T12:00:00.000Z' }];
+  const weekBFeedback = [{ feedbackValue: 'bad-feedback', timestamp: '2026-04-22T12:00:00.000Z' }];
   const allFeedback = [...weekAFeedback, ...weekBFeedback];
 
   beforeEach(() => {
