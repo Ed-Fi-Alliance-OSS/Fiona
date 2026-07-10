@@ -479,7 +479,7 @@ WeeklyReportTrigger/
 ├── function.json                  # TimerTrigger binding config
 └── index.js                       # Queries Cosmos DB, formats report, posts to Slack
 lib/
-├── cosmos-queries.js              # 9 KPI query functions (distinct users, new users, sessions, etc.)
+├── cosmos-queries.js              # 10 KPI query functions (distinct users, new users, sessions, representative feedback, etc.)
 ├── slack-formatter.js             # Formats the weekly Slack message string
 └── key-vault-client.js            # Retrieves Slack webhook URL from Azure Key Vault
 ```
