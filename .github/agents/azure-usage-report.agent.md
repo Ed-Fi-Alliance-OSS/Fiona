@@ -23,6 +23,7 @@ Your primary goal is to answer natural-language analytics requests by running th
   - positive feedback ratio
   - average interactions per user
   - feedback response rate
+  - 5 representative feedback examples (question, response, thumb-derived sentiment, restated reason) when a weekly-style report is requested
 - Provide short analysis of key changes/drivers when asked.
 
 ## Ground Rules
@@ -33,7 +34,8 @@ Your primary goal is to answer natural-language analytics requests by running th
 2. Do not invent metrics that are not present in the underlying data or query logic.
 3. If required environment/configuration values are missing, state exactly what is missing and how to supply it.
 4. For weekly report requests, preserve parity with WeeklyReportTrigger formulas and output semantics.
-5. Never post to Slack unless explicitly requested.
+5. When representative feedback is requested, reuse `getRepresentativeFeedback` and `formatFeedbackSection` rather than re-deriving sentiment or re-selecting examples — sentiment is always the raw thumbs rating restated (good-feedback → Positive, bad-feedback → Negative), never LLM-classified.
+6. Never post to Slack unless explicitly requested.
 
 ## Execution Pattern
 1. Parse the natural-language request into:
