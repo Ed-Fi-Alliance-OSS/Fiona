@@ -196,3 +196,33 @@ export async function getFeedbackResponseRate(interactionsContainer, feedbackCon
 
   return (feedbackCount / successCount) * 100;
 }
+
+/**
+ * Returns up to `limit` representative feedback entries for the period,
+ * prioritizing entries that have a free-text reason (most recent first),
+ * then filling remaining slots with reason-less entries (most recent first).
+ */
+export async function getRepresentativeFeedback(container, deploymentType, oneWeekAgoISO, limit = 5) {
+  const { resources } = await container.items
+    .query({
+      query: `SELECT f.userMessage, f.botResponse, f["value"], f.reason, f.timestamp
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp > @oneWeekAgoISO
+       ORDER BY f.timestamp DESC`,
+      parameters: BASE_PARAMS(deploymentType, oneWeekAgoISO),
+    })
+    .fetchAll();
+
+  const withReason = resources.filter((f) => f.reason);
+  const withoutReason = resources.filter((f) => !f.reason);
+
+  return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
+    userMessage: f.userMessage,
+    botResponse: f.botResponse,
+    value: f.value,
+    reason: f.reason ?? null,
+    timestamp: f.timestamp,
+    hasReason: Boolean(f.reason),
+  }));
+}
