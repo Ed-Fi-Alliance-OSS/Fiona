@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { formatWeekLabel } from './format.js';
+
 function escapeHtml(value) {
   return String(value).replace(
     /[&<>"']/g,
@@ -53,5 +55,93 @@ export function renderCoverPage(kpiSummary, readoutBullets, period) {
     <ul class="readout">
       ${readoutBullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
     </ul>
+  </section>`;
+}
+
+function observationTable(headerA, headerB, rows, keyA, keyB) {
+  if (rows.length === 0) {
+    return '<p class="empty">No data available.</p>';
+  }
+  const body = rows
+    .map((row) => `<tr><td>${escapeHtml(row[keyA])}</td><td>${escapeHtml(row[keyB])}</td></tr>`)
+    .join('\n        ');
+  return `
+    <table class="observation-table">
+      <thead><tr><th>${escapeHtml(headerA)}</th><th>${escapeHtml(headerB)}</th></tr></thead>
+      <tbody>
+        ${body}
+      </tbody>
+    </table>`;
+}
+
+export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
+  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const interactions = weeklyTrend.map((w) => w.totalInteractions);
+  const users = weeklyTrend.map((w) => w.uniqueUsers);
+  const sessions = weeklyTrend.map((w) => w.sessions);
+
+  const chartConfig = {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Interactions',
+          data: interactions,
+          backgroundColor: 'rgba(147,112,219,0.35)',
+          yAxisID: 'yInteractions',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Users',
+          data: users,
+          borderColor: '#1a5490',
+          backgroundColor: '#1a5490',
+          yAxisID: 'yCount',
+          tension: 0.3,
+          order: 0,
+        },
+        {
+          type: 'line',
+          label: 'Sessions',
+          data: sessions,
+          borderColor: '#6495ed',
+          backgroundColor: '#6495ed',
+          yAxisID: 'yCount',
+          tension: 0.3,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: {
+        legend: { display: true, position: 'top' },
+        title: { display: true, text: 'Weekly Usage Trend' },
+      },
+      scales: {
+        x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } },
+        yInteractions: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } },
+        yCount: { type: 'linear', position: 'left' },
+      },
+    },
+  };
+
+  return `
+  <section class="page">
+    <h2>Usage Trends</h2>
+    <p>
+      The original report showed six small charts and a wide table on one page. This version enlarges the
+      core usage chart and moves the detailed weekly table to the appendix.
+    </p>
+    <canvas id="usage-trends-chart" width="900" height="380"></canvas>
+    <script>
+      window.__chartConfigs = window.__chartConfigs || {};
+      window.__chartConfigs['usage-trends-chart'] = ${JSON.stringify(chartConfig)};
+    </script>
+    ${observationTable('Metric', 'Observation', usageObservations, 'metric', 'observation')}
   </section>`;
 }

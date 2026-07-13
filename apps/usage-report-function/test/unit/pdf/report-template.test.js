@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it } from '@jest/globals';
-import { renderCoverPage } from '../../../lib/pdf/report-template.js';
+import { renderCoverPage, renderUsageTrendsPage } from '../../../lib/pdf/report-template.js';
 
 const kpiSummary = {
   totalInteractions: 437,
@@ -47,5 +47,35 @@ describe('renderCoverPage', () => {
     expect(html).toContain('2026-03-18');
     expect(html).toContain('2026-07-10');
     expect(html).toContain('production');
+  });
+});
+
+const weeklyTrend = [
+  { weekStart: '2026-04-13', weekEnd: '2026-04-19', uniqueUsers: 4, sessions: 4, totalInteractions: 6 },
+  { weekStart: '2026-04-20', weekEnd: '2026-04-26', uniqueUsers: 8, sessions: 15, totalInteractions: 90 },
+];
+const usageObservations = [
+  { metric: 'Peak weekly interactions', observation: '90 interactions during Apr 20-26, 2026.' },
+];
+
+describe('renderUsageTrendsPage', () => {
+  it('renders a canvas with a unique id and a chart-config script', () => {
+    const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
+    expect(html).toMatch(/<canvas id="usage-trends-chart"/);
+    expect(html).toContain('window.__chartConfigs');
+  });
+
+  it('embeds the weekly labels and datasets in the chart config', () => {
+    const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
+    expect(html).toContain('Apr 13-19, 2026');
+    expect(html).toContain('Apr 20-26, 2026');
+    expect(html).toContain('"data":[4,8]'); // uniqueUsers series
+    expect(html).toContain('"data":[6,90]'); // totalInteractions series
+  });
+
+  it('renders every observation row', () => {
+    const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
+    expect(html).toContain('Peak weekly interactions');
+    expect(html).toContain('90 interactions during Apr 20-26, 2026.');
   });
 });
