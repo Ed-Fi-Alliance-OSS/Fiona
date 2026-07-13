@@ -20,6 +20,9 @@ function createDayBucket() {
 /**
  * Returns per-day (UTC calendar day) usage summary for [startISO, endISO).
  * Days with zero interactions are omitted rather than zero-filled.
+ * New/returning-user classification mirrors `getWeeklyTrendSeries` in
+ * `longitudinal-queries.js`: a user is "new" on the day they first appear
+ * in-range, provided they have no successful interaction before startISO.
  *
  * @returns {Promise<Array<Object>>} days ordered oldest to newest
  */
@@ -40,11 +43,13 @@ export async function getDailySummary(interactionsContainer, deploymentType, sta
     .fetchAll();
 
   const dayBuckets = new Map();
+  const successUsersByDay = new Map();
 
   for (const record of interactions) {
     const dayKey = getDayKey(record.timestamp);
     if (!dayBuckets.has(dayKey)) {
       dayBuckets.set(dayKey, createDayBucket());
+      successUsersByDay.set(dayKey, new Set());
     }
     const bucket = dayBuckets.get(dayKey);
 
@@ -58,19 +63,74 @@ export async function getDailySummary(interactionsContainer, deploymentType, sta
     if (record.status === 'success' && record.rateLimited === false) {
       bucket.successUserIds.add(record.userId);
       bucket.successThreadTs.add(record.threadTs);
+      successUsersByDay.get(dayKey).add(record.userId);
     }
   }
 
-  return [...dayBuckets.keys()].sort().map((date) => {
+  const sortedDayKeys = [...dayBuckets.keys()].sort();
+
+  const firstDaySeenByUser = new Map();
+  for (const dayKey of sortedDayKeys) {
+    for (const userId of successUsersByDay.get(dayKey)) {
+      if (!firstDaySeenByUser.has(userId)) {
+        firstDaySeenByUser.set(userId, dayKey);
+      }
+    }
+  }
+
+  const currentUsers = [
+    ...new Set(
+      interactions
+        .filter((record) => record.status === 'success' && record.rateLimited === false)
+        .map((record) => record.userId),
+    ),
+  ];
+
+  let priorHistoryUsers = new Set();
+  if (currentUsers.length > 0) {
+    const { resources: priorUsers } = await interactionsContainer.items
+      .query({
+        query: `SELECT DISTINCT VALUE i.userId
+         FROM interactions i
+         WHERE i.deploymentType = @deploymentType
+           AND i.timestamp < @startISO
+           AND i.status = 'success'
+           AND i.rateLimited = false
+           AND ARRAY_CONTAINS(@currentUsers, i.userId)`,
+        parameters: [
+          { name: '@deploymentType', value: deploymentType },
+          { name: '@startISO', value: startISO },
+          { name: '@currentUsers', value: currentUsers },
+        ],
+      })
+      .fetchAll();
+    priorHistoryUsers = new Set(priorUsers);
+  }
+
+  return sortedDayKeys.map((date) => {
     const bucket = dayBuckets.get(date);
+    const uniqueUsers = bucket.successUserIds.size;
+
+    let newUsers = 0;
+    for (const userId of successUsersByDay.get(date)) {
+      if (firstDaySeenByUser.get(userId) === date && !priorHistoryUsers.has(userId)) {
+        newUsers += 1;
+      }
+    }
+    const returningUsers = uniqueUsers - newUsers;
+    const repeatRate = uniqueUsers > 0 ? (returningUsers / uniqueUsers) * 100 : 0;
+
     return {
       date,
-      uniqueUsers: bucket.successUserIds.size,
+      uniqueUsers,
       sessions: bucket.successThreadTs.size,
       totalInteractions: bucket.totalInteractions,
       errors: bucket.errors,
       errorRate: bucket.totalInteractions > 0 ? (bucket.errors / bucket.totalInteractions) * 100 : 0,
       rateLimited: bucket.rateLimited,
+      newUsers,
+      returningUsers,
+      repeatRate,
     };
   });
 }

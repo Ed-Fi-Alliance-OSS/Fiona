@@ -11,9 +11,13 @@ describe('getDailySummary', () => {
   const startISO = '2026-04-13T00:00:00.000Z';
   const endISO = '2026-04-15T00:00:00.000Z';
 
-  const makeQueryable = (resources) => ({
-    items: { query: jest.fn().mockReturnValue({ fetchAll: jest.fn().mockResolvedValue({ resources }) }) },
-  });
+  const makeQueryable = (resourcesList) => {
+    const query = jest.fn();
+    for (const resources of resourcesList) {
+      query.mockReturnValueOnce({ fetchAll: jest.fn().mockResolvedValue({ resources }) });
+    }
+    return { items: { query } };
+  };
 
   const dayAInteractions = [
     { userId: 'u1', threadTs: 't1', status: 'success', rateLimited: false, timestamp: '2026-04-13T10:00:00.000Z' },
@@ -26,7 +30,7 @@ describe('getDailySummary', () => {
   ];
 
   it('buckets interactions into UTC calendar days, oldest to newest', async () => {
-    const container = makeQueryable([...dayAInteractions, ...dayBInteractions]);
+    const container = makeQueryable([[...dayAInteractions, ...dayBInteractions], ['u4']]);
 
     const days = await getDailySummary(container, deploymentType, startISO, endISO);
 
@@ -36,7 +40,7 @@ describe('getDailySummary', () => {
   });
 
   it('counts uniqueUsers/sessions from success+non-rate-limited records only, totalInteractions/errors from all records', async () => {
-    const container = makeQueryable(dayAInteractions);
+    const container = makeQueryable([dayAInteractions, []]);
 
     const [dayA] = await getDailySummary(container, deploymentType, startISO, endISO);
 
@@ -49,7 +53,7 @@ describe('getDailySummary', () => {
   });
 
   it('counts rate-limited records separately from uniqueUsers/sessions', async () => {
-    const container = makeQueryable(dayBInteractions);
+    const container = makeQueryable([dayBInteractions, []]);
 
     const [dayB] = await getDailySummary(container, deploymentType, startISO, endISO);
 
@@ -62,7 +66,7 @@ describe('getDailySummary', () => {
   });
 
   it('omits days with zero interactions', async () => {
-    const container = makeQueryable(dayAInteractions);
+    const container = makeQueryable([dayAInteractions, []]);
 
     const days = await getDailySummary(container, deploymentType, startISO, endISO);
 
@@ -70,15 +74,15 @@ describe('getDailySummary', () => {
   });
 
   it('returns an empty array when there are no interactions in range', async () => {
-    const container = makeQueryable([]);
+    const container = makeQueryable([[]]);
 
     const days = await getDailySummary(container, deploymentType, startISO, endISO);
 
     expect(days).toEqual([]);
   });
 
-  it('passes correct query parameters', async () => {
-    const container = makeQueryable([]);
+  it('passes correct query parameters to the main interactions query', async () => {
+    const container = makeQueryable([[]]);
 
     await getDailySummary(container, deploymentType, startISO, endISO);
 
@@ -86,5 +90,30 @@ describe('getDailySummary', () => {
     expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: deploymentType });
     expect(querySpec.parameters).toContainEqual({ name: '@startISO', value: startISO });
     expect(querySpec.parameters).toContainEqual({ name: '@endISO', value: endISO });
+  });
+
+  it('classifies new vs returning users using first-seen-in-range and prior-to-range history', async () => {
+    // Prior-history query (2nd container.items.query call) reports u2 as seen before the range.
+    const container = makeQueryable([[...dayAInteractions, ...dayBInteractions], ['u2']]);
+
+    const [dayA, dayB] = await getDailySummary(container, deploymentType, startISO, endISO);
+
+    // Day A: only u1 is success+non-rate-limited, with no prior-to-range history -> new.
+    expect(dayA.newUsers).toBe(1);
+    expect(dayA.returningUsers).toBe(0);
+    expect(dayA.repeatRate).toBe(0);
+
+    // Day B: only u3 is success+non-rate-limited (u3's 2nd record is rate-limited), no prior history -> new.
+    expect(dayB.newUsers).toBe(1);
+    expect(dayB.returningUsers).toBe(0);
+  });
+
+  it('only queries prior-history for users who actually appear in the range', async () => {
+    const container = makeQueryable([[]]);
+
+    const days = await getDailySummary(container, deploymentType, startISO, endISO);
+
+    expect(days).toEqual([]);
+    expect(container.items.query).toHaveBeenCalledTimes(1);
   });
 });
