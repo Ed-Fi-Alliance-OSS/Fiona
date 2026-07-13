@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it } from '@jest/globals';
-import { renderCoverPage, renderUsageTrendsPage } from '../../../lib/pdf/report-template.js';
+import { renderCoverPage, renderReliabilityPage, renderUsageTrendsPage } from '../../../lib/pdf/report-template.js';
 
 const kpiSummary = {
   totalInteractions: 437,
@@ -77,5 +77,32 @@ describe('renderUsageTrendsPage', () => {
     const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
     expect(html).toContain('Peak weekly interactions');
     expect(html).toContain('90 interactions during Apr 20-26, 2026.');
+  });
+});
+
+const weeklyTrendWithFeedback = [
+  { weekStart: '2026-04-13', weekEnd: '2026-04-19', errorRate: 0, goodFeedback: 2, badFeedback: 0 },
+  { weekStart: '2026-04-20', weekEnd: '2026-04-26', errorRate: 1.1, goodFeedback: 0, badFeedback: 1 },
+];
+const reliabilityTakeaways = [{ signal: 'System error rate', takeaway: '2.7% overall.' }];
+
+describe('renderReliabilityPage', () => {
+  it('renders both canvases with unique ids', () => {
+    const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
+    expect(html).toMatch(/<canvas id="reliability-error-rate-chart"/);
+    expect(html).toMatch(/<canvas id="reliability-feedback-volume-chart"/);
+  });
+
+  it('embeds error-rate and good/bad feedback series', () => {
+    const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
+    expect(html).toContain('"data":[0,1.1]');
+    expect(html).toContain('"data":[2,0]');
+    expect(html).toContain('"data":[0,1]');
+  });
+
+  it('renders every takeaway row', () => {
+    const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
+    expect(html).toContain('System error rate');
+    expect(html).toContain('2.7% overall.');
   });
 });

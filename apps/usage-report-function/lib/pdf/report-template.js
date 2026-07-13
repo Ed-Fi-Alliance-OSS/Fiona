@@ -145,3 +145,60 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
     ${observationTable('Metric', 'Observation', usageObservations, 'metric', 'observation')}
   </section>`;
 }
+
+export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways) {
+  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const errorRates = weeklyTrend.map((w) => w.errorRate);
+  const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
+  const badFeedback = weeklyTrend.map((w) => w.badFeedback);
+
+  const errorRateConfig = {
+    type: 'bar',
+    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }] },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate' } },
+      scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } } },
+    },
+  };
+
+  const feedbackVolumeConfig = {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
+        { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
+      ],
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Weekly Feedback Volume' } },
+      scales: {
+        x: { stacked: true, ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } },
+        y: { stacked: true },
+      },
+    },
+  };
+
+  return `
+  <section class="page">
+    <h2>Reliability and Feedback</h2>
+    <p>
+      Reliability and feedback are separated from the usage table so stakeholders can quickly see whether
+      issues are increasing and how users are rating Fiona responses.
+    </p>
+    <canvas id="reliability-error-rate-chart" width="900" height="260"></canvas>
+    <script>
+      window.__chartConfigs = window.__chartConfigs || {};
+      window.__chartConfigs['reliability-error-rate-chart'] = ${JSON.stringify(errorRateConfig)};
+    </script>
+    <canvas id="reliability-feedback-volume-chart" width="900" height="260"></canvas>
+    <script>
+      window.__chartConfigs['reliability-feedback-volume-chart'] = ${JSON.stringify(feedbackVolumeConfig)};
+    </script>
+    ${observationTable('Signal', 'Takeaway', reliabilityTakeaways, 'signal', 'takeaway')}
+  </section>`;
+}
