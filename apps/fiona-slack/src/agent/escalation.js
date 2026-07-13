@@ -9,25 +9,22 @@ import { recordInteraction } from './interaction-store.js';
 import { summarizeForEscalation } from './llm-caller.js';
 import { getUser } from './slack-users-store.js';
 
-const HISTORY_LIMIT = 20;
+const THREAD_REPLY_LIMIT = 50;
 const SLACK_BLOCK_TEXT_LIMIT = 2900; // leave headroom under Slack's 3000-char section limit
+const NO_CONTEXT_NOTE = '_Requested via `/fiona escalate` — no conversation context._';
 
 /**
- * Build a plain-text transcript of the recent conversation. Uses thread replies
- * when a threadTs is available, otherwise the channel's recent history.
+ * Build a plain-text transcript from the user's own Fiona thread replies. Only
+ * used when a real Slack `threadTs` is available (the conversational entry
+ * points); the slash command has no thread and posts a context-free escalation
+ * rather than scraping unrelated channel history.
  *
  * @returns {Promise<string>} Newline-joined "*Who:* text" lines, or '' on failure.
  */
 async function fetchTranscript(client, { channelId, threadTs, logger }) {
   try {
-    let messages;
-    if (threadTs) {
-      const res = await client.conversations.replies({ channel: channelId, ts: threadTs, limit: 50 });
-      messages = res.messages ?? [];
-    } else {
-      const res = await client.conversations.history({ channel: channelId, limit: HISTORY_LIMIT });
-      messages = (res.messages ?? []).reverse(); // history returns newest-first
-    }
+    const res = await client.conversations.replies({ channel: channelId, ts: threadTs, limit: THREAD_REPLY_LIMIT });
+    const messages = res.messages ?? [];
     return messages
       .filter((m) => m.text)
       .map((m) => {
@@ -79,13 +76,17 @@ export async function postEscalation({
   const user = await getUser(userId, logger);
   const displayName = user?.displayName || user?.realName || user?.name || `<@${userId}>`;
 
-  const transcript = await fetchTranscript(client, { channelId, threadTs, logger });
-  const summary = await summarizeForEscalation(transcript, logger);
+  // A transcript and permalink only exist for conversational entry points, which
+  // carry a real thread ts. The slash command has none, so it posts a
+  // context-free escalation without scraping channel history.
+  const hasThread = Boolean(threadTs);
+  const transcript = hasThread ? await fetchTranscript(client, { channelId, threadTs, logger }) : '';
+  const summary = transcript ? await summarizeForEscalation(transcript, logger) : null;
 
   let permalink = null;
-  if (!isDm) {
+  if (!isDm && hasThread) {
     try {
-      const res = await client.chat.getPermalink({ channel: channelId, message_ts: threadTs ?? messageTs });
+      const res = await client.chat.getPermalink({ channel: channelId, message_ts: threadTs });
       permalink = res?.permalink ?? null;
     } catch (err) {
       logger?.warn?.(`Failed to get permalink for escalation: ${err.message}`);
@@ -94,7 +95,6 @@ export async function postEscalation({
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
   const mention = usergroupId ? `<!subteam^${usergroupId}> ` : '';
-
   const locationLink = isDm
     ? 'Direct message (no permalink)'
     : permalink
@@ -106,6 +106,7 @@ export async function postEscalation({
     `*When:* ${new Date().toISOString()}`,
   ];
   if (summary) headerLines.push(`*Summary:* ${summary}`);
+  if (!hasThread) headerLines.push(NO_CONTEXT_NOTE);
 
   let postedTs = null;
   try {

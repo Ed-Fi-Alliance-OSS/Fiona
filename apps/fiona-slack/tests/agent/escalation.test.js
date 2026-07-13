@@ -178,3 +178,48 @@ describe('escalateViaSay', () => {
     );
   });
 });
+
+describe('postEscalation without a thread (slash path)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
+    delete process.env.ESCALATION_USERGROUP_ID;
+    mockGetUser.mockResolvedValue({ displayName: 'Ada Lovelace' });
+    mockSummarize.mockResolvedValue('should not be used');
+  });
+
+  const slashArgs = (over = {}) => ({
+    ...baseArgs(),
+    threadTs: null,
+    messageTs: 'trigger-xyz',
+    source: 'slash_escalate',
+    ...over,
+  });
+
+  it('does not scrape channel history or thread replies when there is no thread', async () => {
+    const args = slashArgs();
+    await postEscalation(args);
+    expect(args.client.conversations.history).not.toHaveBeenCalled();
+    expect(args.client.conversations.replies).not.toHaveBeenCalled();
+  });
+
+  it('does not attempt a permalink when there is no real message ts', async () => {
+    const args = slashArgs();
+    await postEscalation(args);
+    expect(args.client.chat.getPermalink).not.toHaveBeenCalled();
+  });
+
+  it('does not call the summarizer when there is no transcript', async () => {
+    await postEscalation(slashArgs());
+    expect(mockSummarize).not.toHaveBeenCalled();
+  });
+
+  it('still posts a single context-free escalation and succeeds', async () => {
+    const args = slashArgs();
+    const result = await postEscalation(args);
+    expect(result.ok).toBe(true);
+    expect(args.client.chat.postMessage).toHaveBeenCalledTimes(1);
+    const post = args.client.chat.postMessage.mock.calls[0][0];
+    expect(JSON.stringify(post.blocks)).toContain('no conversation context');
+  });
+});
