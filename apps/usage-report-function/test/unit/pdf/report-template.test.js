@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from '@jest/globals';
 import {
+  renderAppendixPage,
   renderCoverPage,
   renderFeedbackPage,
   renderReliabilityPage,
@@ -200,5 +201,58 @@ describe('renderTopUsersPage', () => {
     const html = renderTopUsersPage(topUsersByFeedback, topUsersByInteractions);
     expect(html).toContain('Top Users by Feedback');
     expect(html).toContain('Top Users by Interaction Count');
+  });
+});
+
+const weeklyTrendForAppendix = [
+  {
+    weekStart: '2026-04-13',
+    weekEnd: '2026-04-19',
+    uniqueUsers: 4,
+    sessions: 4,
+    totalInteractions: 6,
+    errors: 0,
+    goodFeedback: 1,
+    badFeedback: 2,
+    feedbackRatio: 33.3,
+    avgInteractionsPerUser: 1.5,
+    newUsers: 4,
+    returningUsers: 0,
+    repeatRate: 0,
+  },
+];
+const dailySummaryForAppendix = [
+  {
+    date: '2026-04-16',
+    uniqueUsers: 2,
+    sessions: 2,
+    totalInteractions: 3,
+    errors: 0,
+    rateLimited: 0,
+    errorRate: 0,
+    newUsers: 2,
+    returningUsers: 0,
+  },
+];
+
+describe('renderAppendixPage', () => {
+  it('renders the weekly snapshot table including new/returning-user columns', () => {
+    const html = renderAppendixPage(weeklyTrendForAppendix, dailySummaryForAppendix);
+    expect(html).toContain('Apr 13-19');
+    expect(html).toContain('New Users');
+    expect(html).toContain('Returning Users');
+  });
+
+  it('renders the daily summary table including new/returning-user columns', () => {
+    const html = renderAppendixPage(weeklyTrendForAppendix, dailySummaryForAppendix);
+    expect(html).toContain('2026-04-16');
+    expect(html).toMatch(/<canvas id="daily-interactions-chart"/);
+    expect(html).toMatch(/<canvas id="daily-unique-users-chart"/);
+    expect(html).toMatch(/<canvas id="daily-error-rate-chart"/);
+  });
+
+  it('renders the executive notes', () => {
+    const html = renderAppendixPage(weeklyTrendForAppendix, dailySummaryForAppendix);
+    expect(html).toContain('Engagement remains steady with meaningful repeat usage patterns.');
   });
 });

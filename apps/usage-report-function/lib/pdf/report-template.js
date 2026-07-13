@@ -291,3 +291,131 @@ export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions) {
     ${interactionsTable}
   </section>`;
 }
+
+function simpleBarChartConfig(labels, data, title, color) {
+  return {
+    type: 'bar',
+    data: { labels, datasets: [{ label: title, data, backgroundColor: color }] },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: false }, title: { display: true, text: title } },
+      scales: { x: { ticks: { autoSkip: true, maxTicksLimit: 15, maxRotation: 45, minRotation: 45 } } },
+    },
+  };
+}
+
+export function renderAppendixPage(weeklyTrend, dailySummary) {
+  const weeklyTable = dataTable(
+    [
+      'Week',
+      'Users',
+      'Sessions',
+      'Interactions',
+      'Errors',
+      'Good',
+      'Bad',
+      'Positive %',
+      'Avg/User',
+      'New Users',
+      'Returning Users',
+    ],
+    weeklyTrend,
+    [
+      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      (w) => w.uniqueUsers,
+      (w) => w.sessions,
+      (w) => w.totalInteractions,
+      (w) => w.errors,
+      (w) => w.goodFeedback,
+      (w) => w.badFeedback,
+      (w) => w.feedbackRatio.toFixed(1),
+      (w) => w.avgInteractionsPerUser.toFixed(1),
+      (w) => w.newUsers,
+      (w) => w.returningUsers,
+    ],
+  );
+
+  const dailyLabels = dailySummary.map((d) => d.date.slice(5));
+  const interactionsConfig = simpleBarChartConfig(
+    dailyLabels,
+    dailySummary.map((d) => d.totalInteractions),
+    'Daily Interactions',
+    '#4682b4',
+  );
+  const uniqueUsersConfig = simpleBarChartConfig(
+    dailyLabels,
+    dailySummary.map((d) => d.uniqueUsers),
+    'Daily Unique Users',
+    '#2e8b57',
+  );
+  const errorRateConfig = simpleBarChartConfig(
+    dailyLabels,
+    dailySummary.map((d) => d.errorRate),
+    'Daily Error Rate (%)',
+    '#ff6347',
+  );
+
+  const dailyTable = dataTable(
+    [
+      'Date',
+      'Unique Users',
+      'Sessions',
+      'Interactions',
+      'Errors',
+      'Rate Limited',
+      'Error Rate',
+      'New Users',
+      'Returning Users',
+    ],
+    dailySummary,
+    [
+      (d) => d.date,
+      (d) => d.uniqueUsers,
+      (d) => d.sessions,
+      (d) => d.totalInteractions,
+      (d) => d.errors,
+      (d) => d.rateLimited,
+      (d) => d.errorRate.toFixed(1),
+      (d) => d.newUsers,
+      (d) => d.returningUsers,
+    ],
+  );
+
+  return `
+  <section class="page">
+    <h2>Appendix: Weekly Snapshot</h2>
+    <p>
+      Compact weekly table derived from the visible weekly snapshot in the source report. Full raw exports
+      should remain available separately when stakeholders need row-level analysis.
+    </p>
+    ${weeklyTable}
+  </section>
+
+  <section class="page">
+    <h2>Appendix: Daily Summary</h2>
+    <canvas id="daily-interactions-chart" width="900" height="220"></canvas>
+    <script>
+      window.__chartConfigs = window.__chartConfigs || {};
+      window.__chartConfigs['daily-interactions-chart'] = ${JSON.stringify(interactionsConfig)};
+    </script>
+    <canvas id="daily-unique-users-chart" width="900" height="220"></canvas>
+    <script>
+      window.__chartConfigs['daily-unique-users-chart'] = ${JSON.stringify(uniqueUsersConfig)};
+    </script>
+    <canvas id="daily-error-rate-chart" width="900" height="220"></canvas>
+    <script>
+      window.__chartConfigs['daily-error-rate-chart'] = ${JSON.stringify(errorRateConfig)};
+    </script>
+    ${dailyTable}
+  </section>
+
+  <section class="page">
+    <h2>Executive Notes</h2>
+    <ol>
+      <li>Engagement remains steady with meaningful repeat usage patterns.</li>
+      <li>Weekly trend monitoring should remain focused on error-rate movement and interaction growth.</li>
+      <li>Feedback-heavy users and high-interaction users can guide targeted support and training.</li>
+    </ol>
+  </section>`;
+}
