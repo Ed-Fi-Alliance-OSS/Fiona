@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { formatWeekLabel } from './format.js';
+import { formatCompactTimestamp, formatWeekLabel } from './format.js';
 
 function escapeHtml(value) {
   return String(value).replace(
@@ -234,5 +234,60 @@ export function renderFeedbackPage(representativeFeedback) {
       representative feedback as reviewable cards and keeps raw detail out of the main flow.
     </p>
     ${body}
+  </section>`;
+}
+
+function dataTable(headers, rows, cellRenderers) {
+  if (rows.length === 0) {
+    return '<p class="empty">No data available.</p>';
+  }
+  const headerRow = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('');
+  const bodyRows = rows
+    .map((row) => `<tr>${cellRenderers.map((render) => `<td>${escapeHtml(render(row))}</td>`).join('')}</tr>`)
+    .join('\n        ');
+  return `
+    <table class="data-table">
+      <thead><tr>${headerRow}</tr></thead>
+      <tbody>
+        ${bodyRows}
+      </tbody>
+    </table>`;
+}
+
+export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions) {
+  const feedbackRows = topUsersByFeedback.slice(0, 5);
+  const interactionRows = topUsersByInteractions.slice(0, 6);
+
+  const feedbackTable = dataTable(['User', 'Feedback', 'Good', 'Bad', 'Last Feedback', 'Positive %'], feedbackRows, [
+    (r) => r.userId,
+    (r) => r.feedbackCount,
+    (r) => r.goodFeedback,
+    (r) => r.badFeedback,
+    (r) => formatCompactTimestamp(r.lastFeedback),
+    (r) => r.positiveRatioPct.toFixed(1),
+  ]);
+
+  const interactionsTable = dataTable(
+    ['User', 'Interactions', 'Sessions', 'Errors', 'Error Rate', 'Avg / Session', 'Last Seen'],
+    interactionRows,
+    [
+      (r) => r.userId,
+      (r) => r.interactions,
+      (r) => r.sessions,
+      (r) => r.errors,
+      (r) => r.errorRate.toFixed(1),
+      (r) => r.avgPerSession.toFixed(1),
+      (r) => formatCompactTimestamp(r.lastSeen),
+    ],
+  );
+
+  return `
+  <section class="page">
+    <h2>Top Users</h2>
+    <p>The top-user data is retained, but narrowed to the most decision-useful columns and limited to leading users.</p>
+    <h3>Top Users by Feedback</h3>
+    ${feedbackTable}
+    <h3>Top Users by Interaction Count</h3>
+    ${interactionsTable}
   </section>`;
 }

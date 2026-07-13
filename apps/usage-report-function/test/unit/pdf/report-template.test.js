@@ -8,6 +8,7 @@ import {
   renderCoverPage,
   renderFeedbackPage,
   renderReliabilityPage,
+  renderTopUsersPage,
   renderUsageTrendsPage,
 } from '../../../lib/pdf/report-template.js';
 
@@ -153,5 +154,51 @@ describe('renderFeedbackPage', () => {
   it('renders a message when there is no feedback', () => {
     const html = renderFeedbackPage([]);
     expect(html).toContain('No feedback recorded for this period.');
+  });
+});
+
+const topUsersByFeedback = Array.from({ length: 8 }, (_, i) => ({
+  userId: `u${i}`,
+  feedbackCount: 10 - i,
+  goodFeedback: 8 - i,
+  badFeedback: 2,
+  lastFeedback: '2026-07-04T21:01:00.000Z',
+  positiveRatioPct: 80,
+}));
+const topUsersByInteractions = Array.from({ length: 10 }, (_, i) => ({
+  userId: `u${i}`,
+  interactions: 100 - i,
+  sessions: 10,
+  errors: 1,
+  errorRate: 1.0,
+  avgPerSession: 10,
+  firstSeen: '2026-04-17T13:17:00.000Z',
+  lastSeen: '2026-07-10T16:26:00.000Z',
+}));
+
+describe('renderTopUsersPage', () => {
+  it('caps Top Users by Feedback at 5 rows', () => {
+    const html = renderTopUsersPage(topUsersByFeedback, topUsersByInteractions);
+    expect((html.match(/u0<\/td>/g) || []).length).toBeGreaterThan(0);
+    expect(html).not.toContain('>u7<');
+  });
+
+  it('caps Top Users by Interaction Count at 6 rows', () => {
+    const html = renderTopUsersPage(topUsersByFeedback, topUsersByInteractions);
+    expect(html).toContain('>u5<');
+    expect(html).not.toContain('>u6<');
+  });
+
+  it('formats lastFeedback/lastSeen as compact timestamps, not raw ISO strings', () => {
+    const html = renderTopUsersPage(topUsersByFeedback, topUsersByInteractions);
+    expect(html).toContain('2026-07-04 21:01');
+    expect(html).toContain('2026-07-10 16:26');
+    expect(html).not.toContain('2026-07-04T21:01:00.000Z');
+  });
+
+  it('renders both section headings', () => {
+    const html = renderTopUsersPage(topUsersByFeedback, topUsersByInteractions);
+    expect(html).toContain('Top Users by Feedback');
+    expect(html).toContain('Top Users by Interaction Count');
   });
 });
