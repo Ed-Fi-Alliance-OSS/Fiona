@@ -419,3 +419,85 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
     </ol>
   </section>`;
 }
+
+const PAGE_STYLES = `
+  * { box-sizing: border-box; }
+  body { font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 0; }
+  .page { padding: 32px 40px; page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  h1 { color: #1a5490; font-size: 28px; text-align: center; }
+  h2 { color: #366092; font-size: 20px; border-bottom: 2px solid #366092; padding-bottom: 4px; }
+  h3 { color: #366092; font-size: 15px; }
+  p { font-size: 13px; line-height: 1.5; }
+  .meta { font-size: 12px; color: #444; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .kpi-card { border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; text-align: center; }
+  .kpi-value { font-size: 28px; font-weight: bold; color: #1a5490; }
+  .kpi-label { font-weight: bold; font-size: 13px; margin-top: 4px; }
+  .kpi-subtitle { font-size: 11px; color: #666; }
+  .readout li { font-size: 13px; margin-bottom: 8px; }
+  .data-table, .observation-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
+  .data-table th, .observation-table th { background: #366092; color: #fff; padding: 6px 8px; text-align: left; }
+  .data-table td, .observation-table td { padding: 6px 8px; border-bottom: 1px solid #e8ecef; }
+  .data-table tr:nth-child(even) td, .observation-table tr:nth-child(even) td { background: #f9fbfd; }
+  .feedback-card { border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; border: 1px solid #d0d7de; }
+  .feedback-card.good { background: #f0f7f2; }
+  .feedback-card.bad { background: #fdf2f0; }
+  .feedback-card-header { font-weight: bold; text-align: center; margin-bottom: 6px; }
+  .feedback-q, .feedback-a { font-size: 12px; margin: 4px 0; }
+  .empty { font-style: italic; color: #666; }
+`;
+
+const CHART_BOOTSTRAP_SCRIPT = `
+  window.addEventListener('load', () => {
+    const configs = window.__chartConfigs || {};
+    for (const [canvasId, config] of Object.entries(configs)) {
+      const canvas = document.getElementById(canvasId);
+      if (canvas) {
+        new Chart(canvas, config);
+      }
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => { window.__chartsReady = true; }));
+  });
+`;
+
+/**
+ * Assembles the full HTML document for the executive PDF report.
+ * `chartJsSource` is inlined verbatim as a <script> tag so chart rendering
+ * never depends on network access or a resolvable local file:// path at
+ * print time; see generate-executive-report-pdf.js for how it's read.
+ */
+export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) {
+  const {
+    kpiSummary,
+    weeklyTrend,
+    dailySummary,
+    representativeFeedback,
+    topUsersByFeedback,
+    topUsersByInteractions,
+    period,
+  } = reportData;
+  const { readoutBullets, usageObservations, reliabilityTakeaways } = narrative;
+
+  const pages = [
+    renderCoverPage(kpiSummary, readoutBullets, period),
+    renderUsageTrendsPage(weeklyTrend, usageObservations),
+    renderReliabilityPage(weeklyTrend, reliabilityTakeaways),
+    renderFeedbackPage(representativeFeedback),
+    renderTopUsersPage(topUsersByFeedback, topUsersByInteractions),
+    renderAppendixPage(weeklyTrend, dailySummary),
+  ].join('\n');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>${PAGE_STYLES}</style>
+</head>
+<body>
+${pages}
+<script>${chartJsSource}</script>
+<script>${CHART_BOOTSTRAP_SCRIPT}</script>
+</body>
+</html>`;
+}

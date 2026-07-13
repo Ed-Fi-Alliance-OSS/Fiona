@@ -7,6 +7,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   renderAppendixPage,
   renderCoverPage,
+  renderExecutiveReportHtml,
   renderFeedbackPage,
   renderReliabilityPage,
   renderTopUsersPage,
@@ -254,5 +255,45 @@ describe('renderAppendixPage', () => {
   it('renders the executive notes', () => {
     const html = renderAppendixPage(weeklyTrendForAppendix, dailySummaryForAppendix);
     expect(html).toContain('Engagement remains steady with meaningful repeat usage patterns.');
+  });
+});
+
+describe('renderExecutiveReportHtml', () => {
+  const reportData = {
+    period: { deploymentType: 'production', startISO: '2026-03-18T00:00:00.000Z', endISO: '2026-07-10T00:00:00.000Z' },
+    kpiSummary,
+    weeklyTrend: weeklyTrendForAppendix,
+    dailySummary: dailySummaryForAppendix,
+    representativeFeedback,
+    topUsersByFeedback,
+    topUsersByInteractions,
+  };
+  const narrative = {
+    readoutBullets: ['Engagement bullet.'],
+    usageObservations: [{ metric: 'Peak weekly interactions', observation: '90 interactions.' }],
+    reliabilityTakeaways: [{ signal: 'System error rate', takeaway: '2.7% overall.' }],
+  };
+  const fakeChartJsSource = 'window.Chart = function ChartStub() {};';
+
+  it('produces a full HTML document containing every page section', () => {
+    const html = renderExecutiveReportHtml(reportData, narrative, fakeChartJsSource);
+    expect(html).toMatch(/^<!DOCTYPE html>/);
+    expect(html).toContain('Executive Summary');
+    expect(html).toContain('Usage Trends');
+    expect(html).toContain('Reliability and Feedback');
+    expect(html).toContain('Representative Feedback');
+    expect(html).toContain('Top Users');
+    expect(html).toContain('Appendix: Weekly Snapshot');
+  });
+
+  it('inlines the given Chart.js source verbatim', () => {
+    const html = renderExecutiveReportHtml(reportData, narrative, fakeChartJsSource);
+    expect(html).toContain(fakeChartJsSource);
+  });
+
+  it('includes a bootstrap script that constructs every registered chart config and signals completion', () => {
+    const html = renderExecutiveReportHtml(reportData, narrative, fakeChartJsSource);
+    expect(html).toContain('__chartsReady');
+    expect(html).toContain('new Chart(');
   });
 });
