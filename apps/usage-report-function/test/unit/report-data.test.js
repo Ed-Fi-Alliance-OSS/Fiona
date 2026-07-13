@@ -9,6 +9,7 @@ const mockGetKpiSummary = jest.fn();
 const mockGetWeeklyTrendSeries = jest.fn();
 const mockGetDailySummary = jest.fn();
 const mockGetFeedbackDetails = jest.fn();
+const mockGetRepresentativeFeedbackInRange = jest.fn();
 const mockGetTopUsersByFeedback = jest.fn();
 const mockGetTopUsersByInteractions = jest.fn();
 
@@ -23,6 +24,7 @@ jest.unstable_mockModule('../../lib/daily-queries.js', () => ({
 }));
 jest.unstable_mockModule('../../lib/cosmos-queries.js', () => ({
   getFeedbackDetails: mockGetFeedbackDetails,
+  getRepresentativeFeedbackInRange: mockGetRepresentativeFeedbackInRange,
 }));
 jest.unstable_mockModule('../../lib/user-queries.js', () => ({
   getTopUsersByFeedback: mockGetTopUsersByFeedback,
@@ -42,6 +44,16 @@ describe('buildExecutiveReportData', () => {
   const weeklyTrend = [{ weekStart: '2026-04-13' }];
   const dailySummary = [{ date: '2026-04-13' }];
   const feedbackDetails = [{ userId: 'u1' }];
+  const representativeFeedback = [
+    {
+      userMessage: 'q',
+      botResponse: 'a',
+      value: 'good-feedback',
+      reason: null,
+      timestamp: '2026-04-13T00:00:00.000Z',
+      hasReason: false,
+    },
+  ];
   const topUsersByFeedback = [{ userId: 'u1', feedbackCount: 2 }];
   const topUsersByInteractions = [{ userId: 'u1', interactions: 5 }];
 
@@ -51,6 +63,7 @@ describe('buildExecutiveReportData', () => {
     mockGetWeeklyTrendSeries.mockResolvedValue(weeklyTrend);
     mockGetDailySummary.mockResolvedValue(dailySummary);
     mockGetFeedbackDetails.mockResolvedValue(feedbackDetails);
+    mockGetRepresentativeFeedbackInRange.mockResolvedValue(representativeFeedback);
     mockGetTopUsersByFeedback.mockResolvedValue(topUsersByFeedback);
     mockGetTopUsersByInteractions.mockResolvedValue(topUsersByInteractions);
   });
@@ -70,6 +83,7 @@ describe('buildExecutiveReportData', () => {
       weeklyTrend,
       dailySummary,
       feedbackDetails,
+      representativeFeedback,
       topUsersByFeedback,
       topUsersByInteractions,
     });
@@ -94,6 +108,12 @@ describe('buildExecutiveReportData', () => {
     );
     expect(mockGetDailySummary).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
     expect(mockGetFeedbackDetails).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
+    expect(mockGetRepresentativeFeedbackInRange).toHaveBeenCalledWith(
+      feedbackContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    );
     expect(mockGetTopUsersByFeedback).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
     expect(mockGetTopUsersByInteractions).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
   });

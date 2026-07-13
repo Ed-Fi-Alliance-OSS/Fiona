@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { getFeedbackDetails } from './cosmos-queries.js';
+import { getFeedbackDetails, getRepresentativeFeedbackInRange } from './cosmos-queries.js';
 import { getDailySummary } from './daily-queries.js';
 import { getKpiSummary } from './kpi-summary.js';
 import { getWeeklyTrendSeries } from './longitudinal-queries.js';
@@ -22,15 +22,23 @@ export async function buildExecutiveReportData({
   startISO,
   endISO,
 }) {
-  const [kpiSummary, weeklyTrend, dailySummary, feedbackDetails, topUsersByFeedback, topUsersByInteractions] =
-    await Promise.all([
-      getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
-      getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
-      getDailySummary(interactionsContainer, deploymentType, startISO, endISO),
-      getFeedbackDetails(feedbackContainer, deploymentType, startISO, endISO),
-      getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO),
-      getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO),
-    ]);
+  const [
+    kpiSummary,
+    weeklyTrend,
+    dailySummary,
+    feedbackDetails,
+    representativeFeedback,
+    topUsersByFeedback,
+    topUsersByInteractions,
+  ] = await Promise.all([
+    getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
+    getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
+    getDailySummary(interactionsContainer, deploymentType, startISO, endISO),
+    getFeedbackDetails(feedbackContainer, deploymentType, startISO, endISO),
+    getRepresentativeFeedbackInRange(feedbackContainer, deploymentType, startISO, endISO),
+    getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO),
+    getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO),
+  ]);
 
   return {
     period: { deploymentType, startISO, endISO },
@@ -38,6 +46,7 @@ export async function buildExecutiveReportData({
     weeklyTrend,
     dailySummary,
     feedbackDetails,
+    representativeFeedback,
     topUsersByFeedback,
     topUsersByInteractions,
   };
