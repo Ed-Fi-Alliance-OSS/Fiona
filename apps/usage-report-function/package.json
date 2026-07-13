@@ -27,7 +27,6 @@
     "@azure/keyvault-secrets": "^4.8.0",
     "axios": "^1.16.0",
     "chart.js": "^4.5.1",
-    "pdfkit": "^0.19.1",
     "puppeteer": "^25.3.0"
   },
   "devDependencies": {
