@@ -2254,7 +2254,12 @@ export async function generateExecutiveReportPdf(reportData, outputPath) {
   const chartJsSource = readChartJsSource();
   const html = renderExecutiveReportHtml(reportData, narrative, chartJsSource);
 
-  const browser = await puppeteer.launch();
+  // Bare `puppeteer.launch()` times out waiting for the browser's WS endpoint
+  // in this environment (Chrome sandboxing/permissions on this machine) --
+  // confirmed via Task 6's verification step. These flags are required here.
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+  });
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
