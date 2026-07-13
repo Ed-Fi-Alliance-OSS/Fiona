@@ -6,13 +6,14 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
-import { ASK_NOT_YET_TEXT, HELP_TEXT, SEARCH_NOT_YET_TEXT } from './command-handler.js';
-
-const ESCALATE_CONFIRM_TEXT =
-  '✅ Your conversation has been escalated to #escalation. A team member will follow up shortly.';
-const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
-const ESCALATE_ERROR_TEXT =
-  ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
+import {
+  ASK_NOT_YET_TEXT,
+  ESCALATE_CONFIRM_TEXT,
+  ESCALATE_DM_TEXT,
+  ESCALATE_ERROR_TEXT,
+  HELP_TEXT,
+  SEARCH_NOT_YET_TEXT,
+} from './command-handler.js';
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls

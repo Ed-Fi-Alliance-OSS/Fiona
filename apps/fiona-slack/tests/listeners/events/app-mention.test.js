@@ -54,7 +54,12 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
   captureConversation: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
+  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
+const { escalateViaSay } = await import('../../../src/agent/escalation.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
@@ -416,6 +421,34 @@ describe('appMentionCallback', () => {
       expect(mockSay).toHaveBeenCalledTimes(1);
       expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('escalates via escalateViaSay when mention is exactly "escalate"', async () => {
+      mockEvent.text = '<@UFIONA> escalate';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(escalateViaSay).toHaveBeenCalledTimes(1);
+      expect(escalateViaSay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'mention_escalate',
+          channelId: 'C123',
+          userId: 'U456',
+          threadTs: '1234567890.000001',
+          messageTs: '1234567890.000001',
+          say: mockSay,
+        }),
+      );
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not escalate a rate-limited user mentioning "escalate"', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockEvent.text = '<@UFIONA> escalate';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
     });
   });
 });

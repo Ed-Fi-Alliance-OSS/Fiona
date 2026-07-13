@@ -15,7 +15,10 @@ jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ record
 jest.unstable_mockModule('../../src/agent/feedback-store.js', () => ({ recordFeedback: mockRecordFeedback }));
 jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize }));
 
-const { postEscalation } = await import('../../src/agent/escalation.js');
+const { postEscalation, escalateViaSay } = await import('../../src/agent/escalation.js');
+const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } = await import(
+  '../../src/listeners/commands/command-handler.js'
+);
 
 function makeClient() {
   return {
@@ -121,5 +124,57 @@ describe('postEscalation', () => {
     const result = await postEscalation(args);
     expect(result.ok).toBe(true);
     expect(args.client.chat.getPermalink).not.toHaveBeenCalled();
+  });
+});
+
+describe('escalateViaSay', () => {
+  let mockSay;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
+    delete process.env.ESCALATION_USERGROUP_ID;
+    mockGetUser.mockResolvedValue({ displayName: 'Ada Lovelace' });
+    mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
+    mockSay = jest.fn().mockResolvedValue(undefined);
+  });
+
+  const sayArgs = (over = {}) => ({
+    ...baseArgs(),
+    source: 'mention_escalate',
+    say: mockSay,
+    ...over,
+  });
+
+  it('posts the escalation and says the channel confirmation on success', async () => {
+    const args = sayArgs();
+    await escalateViaSay(args);
+    expect(args.client.chat.postMessage).toHaveBeenCalled();
+    expect(mockSay).toHaveBeenCalledWith(ESCALATE_CONFIRM_TEXT);
+  });
+
+  it('says the DM confirmation when isDm is true', async () => {
+    await escalateViaSay(sayArgs({ isDm: true, threadTs: null }));
+    expect(mockSay).toHaveBeenCalledWith(ESCALATE_DM_TEXT);
+  });
+
+  it('delegates to postEscalation with the real thread ts and source', async () => {
+    await escalateViaSay(sayArgs({ threadTs: '555.111', messageTs: '555.111' }));
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionType: 'mention_escalate', threadTs: '555.111' }),
+    );
+  });
+
+  it('says the error text and records an escalate error when the channel is unconfigured', async () => {
+    delete process.env.ESCALATION_CHANNEL;
+    await escalateViaSay(sayArgs());
+    expect(mockSay).toHaveBeenCalledWith(ESCALATE_ERROR_TEXT);
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interactionType: 'mention_escalate',
+        status: 'error',
+        errorType: 'channel_not_configured',
+      }),
+    );
   });
 });

@@ -32,11 +32,20 @@ export const SEARCH_NOT_YET_TEXT =
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
 
+// User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
+// keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
+export const ESCALATE_CONFIRM_TEXT =
+  '✅ Your conversation has been escalated. A team member will follow up shortly.';
+export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
+export const ESCALATE_ERROR_TEXT =
+  ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
+
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
  * Disambiguation rules:
  *   - "help"               — exact whole-message match only; trailing text → null (treat as query)
+ *   - "escalate"           — exact whole-message match only; trailing text → null (treat as query)
  *   - "ask <args>"         — requires non-empty args after "ask "; bare "ask" → null
  *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
@@ -55,6 +64,10 @@ export function parseCommandKeyword(text) {
 
   if (bodyLower === 'help') {
     return { keyword: 'help', rawArgs: '' };
+  }
+
+  if (bodyLower === 'escalate') {
+    return { keyword: 'escalate', rawArgs: '' };
   }
 
   for (const kw of ['ask', 'search']) {

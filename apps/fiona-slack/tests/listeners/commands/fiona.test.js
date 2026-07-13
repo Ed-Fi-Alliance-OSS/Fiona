@@ -361,8 +361,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
       expect(mockRespond).toHaveBeenCalledWith(
-        expect.objectContaining({ text: expect.stringContaining('escalated to #escalation') }),
+        expect.objectContaining({ text: expect.stringContaining('has been escalated') }),
       );
+      // The confirmation should not name a specific channel the user may not see.
+      expect(mockRespond.mock.calls[0][0].text).not.toContain('#escalation');
     });
 
     it('sends the DM confirmation and marks isDm when invoked in a DM', async () => {

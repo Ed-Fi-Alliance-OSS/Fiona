@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { captureConversation } from '../../agent/conversation-capture-store.js';
+import { escalateViaSay } from '../../agent/escalation.js';
 import { handleInteractionWithTelemetry, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
 import {
   CITATION_POLICY,
@@ -76,11 +77,29 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         return;
       }
 
-      // Route command keywords (help, ask, search) before invoking the LLM.
-      // Only exact "help" matches; "@fiona help me with X" falls through to the LLM.
+      // Route command keywords (help, ask, search, escalate) before invoking the LLM.
+      // Only exact "help"/"escalate" match; "@fiona help me with X" falls through to the LLM.
       const cmd = parseCommandKeyword(text);
       if (cmd) {
-        await routeCommandViaSay(say, logger, cmd);
+        if (cmd.keyword === 'escalate') {
+          // postEscalation records the escalate interaction itself; suppress the
+          // telemetry wrapper's turn record so the event is counted exactly once.
+          markInteractionRecorded();
+          await escalateViaSay({
+            client,
+            userId: user,
+            teamId: team,
+            channelId: channel,
+            threadTs: thread_ts,
+            messageTs,
+            source: 'mention_escalate',
+            isDm: (channel || '').startsWith('D'),
+            say,
+            logger,
+          });
+        } else {
+          await routeCommandViaSay(say, logger, cmd);
+        }
         return;
       }
 

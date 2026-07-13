@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } from '../listeners/commands/command-handler.js';
 import { recordFeedback } from './feedback-store.js';
 import { recordInteraction } from './interaction-store.js';
 import { summarizeForEscalation } from './llm-caller.js';
@@ -53,7 +54,7 @@ async function fetchTranscript(client, { channelId, threadTs, logger }) {
  * @param {string} params.channelId
  * @param {string|null} [params.threadTs]
  * @param {string} params.messageTs
- * @param {'slash_escalate'|'auto_escalation'} params.source
+ * @param {'slash_escalate'|'mention_escalate'|'assistant_escalate'} params.source
  * @param {boolean} [params.isDm]
  * @param {import("@slack/logger").Logger} [params.logger]
  * @returns {Promise<{ ok: boolean, errorType: string|null }>}
@@ -163,4 +164,72 @@ export async function postEscalation({
   }).catch((e) => logger?.warn?.(`Failed to record escalation feedback: ${e.message}`));
 
   return { ok: true, errorType: null };
+}
+
+/**
+ * Escalate from a conversational (non-slash) entry point — @-mention or the
+ * assistant panel — where a real Slack `threadTs`/`messageTs` is available and
+ * the caller replies through `say()` rather than an ephemeral `respond()`.
+ *
+ * Rate limiting is applied by the surrounding message handler before this runs,
+ * so it is not repeated here. On success `postEscalation` records the escalate
+ * interaction; on failure this records an escalate error interaction so the
+ * event is captured exactly once (mirrors the slash `handleEscalate`).
+ *
+ * @param {Object} params
+ * @param {import("@slack/web-api").WebClient} params.client
+ * @param {string} params.userId
+ * @param {string} [params.teamId]
+ * @param {string} params.channelId
+ * @param {string|null} [params.threadTs]
+ * @param {string} params.messageTs
+ * @param {'mention_escalate'|'assistant_escalate'} params.source
+ * @param {boolean} [params.isDm]
+ * @param {import("@slack/bolt").SayFn} params.say
+ * @param {import("@slack/logger").Logger} [params.logger]
+ */
+export async function escalateViaSay({
+  client,
+  userId,
+  teamId,
+  channelId,
+  threadTs = null,
+  messageTs,
+  source,
+  isDm = false,
+  say,
+  logger,
+}) {
+  const result = await postEscalation({
+    client,
+    userId,
+    teamId,
+    channelId,
+    threadTs,
+    messageTs,
+    source,
+    isDm,
+    logger,
+  });
+
+  if (result.ok) {
+    await say(isDm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT).catch((err) =>
+      logger?.warn?.(`Failed to send escalation confirmation: ${err.message}`),
+    );
+    return;
+  }
+
+  await say(ESCALATE_ERROR_TEXT).catch((err) => logger?.warn?.(`Failed to send escalation error: ${err.message}`));
+  recordInteraction({
+    userId,
+    teamId,
+    channelId,
+    threadTs: threadTs ?? messageTs,
+    messageTs,
+    interactionType: source,
+    status: 'error',
+    errorType: result.errorType,
+    rateLimited: false,
+    logger,
+  }).catch((e) => logger?.warn?.(`Failed to record ${source} interaction: ${e.message}`));
 }
