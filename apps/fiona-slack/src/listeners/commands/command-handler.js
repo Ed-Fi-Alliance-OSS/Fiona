@@ -11,7 +11,10 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
+escalate                Escalate your conversation to a human
 \`\`\`
+*Need a human?* Use \`/fiona escalate\` to hand your conversation to the team.
+
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel
 • *@-mention* (\`@fiona …\`) — in a channel or thread
