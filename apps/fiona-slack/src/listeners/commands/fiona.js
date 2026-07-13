@@ -6,26 +6,7 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit } from '../../agent/rate-limiter.js';
-
-const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
-
-*Available commands:*
-\`\`\`
-/fiona help              Show this help message
-/fiona ask <question>    Ask Fiona a question about Ed-Fi (coming soon)
-/fiona search <query>    Search Ed-Fi documentation (coming soon)
-/fiona escalate          Escalate your conversation to a human responder
-\`\`\`
-_Tip: You can also @-mention Fiona in any channel, or send her a direct message._`;
-
-const ASK_NOT_YET_TEXT =
-  `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
-
-const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
+import { ASK_NOT_YET_TEXT, HELP_TEXT, SEARCH_NOT_YET_TEXT } from './command-handler.js';
 
 const ESCALATE_CONFIRM_TEXT =
   '✅ Your conversation has been escalated to #escalation. A team member will follow up shortly.';

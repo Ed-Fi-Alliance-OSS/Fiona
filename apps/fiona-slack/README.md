@@ -23,7 +23,7 @@ An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https
    npm start
    ```
 
-1. For local testing, [install Cosmos DB Emulator](../../docs/testing-with-cosmos-emulator.md) and then call `npm run setup:emulator` to create the database and container.
+1. For local testing, [install Cosmos DB Emulator](../../docs/testing-with-cosmos-emulator.md) and then run `$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run setup:emulator` to create the database and container. The TLS flag is required because the emulator uses a self-signed certificate.
 
 ## LLM Provider
 
