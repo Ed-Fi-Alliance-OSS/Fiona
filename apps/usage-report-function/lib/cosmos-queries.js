@@ -260,3 +260,40 @@ export async function getFeedbackDetails(container, deploymentType, startISO, en
     botResponse: f.botResponse,
   }));
 }
+
+/**
+ * Same reason-prioritized selection as `getRepresentativeFeedback`, but
+ * bounded to [startISO, endISO) instead of open-ended past `oneWeekAgoISO`.
+ * `getRepresentativeFeedback` is left untouched since `WeeklyReportTrigger`
+ * relies on its current open-ended-to-now semantics; this is a separate
+ * function for the executive PDF report's arbitrary past date ranges.
+ */
+export async function getRepresentativeFeedbackInRange(container, deploymentType, startISO, endISO, limit = 5) {
+  const { resources } = await container.items
+    .query({
+      query: `SELECT f.userMessage, f.botResponse, f["value"], f.reason, f.timestamp
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp >= @startISO
+         AND f.timestamp < @endISO
+       ORDER BY f.timestamp DESC`,
+      parameters: [
+        { name: '@deploymentType', value: deploymentType },
+        { name: '@startISO', value: startISO },
+        { name: '@endISO', value: endISO },
+      ],
+    })
+    .fetchAll();
+
+  const withReason = resources.filter((f) => f.reason);
+  const withoutReason = resources.filter((f) => !f.reason);
+
+  return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
+    userMessage: f.userMessage,
+    botResponse: f.botResponse,
+    value: f.value,
+    reason: f.reason ?? null,
+    timestamp: f.timestamp,
+    hasReason: Boolean(f.reason),
+  }));
+}
