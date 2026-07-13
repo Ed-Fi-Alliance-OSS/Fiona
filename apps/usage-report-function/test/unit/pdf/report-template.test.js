@@ -4,7 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it } from '@jest/globals';
-import { renderCoverPage, renderReliabilityPage, renderUsageTrendsPage } from '../../../lib/pdf/report-template.js';
+import {
+  renderCoverPage,
+  renderFeedbackPage,
+  renderReliabilityPage,
+  renderUsageTrendsPage,
+} from '../../../lib/pdf/report-template.js';
 
 const kpiSummary = {
   totalInteractions: 437,
@@ -104,5 +109,49 @@ describe('renderReliabilityPage', () => {
     const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
     expect(html).toContain('System error rate');
     expect(html).toContain('2.7% overall.');
+  });
+});
+
+const representativeFeedback = [
+  {
+    userMessage: 'How do I resolve this error?',
+    botResponse: 'The error occurs because the API cannot map the route.',
+    value: 'bad-feedback',
+    reason: null,
+    timestamp: '2026-07-04T21:01:00.000Z',
+    hasReason: false,
+  },
+  {
+    userMessage: 'Do entity identities need to appear in order?',
+    botResponse: 'No, identities do not need to appear in a specific order.',
+    value: 'good-feedback',
+    reason: null,
+    timestamp: '2026-06-30T21:13:00.000Z',
+    hasReason: false,
+  },
+];
+
+describe('renderFeedbackPage', () => {
+  it('renders one card per feedback item with sentiment-labeled header', () => {
+    const html = renderFeedbackPage(representativeFeedback);
+    expect(html).toContain('Bad feedback - 2026-07-04');
+    expect(html).toContain('Good feedback - 2026-06-30');
+  });
+
+  it('renders the user message as Q: and the verbatim (truncated) bot response as A:', () => {
+    const html = renderFeedbackPage(representativeFeedback);
+    expect(html).toContain('Q: How do I resolve this error?');
+    expect(html).toContain('A: The error occurs because the API cannot map the route.');
+  });
+
+  it('applies a distinct CSS class per sentiment for card coloring', () => {
+    const html = renderFeedbackPage(representativeFeedback);
+    expect(html).toContain('feedback-card bad');
+    expect(html).toContain('feedback-card good');
+  });
+
+  it('renders a message when there is no feedback', () => {
+    const html = renderFeedbackPage([]);
+    expect(html).toContain('No feedback recorded for this period.');
   });
 });

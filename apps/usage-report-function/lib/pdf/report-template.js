@@ -202,3 +202,37 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways) {
     ${observationTable('Signal', 'Takeaway', reliabilityTakeaways, 'signal', 'takeaway')}
   </section>`;
 }
+
+function truncateForCard(text, limit = 200) {
+  const str = String(text ?? '');
+  return str.length > limit ? `${str.slice(0, limit - 1)}…` : str;
+}
+
+export function renderFeedbackPage(representativeFeedback) {
+  const body =
+    representativeFeedback.length === 0
+      ? '<p class="empty">No feedback recorded for this period.</p>'
+      : representativeFeedback
+          .map((f) => {
+            const sentiment = f.value === 'good-feedback' ? 'good' : 'bad';
+            const sentimentLabel = f.value === 'good-feedback' ? 'Good' : 'Bad';
+            const date = f.timestamp.split('T')[0];
+            return `
+    <div class="feedback-card ${sentiment}">
+      <div class="feedback-card-header">${escapeHtml(sentimentLabel)} feedback - ${escapeHtml(date)}</div>
+      <p class="feedback-q">Q: ${escapeHtml(truncateForCard(f.userMessage, 150))}</p>
+      <p class="feedback-a">A: ${escapeHtml(truncateForCard(f.botResponse, 220))}</p>
+    </div>`;
+          })
+          .join('\n');
+
+  return `
+  <section class="page">
+    <h2>Representative Feedback</h2>
+    <p>
+      The source report rendered long user messages and bot responses in a dense table. This version presents
+      representative feedback as reviewable cards and keeps raw detail out of the main flow.
+    </p>
+    ${body}
+  </section>`;
+}
