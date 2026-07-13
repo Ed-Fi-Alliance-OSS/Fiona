@@ -245,9 +245,13 @@ Output: cycle-1-candidates.csv
 
 ## Agent Wrapper: `sme-candidate-selector.agent.md`
 
-**Location:** `.github/agents/sme-candidate-selector.agent.md`
+**Locations:**
+- `.github/agents/sme-candidate-selector.agent.md` — primary file; native format for GitHub Copilot and Claude Code `--agent` invocation
+- `CLAUDE.md` entry — adds discoverability for any Claude Code session that doesn't use `--agent` explicitly
 
 **Purpose:** Makes the pipeline invocable from any authenticated Claude Code session using natural language. Follows the existing `azure-usage-report.agent.md` pattern.
+
+**Compatibility note:** `.github/agents/` is GitHub Copilot's native agent format. Claude Code also reads this directory, making the file available via `--agent sme-candidate-selector` or `/agent sme-candidate-selector` in any Claude Code session. For Claude.ai web sessions (outside Claude Code), the agent is not auto-discoverable — the CLAUDE.md entry handles discoverability within Claude Code sessions that skip the `--agent` flag.
 
 ### Frontmatter
 
@@ -287,6 +291,10 @@ tools: [execute, read, search]
 /agent sme-candidate-selector "Give me 15 candidates, bad-feedback only"
 ```
 
+Or from any Claude Code session after the CLAUDE.md entry is in place, without the `--agent` flag:
+
+> "Select SME candidates for cycle 1"
+
 ---
 
 ## Path Comparison
@@ -325,4 +333,5 @@ These columns are appended after the core Slack List columns and do not interfer
 | `format-candidates-csv.js` | `apps/fiona-slack/scripts/` |
 | `select-candidates.js` | `apps/fiona-slack/scripts/` |
 | `sme-candidate-selector.agent.md` | `.github/agents/` |
+| CLAUDE.md entry for agent discoverability | `CLAUDE.md` |
 | Tests for all three scripts | `apps/fiona-slack/tests/scripts/` |
