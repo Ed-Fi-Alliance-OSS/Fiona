@@ -34,8 +34,7 @@ export const SEARCH_NOT_YET_TEXT =
 
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
-export const ESCALATE_CONFIRM_TEXT =
-  '✅ Your conversation has been escalated. A team member will follow up shortly.';
+export const ESCALATE_CONFIRM_TEXT = '✅ Your conversation has been escalated. A team member will follow up shortly.';
 export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
 export const ESCALATE_ERROR_TEXT =
   ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
