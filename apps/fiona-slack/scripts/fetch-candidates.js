@@ -81,7 +81,7 @@ async function fetchSlackBackfill(token, { convSince, slackSince, existingIds })
   const records = [];
   for (const channel of listData.channels ?? []) {
     const repliesRes = await fetch(
-      `https://slack.com/api/conversations.replies?channel=${channel.id}&ts=${channel.latest ?? ''}&limit=100`,
+      `https://slack.com/api/conversations.history?channel=${channel.id}&limit=200`,
       { headers },
     );
     const repliesData = await repliesRes.json();
@@ -94,7 +94,7 @@ async function fetchSlackBackfill(token, { convSince, slackSince, existingIds })
       if (userMsg.bot_id || !botMsg.bot_id) continue;
       if (userMsg.ts < slackSince || userMsg.ts >= convSince) continue;
 
-      const msgKey = `${channel.id}_${userMsg.ts}`;
+      const msgKey = `${channel.id}_${botMsg.ts}`;
       if (existingIds.has(msgKey)) continue;
 
       const slackUrl = buildSlackUrl(channel.id, botMsg.ts);
