@@ -8,6 +8,49 @@
 
 **Tech Stack:** Node.js 22 (ESM), Slack Bolt 4, OpenAI SDK (Perplexity-compatible), Azure Cosmos SDK, Jest 29 with `jest.unstable_mockModule`, Biome.
 
+---
+
+## Addendum (2026-07-14) — shipped beyond the original slash-only plan
+
+Tasks 1–5 below implemented the slash command. During integration and testing on
+branch `AI-122`, the feature was extended to full parity with the existing
+keyword routing and refined. The as-built behavior is captured in the
+[design doc](2026-06-22-escalate-to-human-design.md); the deltas versus this plan:
+
+- **Conversational entry points added (`escalate` keyword).** `parseCommandKeyword`
+  in `src/listeners/commands/command-handler.js` now recognizes an exact
+  `escalate` / `fiona escalate`, and `src/listeners/events/app_mention.js` +
+  `src/listeners/assistant/message.js` route it to a new
+  `escalateViaSay()` in `escalation.js`. These paths carry a real `thread_ts`, so
+  they capture the thread transcript (the slash path cannot).
+- **`escalateViaSay()` wrapper.** Calls `postEscalation`, then replies via
+  `say({ text, thread_ts })` **in-thread** (bare `say()` posts to the channel
+  root for app_mention). Records an escalate-error interaction on failure; the
+  callers call `markInteractionRecorded()` so the turn isn't double-counted.
+- **Context-free slash.** `/fiona escalate` no longer scrapes channel history
+  (removed the `conversations.history` branch and the doomed
+  `getPermalink(trigger_id)` call). With no `threadTs`, `postEscalation` posts a
+  header-only escalation with a "no conversation context" note. Transcripts come
+  only from the user's own Fiona thread.
+- **Shared copy moved.** `ESCALATE_CONFIRM_TEXT` / `ESCALATE_DM_TEXT` /
+  `ESCALATE_ERROR_TEXT` now live in `command-handler.js` and are imported by both
+  `fiona.js` and `escalation.js`.
+- **Copy change.** The confirmation no longer names `#escalation`
+  (`✅ Your conversation has been escalated. A team member will follow up shortly.`)
+  because the configured channel is an ID and may not be visible to the user.
+  This supersedes the "Verbatim user-facing copy" constraint below.
+- **Source values.** `interactionType` is `slash_escalate`, `mention_escalate`, or
+  `assistant_escalate` (the earlier `auto_escalation` value was dropped; the
+  proactive story defines its own).
+- **Tests added** for `parseCommandKeyword` escalate, `escalateViaSay` (in-thread
+  success/DM/error + delegation), the context-free slash path, and the
+  `escalate` routing in both conversational handlers.
+
+The always-present "Get Live Help" button and proactive suggestion remain a
+separate story — see [the redesign spec](../specs/2026-06-23-escalation-redesign-design.md).
+
+---
+
 ## Global Constraints
 
 - **Runtime:** Node.js 22+, ES modules (`"type": "module"`); use `import`/`export`, never `require`.
