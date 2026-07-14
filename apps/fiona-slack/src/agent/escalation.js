@@ -41,8 +41,29 @@ async function fetchTranscript(client, { channelId, threadTs, logger }) {
 }
 
 /**
+ * Fire-and-forget record of a failed escalation attempt. Centralizes the error
+ * interaction shape so callers only handle user-facing messaging.
+ */
+function recordEscalationError({ userId, teamId, channelId, threadTs, messageTs, source, errorType, logger }) {
+  recordInteraction({
+    userId,
+    teamId,
+    channelId,
+    threadTs: threadTs ?? messageTs,
+    messageTs,
+    interactionType: source,
+    status: 'error',
+    errorType,
+    rateLimited: false,
+    logger,
+  }).catch((e) => logger?.warn?.(`Failed to record ${source} error interaction: ${e.message}`));
+}
+
+/**
  * Post an escalation to the configured channel and record it. Shared by the
- * /fiona escalate slash command and the proactive escalation flow.
+ * /fiona escalate slash command and the proactive escalation flow. Records the
+ * interaction itself on both the success and failure paths (callers only render
+ * user-facing messaging).
  *
  * @param {Object} params
  * @param {import("@slack/web-api").WebClient} params.client
@@ -70,36 +91,51 @@ export async function postEscalation({
   const targetChannel = process.env.ESCALATION_CHANNEL;
   if (!targetChannel) {
     logger?.warn?.('ESCALATION_CHANNEL is not configured; cannot post escalation.');
+    recordEscalationError({
+      userId,
+      teamId,
+      channelId,
+      threadTs,
+      messageTs,
+      source,
+      errorType: 'channel_not_configured',
+      logger,
+    });
     return { ok: false, errorType: 'channel_not_configured' };
   }
 
-  const user = await getUser(userId, logger);
-  const displayName = user?.displayName || user?.realName || user?.name || `<@${userId}>`;
-
   // A transcript and permalink only exist for conversational entry points, which
   // carry a real thread ts. The slash command has none, so it posts a
-  // context-free escalation without scraping channel history.
+  // context-free escalation without scraping channel history. getUser, the
+  // transcript fetch, and the permalink lookup are independent network calls, so
+  // run them concurrently; only the summary depends on the transcript.
   const hasThread = Boolean(threadTs);
-  const transcript = hasThread ? await fetchTranscript(client, { channelId, threadTs, logger }) : '';
-  const summary = transcript ? await summarizeForEscalation(transcript, logger) : null;
+  const transcriptPromise = hasThread ? fetchTranscript(client, { channelId, threadTs, logger }) : Promise.resolve('');
+  const summaryPromise = transcriptPromise.then((t) => (t ? summarizeForEscalation(t, logger) : null));
+  const permalinkPromise =
+    !isDm && hasThread
+      ? client.chat
+          .getPermalink({ channel: channelId, message_ts: threadTs })
+          .then((res) => res?.permalink ?? null)
+          .catch((err) => {
+            logger?.warn?.(`Failed to get permalink for escalation: ${err.message}`);
+            return null;
+          })
+      : Promise.resolve(null);
 
-  let permalink = null;
-  if (!isDm && hasThread) {
-    try {
-      const res = await client.chat.getPermalink({ channel: channelId, message_ts: threadTs });
-      permalink = res?.permalink ?? null;
-    } catch (err) {
-      logger?.warn?.(`Failed to get permalink for escalation: ${err.message}`);
-    }
-  }
+  const [user, transcript, summary, permalink] = await Promise.all([
+    getUser(userId, logger),
+    transcriptPromise,
+    summaryPromise,
+    permalinkPromise,
+  ]);
+  const displayName = user?.displayName || user?.realName || user?.name || `<@${userId}>`;
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
   const mention = usergroupId ? `<!subteam^${usergroupId}> ` : '';
-  const locationLink = isDm
-    ? 'Direct message (no permalink)'
-    : permalink
-      ? `<${permalink}|View conversation>`
-      : `<#${channelId}>`;
+  let locationLink = `<#${channelId}>`;
+  if (isDm) locationLink = 'Direct message (no permalink)';
+  else if (permalink) locationLink = `<${permalink}|View conversation>`;
   const headerLines = [
     `${mention}:rotating_light: *Escalation requested* by *${displayName}*`,
     `*Where:* ${locationLink}`,
@@ -118,6 +154,7 @@ export async function postEscalation({
     postedTs = res?.ts ?? null;
   } catch (err) {
     logger?.error?.(`Failed to post escalation to ${targetChannel}: ${err.message}`);
+    recordEscalationError({ userId, teamId, channelId, threadTs, messageTs, source, errorType: 'post_failed', logger });
     return { ok: false, errorType: 'post_failed' };
   }
 
@@ -173,9 +210,8 @@ export async function postEscalation({
  * the caller replies through `say()` rather than an ephemeral `respond()`.
  *
  * Rate limiting is applied by the surrounding message handler before this runs,
- * so it is not repeated here. On success `postEscalation` records the escalate
- * interaction; on failure this records an escalate error interaction so the
- * event is captured exactly once (mirrors the slash `handleEscalate`).
+ * so it is not repeated here. `postEscalation` records the escalate interaction
+ * on both success and failure, so this only threads the user-facing reply.
  *
  * @param {Object} params
  * @param {import("@slack/web-api").WebClient} params.client
@@ -215,26 +251,8 @@ export async function escalateViaSay({
 
   // Thread the reply so the confirmation lands in the conversation the user is
   // in (say() otherwise posts to the channel root for app_mention).
-  if (result.ok) {
-    await say({ text: isDm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT, thread_ts: threadTs }).catch((err) =>
-      logger?.warn?.(`Failed to send escalation confirmation: ${err.message}`),
-    );
-    return;
-  }
-
-  await say({ text: ESCALATE_ERROR_TEXT, thread_ts: threadTs }).catch((err) =>
-    logger?.warn?.(`Failed to send escalation error: ${err.message}`),
+  const text = result.ok ? (isDm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT;
+  await say({ text, thread_ts: threadTs }).catch((err) =>
+    logger?.warn?.(`Failed to send escalation ${result.ok ? 'confirmation' : 'error'}: ${err.message}`),
   );
-  recordInteraction({
-    userId,
-    teamId,
-    channelId,
-    threadTs: threadTs ?? messageTs,
-    messageTs,
-    interactionType: source,
-    status: 'error',
-    errorType: result.errorType,
-    rateLimited: false,
-    logger,
-  }).catch((e) => logger?.warn?.(`Failed to record ${source} interaction: ${e.message}`));
 }

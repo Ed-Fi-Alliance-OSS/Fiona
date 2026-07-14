@@ -4,7 +4,6 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { captureConversation } from '../../agent/conversation-capture-store.js';
-import { escalateViaSay } from '../../agent/escalation.js';
 import { handleInteractionWithTelemetry, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
 import {
   CITATION_POLICY,
@@ -16,7 +15,8 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { parseCommandKeyword, routeCommandViaSay } from '../commands/command-handler.js';
+import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { parseCommandKeyword } from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -81,25 +81,19 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Only exact "help"/"escalate" match; "@fiona help me with X" falls through to the LLM.
       const cmd = parseCommandKeyword(text);
       if (cmd) {
-        if (cmd.keyword === 'escalate') {
-          // postEscalation records the escalate interaction itself; suppress the
-          // telemetry wrapper's turn record so the event is counted exactly once.
-          markInteractionRecorded();
-          await escalateViaSay({
-            client,
-            userId: user,
-            teamId: team,
-            channelId: channel,
-            threadTs: thread_ts,
-            messageTs,
-            source: 'mention_escalate',
-            isDm: (channel || '').startsWith('D'),
-            say,
-            logger,
-          });
-        } else {
-          await routeCommandViaSay(say, logger, cmd);
-        }
+        await dispatchKeywordViaSay({
+          cmd,
+          say,
+          logger,
+          markInteractionRecorded,
+          client,
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          source: 'mention_escalate',
+        });
         return;
       }
 

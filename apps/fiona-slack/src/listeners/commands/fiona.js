@@ -5,7 +5,7 @@
 
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
-import { checkRateLimit } from '../../agent/rate-limiter.js';
+import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
@@ -129,11 +129,7 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
 
   const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
   if (!allowed) {
-    const minutes = Math.ceil(retryAfterMs / 60000);
-    await respond({
-      response_type: 'ephemeral',
-      text: `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
-    });
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
     recordInteraction({
       ...slashInteractionRecord(command, 'slash_escalate'),
       status: 'error',
@@ -157,16 +153,10 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
     logger,
   });
 
-  if (result.ok) {
-    await respond({ response_type: 'ephemeral', text: dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT });
-  } else {
-    await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
-    recordInteraction({
-      ...slashInteractionRecord(command, 'slash_escalate'),
-      status: 'error',
-      errorType: result.errorType,
-      rateLimited: false,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_escalate interaction: ${err.name}`));
-  }
+  // postEscalation records the interaction on both success and failure; this
+  // path only renders the ephemeral confirmation or error to the invoking user.
+  await respond({
+    response_type: 'ephemeral',
+    text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
+  });
 }

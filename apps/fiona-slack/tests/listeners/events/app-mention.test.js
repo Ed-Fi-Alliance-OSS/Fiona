@@ -33,6 +33,10 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
   checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  rateLimitMessage: jest.fn((retryAfterMs) => {
+    const minutes = Math.ceil(retryAfterMs / 60000);
+    return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+  }),
 }));
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
