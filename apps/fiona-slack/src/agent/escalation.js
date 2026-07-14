@@ -129,18 +129,13 @@ export async function postEscalation({
           })
       : Promise.resolve(null);
 
-  const [user, transcript, summary, permalink] = await Promise.all([
-    getUser(userId, logger),
+  const [transcript, summary, permalink] = await Promise.all([
     transcriptPromise,
     summaryPromise,
     permalinkPromise,
   ]);
 
-  const displayName = (`<@${userId}>`)
-    .replace(/<!channel>/g, 'channel')
-    .replace(/<!here>/g, 'here')
-    .replace(/<!subteam\^[^>|]+(?:\|([^>]+))?>/g, (_match, label) => label || 'user group')
-    .trim();
+  const displayName = `<@${userId}>`;
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
   const mention = usergroupId ? `<!subteam^${usergroupId}> ` : '';
