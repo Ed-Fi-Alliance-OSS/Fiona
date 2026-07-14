@@ -28,8 +28,14 @@ async function fetchTranscript(client, { channelId, threadTs, logger }) {
     return messages
       .filter((m) => m.text)
       .map((m) => {
-        const who = m.bot_id ? 'Fiona' : m.user ? `<@${m.user}>` : 'User';
-        const text = (m.text ?? '').replace(/^(<@[A-Z0-9]+>\s*)+/, '').trim();
+        const who = m.bot_id ? 'Fiona' : 'User';
+        const text = (m.text ?? '')
+          .replace(/^(<@[A-Z0-9]+>\s*)+/, '')
+          .replace(/<!channel>/g, 'channel')
+          .replace(/<!here>/g, 'here')
+          .replace(/<!subteam\^[^>|]+(?:\|([^>]+))?>/g, (_match, label) => label || 'user group')
+          .replace(/<@([A-Z0-9]+)>/g, '@$1')
+          .trim();
         return text ? `*${who}:* ${text}` : null;
       })
       .filter(Boolean)
