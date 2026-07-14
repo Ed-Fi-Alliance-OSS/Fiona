@@ -7,7 +7,6 @@ import { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } from '..
 import { recordFeedback } from './feedback-store.js';
 import { recordInteraction } from './interaction-store.js';
 import { summarizeForEscalation } from './llm-caller.js';
-import { getUser } from './slack-users-store.js';
 
 const THREAD_REPLY_LIMIT = 50;
 const SLACK_BLOCK_TEXT_LIMIT = 2900; // leave headroom under Slack's 3000-char section limit
