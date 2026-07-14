@@ -22,7 +22,13 @@ export async function fetchConversations(container, { deploymentType, since }) {
   while (true) {
     const { resources } = await container.items
       .query(
-        `SELECT c.id, c.userId, c.channelId, c.threadTs, c.messageTs, c.userMessage, c.botResponse, c.sources, c.timestamp, c.entryPoint, c.threadHistory FROM c WHERE c.deploymentType = "${deploymentType}" ORDER BY c.timestamp DESC OFFSET ${offset} LIMIT 100`,
+        {
+          query: 'SELECT c.id, c.userId, c.channelId, c.threadTs, c.messageTs, c.userMessage, c.botResponse, c.sources, c.timestamp, c.entryPoint, c.threadHistory FROM c WHERE c.deploymentType = @dt ORDER BY c.timestamp DESC OFFSET @off LIMIT 100',
+          parameters: [
+            { name: '@dt', value: deploymentType },
+            { name: '@off', value: offset },
+          ],
+        },
       )
       .fetchAll();
 
@@ -62,7 +68,12 @@ export async function joinFeedback(conversations, feedbackContainer, { deploymen
           hasBadFeedback,
           badFeedbackReason: hasBadFeedback ? (resource?.reason ?? null) : null,
         };
-      } catch {
+      } catch (err) {
+        const statusCode = err?.code || err?.statusCode;
+        if (statusCode === 404 || statusCode === 'NotFound') {
+          return { ...conv, hasBadFeedback: false, badFeedbackReason: null };
+        }
+        console.error(`Feedback lookup failed for ${conv.userId}_${conv.messageTs}: ${err?.message || err}`);
         return { ...conv, hasBadFeedback: false, badFeedbackReason: null };
       }
     }),
@@ -88,11 +99,13 @@ async function fetchSlackBackfill(token, { convSince, slackSince, existingIds })
     if (!repliesData.ok) continue;
 
     const messages = repliesData.messages ?? [];
+    messages.reverse();
     for (let i = 0; i < messages.length - 1; i++) {
       const userMsg = messages[i];
       const botMsg = messages[i + 1];
       if (userMsg.bot_id || !botMsg.bot_id) continue;
-      if (userMsg.ts < slackSince || userMsg.ts >= convSince) continue;
+      const userMsgEpoch = parseFloat(userMsg.ts);
+      if (userMsgEpoch < new Date(slackSince).getTime() / 1000 || userMsgEpoch >= new Date(convSince).getTime() / 1000) continue;
 
       const msgKey = `${channel.id}_${botMsg.ts}`;
       if (existingIds.has(msgKey)) continue;

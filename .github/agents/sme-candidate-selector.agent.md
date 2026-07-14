@@ -12,7 +12,7 @@ You are the SME candidate selector for Fiona evaluation cycles.
 
 ## Scope
 
-Select 15–20 representative Fiona conversations from Cosmos DB to populate a Slack List for SME quality review. You fetch raw candidates deterministically, classify topics inline (you are Claude — no subprocess needed), apply stratified selection, and produce a CSV ready for Slack List import.
+Select 15–20 representative Fiona conversations from Cosmos DB to populate a Slack List for SME quality review. You fetch raw candidates via scripts, classify and select via `select-candidates.js`, and produce a CSV ready for Slack List import.
 
 ## Ground Rules
 
@@ -44,32 +44,18 @@ Read `candidates-raw.json`. Report: total count, bad-feedback count, date range,
 
 Pause if total < count × 1.5 and ask whether to proceed or adjust parameters.
 
-### Step 3 — Classify candidates inline
+### Step 3 — Classify and select via select-candidates.js
 
-For each candidate in `candidates-raw.json`, determine:
-- `topic`: one of the 38 canonical Ed-Fi concepts below, or "Other"
-- `clarity`: 1–5 (1 = requires prior context to understand, 5 = clear standalone question)
-- `isStandalone`: false only if the question cannot be understood without reading prior messages
-
-**38 canonical Ed-Fi concepts:**
-Authorization Strategies, Descriptors, ODS/API Setup, Data Standard, Student Data, Assessment Data, Finance Data, HR Data, Enrollment, Calendars and Sessions, Grades and Transcripts, Interventions, Programs, Staff and Personnel, LEA and School Administration, Ed-Fi Extensions, API Security, Rate Limiting, Versioning, Performance, Data Migration, Bulk Data Operations, Swagger/OpenAPI, Ed-Fi Alliance Standards, ODS Platform Architecture, Reporting and Analytics, SIS Integration, Vendor API Clients, Certification, State Reporting, Federal Reporting, Ed-Fi Suite Deployment, Ed-Fi Cloud Deployment, Local Education Agencies, Sample Data, Education Organizations, Learning Standards, Other
-
-### Step 4 — Apply stratified selection
-
-1. **Pool A (bad-feedback priority):** `hasBadFeedback: true` AND `clarity >= 3`, sorted by clarity descending. Fill up to `floor(count × 0.3)` slots.
-2. **Pool B (topic distribution):** fill remaining slots by cycling through topics alphabetically, picking the highest-clarity record per topic per round. Within equal clarity, prefer `isStandalone: true`, then most recent `timestamp`.
-3. Mark selected records `"selected": true`.
-
-### Step 5 — Write output
-
-Write `candidates-classified.json` with all candidates + classification fields + `selected` flag.
-
-Run:
+Run from `apps/fiona-slack/`:
 ```
-node scripts/format-candidates-csv.js --input=candidates-classified.json --output=<outputFile>
+node scripts/select-candidates.js --input=candidates-raw.json --count=<count> --output=<outputFile>
 ```
 
-### Step 6 — Report results
+This script classifies each candidate inline via the `claude` CLI (subscription auth — no API key needed), applies stratified selection (Pool A: bad-feedback + clarity≥3 up to 30% of count; Pool B: topic cycling alphabetically, highest clarity first, isStandalone→recency tie-breaking), and writes both `<outputFile>` and `<outputFile without .csv>-classified.json`.
+
+Read the classified JSON to verify the topic distribution before reporting results.
+
+### Step 4 — Report results
 
 Print:
 - Selected count vs requested

@@ -53,8 +53,8 @@ export function classifyViaCli(prompt, { model = 'haiku' } = {}) {
   const result = spawnSync(
     'claude',
     ['-p', '--output-format', 'json', '--json-schema', CLASSIFICATION_SCHEMA,
-      '--system-prompt', CLASSIFICATION_SYSTEM_PROMPT, '--model', model, prompt],
-    { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+      '--system-prompt', CLASSIFICATION_SYSTEM_PROMPT, '--model', model],
+    { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, input: prompt },
   );
 
   if (result.error) throw result.error;
@@ -188,6 +188,11 @@ export async function main() {
 
   const classifiedMap = new Map(classifications.map((c) => [c.id, c]));
   const merged = raw.map((r) => ({ ...r, ...classifiedMap.get(r.id) }));
+
+  const unclassified = merged.filter((r) => r.clarity === undefined);
+  if (unclassified.length > 0) {
+    console.warn(`Warning: ${unclassified.length} records had no classification result and will be excluded from selection.`);
+  }
 
   const selected = selectCandidates(merged, rawMap, count);
   const selectedIds = new Set(selected.map((c) => c.id));
