@@ -186,7 +186,6 @@ export async function main() {
 
   const rawMap = new Map(raw.map((c) => [c.id, c]));
 
-  // Merge classification results back onto raw records
   const classifiedMap = new Map(classifications.map((c) => [c.id, c]));
   const merged = raw.map((r) => ({ ...r, ...classifiedMap.get(r.id) }));
 
@@ -196,10 +195,8 @@ export async function main() {
   const output = merged.map((c) => ({ ...c, selected: selectedIds.has(c.id) }));
   writeFileSync(path.resolve(classifiedPath), JSON.stringify(output, null, 2), 'utf8');
 
-  // Write CSV via format-candidates-csv
   const { formatCsv } = await import('./format-candidates-csv.js');
-  const { writeFileSync: wf } = await import('node:fs');
-  wf(path.resolve(outputPath), formatCsv(output), 'utf8');
+  writeFileSync(path.resolve(outputPath), formatCsv(output), 'utf8');
 
   const badFeedbackSelected = selected.filter((c) => rawMap.get(c.id)?.hasBadFeedback).length;
   const topicCounts = selected.reduce((acc, c) => {
