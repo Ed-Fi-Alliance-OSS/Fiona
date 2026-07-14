@@ -340,6 +340,34 @@ describe('cosmos-queries', () => {
       expect(result).toHaveLength(5);
     });
 
+    it('excludes feedback entries where both question and answer are empty', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({
+          resources: [
+            {
+              userMessage: null,
+              botResponse: null,
+              value: 'good-feedback',
+              reason: 'thumb only',
+              timestamp: '2026-03-16T00:00:00.000Z',
+            },
+            {
+              userMessage: 'has question',
+              botResponse: null,
+              value: 'bad-feedback',
+              reason: null,
+              timestamp: '2026-03-15T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      const result = await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ userMessage: 'has question' });
+    });
+
     it('returns an empty array when there is no feedback in the window', async () => {
       mockFeedbackContainer.items.query.mockReturnValue({
         fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
@@ -492,6 +520,34 @@ describe('cosmos-queries', () => {
       const result = await getRepresentativeFeedbackInRange(mockFeedbackContainer, deploymentType, startISO, endISO, 5);
 
       expect(result).toHaveLength(5);
+    });
+
+    it('excludes in-range feedback entries where both question and answer are empty', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({
+          resources: [
+            {
+              userMessage: null,
+              botResponse: null,
+              value: 'good-feedback',
+              reason: 'thumb only',
+              timestamp: '2026-04-16T00:00:00.000Z',
+            },
+            {
+              userMessage: null,
+              botResponse: 'has answer',
+              value: 'bad-feedback',
+              reason: null,
+              timestamp: '2026-04-15T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      const result = await getRepresentativeFeedbackInRange(mockFeedbackContainer, deploymentType, startISO, endISO);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ botResponse: 'has answer' });
     });
 
     it('returns an empty array when there is no feedback in the window', async () => {

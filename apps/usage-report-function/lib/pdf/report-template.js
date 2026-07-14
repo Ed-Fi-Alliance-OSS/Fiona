@@ -37,18 +37,17 @@ export function renderCoverPage(kpiSummary, readoutBullets, period) {
 
     <h2>Executive Summary</h2>
     <p>
-      This version restructures the source executive analytics report into a cleaner, stakeholder-facing summary.
-      The main pages emphasize KPI cards, readable trend charts, concise interpretation, and representative
-      feedback. Detailed tables are kept in a compact appendix instead of dominating the report body.
+      This summary covers the report period shown above. KPI cards below focus on unique users, sessions,
+      interactions, new-user acquisition, reliability, and feedback quality for that exact period.
     </p>
 
     <div class="kpi-grid">
+      ${kpiCard(kpiSummary.uniqueUsers.toLocaleString(), 'Unique Users', 'Distinct successful users in period')}
+      ${kpiCard(kpiSummary.totalSessions.toLocaleString(), 'Total Sessions', 'Distinct successful sessions in period')}
       ${kpiCard(kpiSummary.totalInteractions.toLocaleString(), 'Total Interactions', 'All captured user-bot interactions')}
-      ${kpiCard(kpiSummary.uniqueUsers.toLocaleString(), 'Unique Users', 'Distinct Slack users')}
-      ${kpiCard(kpiSummary.totalSessions.toLocaleString(), 'Total Sessions', 'Conversation sessions')}
-      ${kpiCard(kpiSummary.avgInteractionsPerUser.toFixed(1), 'Avg Interactions / User', 'Engagement depth')}
-      ${kpiCard(`${kpiSummary.errorRate.toFixed(1)}%`, 'System Error Rate', 'Reliability indicator')}
-      ${kpiCard(`${kpiSummary.positiveFeedbackPct.toFixed(1)}%`, 'Positive Feedback', 'Share of rated responses')}
+      ${kpiCard(kpiSummary.newUsers.toLocaleString(), 'New Users', 'No successful interactions before this period')}
+      ${kpiCard(`${kpiSummary.errorCount.toLocaleString()} (${kpiSummary.errorRate.toFixed(1)}%)`, 'Errors', 'Count and rate across all interactions')}
+      ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${kpiSummary.positiveFeedbackPct.toFixed(1)}%)`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
     </div>
 
     <h2>Readout</h2>
@@ -79,6 +78,31 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
   const interactions = weeklyTrend.map((w) => w.totalInteractions);
   const users = weeklyTrend.map((w) => w.uniqueUsers);
   const sessions = weeklyTrend.map((w) => w.sessions);
+  const newUsers = weeklyTrend.map((w) => w.newUsers);
+
+  const trendRows = weeklyTrend.map((week, index) => {
+    if (index === 0) {
+      return { ...week, newUsersWowPct: null };
+    }
+
+    const previous = weeklyTrend[index - 1];
+    const newUsersWowPct =
+      previous.newUsers > 0 ? ((week.newUsers - previous.newUsers) / previous.newUsers) * 100 : null;
+    return { ...week, newUsersWowPct };
+  });
+
+  const trendTable = dataTable(
+    ['Week', 'Users', 'New Users', 'New User WoW %', 'Sessions', 'Interactions'],
+    trendRows,
+    [
+      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      (w) => w.uniqueUsers,
+      (w) => w.newUsers,
+      (w) => (w.newUsersWowPct === null ? 'N/A' : `${w.newUsersWowPct >= 0 ? '+' : ''}${w.newUsersWowPct.toFixed(1)}%`),
+      (w) => w.sessions,
+      (w) => w.totalInteractions,
+    ],
+  );
 
   const chartConfig = {
     type: 'bar',
@@ -91,7 +115,7 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
           data: interactions,
           backgroundColor: 'rgba(147,112,219,0.35)',
           yAxisID: 'yInteractions',
-          order: 2,
+          order: 3,
         },
         {
           type: 'line',
@@ -105,13 +129,23 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
         },
         {
           type: 'line',
+          label: 'New Users',
+          data: newUsers,
+          borderColor: '#2e8b57',
+          backgroundColor: '#2e8b57',
+          yAxisID: 'yCount',
+          tension: 0.3,
+          order: 1,
+        },
+        {
+          type: 'line',
           label: 'Sessions',
           data: sessions,
           borderColor: '#6495ed',
           backgroundColor: '#6495ed',
           yAxisID: 'yCount',
           tension: 0.3,
-          order: 1,
+          order: 2,
         },
       ],
     },
@@ -134,8 +168,8 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
   <section class="page">
     <h2>Usage Trends</h2>
     <p>
-      The original report showed six small charts and a wide table on one page. This version enlarges the
-      core usage chart and moves the detailed weekly table to the appendix.
+      Timeline uses the rolling week-over-week trend window (starting from April until enough history exists
+      for a full 3-month rolling view), with explicit new-user growth tracking.
     </p>
     <canvas id="usage-trends-chart" width="900" height="380"></canvas>
     <script>
@@ -143,6 +177,7 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
       window.__chartConfigs['usage-trends-chart'] = ${JSON.stringify(chartConfig)};
     </script>
     ${observationTable('Metric', 'Observation', usageObservations, 'metric', 'observation')}
+    ${trendTable}
   </section>`;
 }
 
@@ -209,10 +244,16 @@ function truncateForCard(text, limit = 200) {
 }
 
 export function renderFeedbackPage(representativeFeedback) {
+  const feedbackWithConversation = representativeFeedback.filter((f) => {
+    const hasQuestion = String(f.userMessage ?? '').trim().length > 0;
+    const hasAnswer = String(f.botResponse ?? '').trim().length > 0;
+    return hasQuestion || hasAnswer;
+  });
+
   const body =
-    representativeFeedback.length === 0
+    feedbackWithConversation.length === 0
       ? '<p class="empty">No feedback recorded for this period.</p>'
-      : representativeFeedback
+      : feedbackWithConversation
           .map((f) => {
             const sentiment = f.value === 'good-feedback' ? 'good' : 'bad';
             const sentimentLabel = f.value === 'good-feedback' ? 'Good' : 'Bad';
@@ -471,6 +512,7 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
   const {
     kpiSummary,
     weeklyTrend,
+    trendWeekly = weeklyTrend,
     dailySummary,
     representativeFeedback,
     topUsersByFeedback,
@@ -481,8 +523,8 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
 
   const pages = [
     renderCoverPage(kpiSummary, readoutBullets, period),
-    renderUsageTrendsPage(weeklyTrend, usageObservations),
-    renderReliabilityPage(weeklyTrend, reliabilityTakeaways),
+    renderUsageTrendsPage(trendWeekly, usageObservations),
+    renderReliabilityPage(trendWeekly, reliabilityTakeaways),
     renderFeedbackPage(representativeFeedback),
     renderTopUsersPage(topUsersByFeedback, topUsersByInteractions),
     renderAppendixPage(weeklyTrend, dailySummary),

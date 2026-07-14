@@ -43,7 +43,7 @@ export async function getKpiSummary(interactionsContainer, feedbackContainer, de
       .fetchAll(),
   ]);
 
-  let errors = 0;
+  let errorCount = 0;
   let rateLimitedEvents = 0;
   let successRecords = 0;
   const successUserIds = new Set();
@@ -51,7 +51,7 @@ export async function getKpiSummary(interactionsContainer, feedbackContainer, de
 
   for (const record of interactions) {
     if (record.status === 'error') {
-      errors += 1;
+      errorCount += 1;
     }
     if (record.rateLimited === true) {
       rateLimitedEvents += 1;
@@ -77,15 +77,50 @@ export async function getKpiSummary(interactionsContainer, feedbackContainer, de
   const totalInteractions = interactions.length;
   const uniqueUsers = successUserIds.size;
 
+  let newUsers = 0;
+  const currentUsers = [...successUserIds];
+  if (currentUsers.length > 0) {
+    const { resources: priorUsers } = await interactionsContainer.items
+      .query({
+        query: `SELECT DISTINCT VALUE i.userId
+         FROM interactions i
+         WHERE i.deploymentType = @deploymentType
+           AND i.timestamp < @startISO
+           AND i.status = 'success'
+           AND i.rateLimited = false
+           AND ARRAY_CONTAINS(@currentUsers, i.userId)`,
+        parameters: [
+          { name: '@deploymentType', value: deploymentType },
+          { name: '@startISO', value: startISO },
+          { name: '@currentUsers', value: currentUsers },
+        ],
+      })
+      .fetchAll();
+
+    const priorHistoryUsers = new Set(priorUsers);
+    for (const userId of currentUsers) {
+      if (!priorHistoryUsers.has(userId)) {
+        newUsers += 1;
+      }
+    }
+  }
+
+  const returningUsers = uniqueUsers - newUsers;
+
   return {
     totalInteractions,
     uniqueUsers,
     totalSessions: successThreadTs.size,
     avgInteractionsPerUser: uniqueUsers > 0 ? successRecords / uniqueUsers : 0,
-    errorRate: totalInteractions > 0 ? (errors / totalInteractions) * 100 : 0,
+    errorCount,
+    errorRate: totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0,
     rateLimitedEvents,
     goodFeedback,
     badFeedback,
+    feedbackTotal,
     positiveFeedbackPct: feedbackTotal > 0 ? (goodFeedback / feedbackTotal) * 100 : 0,
+    newUsers,
+    returningUsers,
+    newUserPct: uniqueUsers > 0 ? (newUsers / uniqueUsers) * 100 : 0,
   };
 }

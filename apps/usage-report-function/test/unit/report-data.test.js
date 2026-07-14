@@ -37,12 +37,13 @@ describe('buildExecutiveReportData', () => {
   const interactionsContainer = {};
   const feedbackContainer = {};
   const deploymentType = 'production';
-  const startISO = '2026-04-13T00:00:00.000Z';
-  const endISO = '2026-04-20T00:00:00.000Z';
+  const startISO = '2026-06-24T00:00:00.000Z';
+  const endISO = '2026-07-09T00:00:00.000Z';
 
-  const kpiSummary = { totalInteractions: 10, uniqueUsers: 3 };
-  const weeklyTrend = [{ weekStart: '2026-04-13' }];
-  const dailySummary = [{ date: '2026-04-13' }];
+  const kpiSummary = { totalInteractions: 10, uniqueUsers: 3, newUsers: 1 };
+  const weeklyTrend = [{ weekStart: '2026-06-22' }];
+  const trendWeekly = [{ weekStart: '2026-04-06' }, { weekStart: '2026-06-22' }];
+  const dailySummary = [{ date: '2026-06-24' }];
   const feedbackDetails = [{ userId: 'u1' }];
   const representativeFeedback = [
     {
@@ -50,7 +51,7 @@ describe('buildExecutiveReportData', () => {
       botResponse: 'a',
       value: 'good-feedback',
       reason: null,
-      timestamp: '2026-04-13T00:00:00.000Z',
+      timestamp: '2026-06-24T00:00:00.000Z',
       hasReason: false,
     },
   ];
@@ -60,7 +61,7 @@ describe('buildExecutiveReportData', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetKpiSummary.mockResolvedValue(kpiSummary);
-    mockGetWeeklyTrendSeries.mockResolvedValue(weeklyTrend);
+    mockGetWeeklyTrendSeries.mockResolvedValueOnce(weeklyTrend).mockResolvedValueOnce(trendWeekly);
     mockGetDailySummary.mockResolvedValue(dailySummary);
     mockGetFeedbackDetails.mockResolvedValue(feedbackDetails);
     mockGetRepresentativeFeedbackInRange.mockResolvedValue(representativeFeedback);
@@ -79,8 +80,13 @@ describe('buildExecutiveReportData', () => {
 
     expect(result).toEqual({
       period: { deploymentType, startISO, endISO },
+      trendWindow: {
+        startISO: '2026-04-06T00:00:00.000Z',
+        endISO: '2026-07-13T00:00:00.000Z',
+      },
       kpiSummary,
       weeklyTrend,
+      trendWeekly,
       dailySummary,
       feedbackDetails,
       representativeFeedback,
@@ -99,12 +105,21 @@ describe('buildExecutiveReportData', () => {
       startISO,
       endISO,
     );
-    expect(mockGetWeeklyTrendSeries).toHaveBeenCalledWith(
+    expect(mockGetWeeklyTrendSeries).toHaveBeenNthCalledWith(
+      1,
       interactionsContainer,
       feedbackContainer,
       deploymentType,
       startISO,
       endISO,
+    );
+    expect(mockGetWeeklyTrendSeries).toHaveBeenNthCalledWith(
+      2,
+      interactionsContainer,
+      feedbackContainer,
+      deploymentType,
+      '2026-04-06T00:00:00.000Z',
+      '2026-07-13T00:00:00.000Z',
     );
     expect(mockGetDailySummary).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
     expect(mockGetFeedbackDetails).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
@@ -116,6 +131,29 @@ describe('buildExecutiveReportData', () => {
     );
     expect(mockGetTopUsersByFeedback).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
     expect(mockGetTopUsersByInteractions).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
+  });
+
+  it('supports a custom historical baseline start for trend window calculation', async () => {
+    mockGetWeeklyTrendSeries.mockReset();
+    mockGetWeeklyTrendSeries.mockResolvedValueOnce(weeklyTrend).mockResolvedValueOnce(trendWeekly);
+
+    await buildExecutiveReportData({
+      interactionsContainer,
+      feedbackContainer,
+      deploymentType,
+      startISO,
+      endISO,
+      historicalBaselineStartISO: '2026-05-01T00:00:00.000Z',
+    });
+
+    expect(mockGetWeeklyTrendSeries).toHaveBeenNthCalledWith(
+      2,
+      interactionsContainer,
+      feedbackContainer,
+      deploymentType,
+      '2026-04-27T00:00:00.000Z',
+      '2026-07-13T00:00:00.000Z',
+    );
   });
 
   it('propagates a rejection if any slice query fails', async () => {

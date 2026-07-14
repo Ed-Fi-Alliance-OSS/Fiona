@@ -16,6 +16,12 @@ async function runScalarQuery(container, queryText, deploymentType, oneWeekAgoIS
   return resources[0] ?? 0;
 }
 
+function hasVisibleConversation(feedbackItem) {
+  const hasQuestion = typeof feedbackItem.userMessage === 'string' && feedbackItem.userMessage.trim() !== '';
+  const hasAnswer = typeof feedbackItem.botResponse === 'string' && feedbackItem.botResponse.trim() !== '';
+  return hasQuestion || hasAnswer;
+}
+
 export async function getDistinctUsers(container, deploymentType, oneWeekAgoISO) {
   return runScalarQuery(
     container,
@@ -214,8 +220,9 @@ export async function getRepresentativeFeedback(container, deploymentType, oneWe
     })
     .fetchAll();
 
-  const withReason = resources.filter((f) => f.reason);
-  const withoutReason = resources.filter((f) => !f.reason);
+  const visibleConversation = resources.filter(hasVisibleConversation);
+  const withReason = visibleConversation.filter((f) => f.reason);
+  const withoutReason = visibleConversation.filter((f) => !f.reason);
 
   return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
     userMessage: f.userMessage,
@@ -285,8 +292,9 @@ export async function getRepresentativeFeedbackInRange(container, deploymentType
     })
     .fetchAll();
 
-  const withReason = resources.filter((f) => f.reason);
-  const withoutReason = resources.filter((f) => !f.reason);
+  const visibleConversation = resources.filter(hasVisibleConversation);
+  const withReason = visibleConversation.filter((f) => f.reason);
+  const withoutReason = visibleConversation.filter((f) => !f.reason);
 
   return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
     userMessage: f.userMessage,

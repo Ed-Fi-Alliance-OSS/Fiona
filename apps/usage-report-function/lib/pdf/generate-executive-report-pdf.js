@@ -32,10 +32,12 @@ function readChartJsSource() {
  * deployed Azure Function.
  */
 export async function generateExecutiveReportPdf(reportData, outputPath) {
+  const trendWeekly = reportData.trendWeekly ?? reportData.weeklyTrend;
+
   const narrative = {
-    readoutBullets: buildReadoutBullets(reportData.kpiSummary, reportData.weeklyTrend),
-    usageObservations: buildUsageObservations(reportData.weeklyTrend),
-    reliabilityTakeaways: buildReliabilityTakeaways(reportData.kpiSummary, reportData.weeklyTrend),
+    readoutBullets: buildReadoutBullets(reportData.kpiSummary, reportData.weeklyTrend, reportData.period.startISO),
+    usageObservations: buildUsageObservations(trendWeekly),
+    reliabilityTakeaways: buildReliabilityTakeaways(reportData.kpiSummary, trendWeekly),
   };
 
   const chartJsSource = readChartJsSource();
