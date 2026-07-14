@@ -124,6 +124,7 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
 
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping escalate');
+    await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
     return;
   }
 
