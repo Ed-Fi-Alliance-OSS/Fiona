@@ -13,7 +13,7 @@ ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
 escalate                Escalate your conversation to a human
 \`\`\`
-*Need a human?* Use `/fiona escalate` (or type `escalate` in a DM/thread) to hand your conversation to the team.
+*Need a human?* Use \`/fiona escalate\` (or type \`escalate\` in a DM/thread) to hand your conversation to the team.
 
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel

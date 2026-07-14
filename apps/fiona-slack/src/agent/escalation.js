@@ -135,11 +135,11 @@ export async function postEscalation({
     summaryPromise,
     permalinkPromise,
   ]);
-  const displayName = (user?.displayName || user?.realName || user?.name || `<@${userId}>`)
+  logger?.info?.(`userId: ${userId}, displayName: ${user?.displayName}, realName: ${user?.realName}, name: ${user?.name}`);
+  const displayName = (`<@${userId}>`)
     .replace(/<!channel>/g, 'channel')
     .replace(/<!here>/g, 'here')
     .replace(/<!subteam\^[^>|]+(?:\|([^>]+))?>/g, (_match, label) => label || 'user group')
-    .replace(/<@([A-Z0-9]+)>/g, '@$1')
     .trim();
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
