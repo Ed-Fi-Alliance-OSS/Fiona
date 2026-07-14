@@ -126,6 +126,17 @@ describe('renderReliabilityPage', () => {
     expect(html).toContain('System error rate');
     expect(html).toContain('2.7% overall (12 errors).');
   });
+
+  it('labels report-period versus weekly trend scope when context is provided', () => {
+    const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways, {
+      period: { startISO: '2026-06-24T00:00:00.000Z', endISO: '2026-07-09T00:00:00.000Z' },
+      trendWindow: { startISO: '2026-04-06T00:00:00.000Z', endISO: '2026-07-13T00:00:00.000Z' },
+    });
+
+    expect(html).toContain('report-period KPI takeaways summarize');
+    expect(html).toContain('2026-06-24 to 2026-07-09');
+    expect(html).toContain('2026-04-06 to 2026-07-13 (Mon-Sun buckets)');
+  });
 });
 
 const representativeFeedback = [
@@ -304,6 +315,7 @@ describe('renderExecutiveReportHtml', () => {
     expect(html).toContain('Executive Summary');
     expect(html).toContain('Usage Trends');
     expect(html).toContain('Reliability and Feedback');
+    expect(html).toContain('report-period KPI takeaways summarize');
     expect(html).toContain('Representative Feedback');
     expect(html).toContain('Top Users');
     expect(html).toContain('Appendix: Weekly Snapshot');

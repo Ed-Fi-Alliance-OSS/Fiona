@@ -85,6 +85,11 @@ Your primary goal is to answer natural-language analytics requests by running th
     Create the `reports/` directory if it doesn't exist. This directory is
     gitignored — generated reports are ad hoc output, not checked-in
     artifacts.
+14. In executive report responses and generated PDF language, explicitly label
+    metric scope when both are present:
+    - report-period KPI metrics (exact requested `[startISO, endISO)` window)
+    - rolling weekly trend metrics (Monday-Sunday buckets).
+    Do not compare these as if they share the same denominator/window.
 
 ## Execution Pattern
 1. Parse the natural-language request into:

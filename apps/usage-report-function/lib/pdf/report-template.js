@@ -181,11 +181,18 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
   </section>`;
 }
 
-export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways) {
+export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { period, trendWindow } = {}) {
   const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
   const errorRates = weeklyTrend.map((w) => w.errorRate);
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
+
+  const reportPeriodLabel = period
+    ? `${period.startISO.split('T')[0]} to ${period.endISO.split('T')[0]}`
+    : 'the current report period';
+  const trendWindowLabel = trendWindow
+    ? `${trendWindow.startISO.split('T')[0]} to ${trendWindow.endISO.split('T')[0]} (Mon-Sun buckets)`
+    : 'the rolling weekly trend window (Mon-Sun buckets)';
 
   const errorRateConfig = {
     type: 'bar',
@@ -222,8 +229,8 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways) {
   <section class="page">
     <h2>Reliability and Feedback</h2>
     <p>
-      Reliability and feedback are separated from the usage table so stakeholders can quickly see whether
-      issues are increasing and how users are rating Fiona responses.
+      This section uses two scopes to avoid confusion: report-period KPI takeaways summarize
+      ${escapeHtml(reportPeriodLabel)}, while the weekly charts use ${escapeHtml(trendWindowLabel)}.
     </p>
     <canvas id="reliability-error-rate-chart" width="900" height="260"></canvas>
     <script>
@@ -524,7 +531,7 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
   const pages = [
     renderCoverPage(kpiSummary, readoutBullets, period),
     renderUsageTrendsPage(trendWeekly, usageObservations),
-    renderReliabilityPage(trendWeekly, reliabilityTakeaways),
+    renderReliabilityPage(trendWeekly, reliabilityTakeaways, { period, trendWindow: reportData.trendWindow }),
     renderFeedbackPage(representativeFeedback),
     renderTopUsersPage(topUsersByFeedback, topUsersByInteractions),
     renderAppendixPage(weeklyTrend, dailySummary),
