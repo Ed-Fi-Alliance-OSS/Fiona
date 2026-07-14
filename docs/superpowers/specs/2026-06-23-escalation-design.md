@@ -3,7 +3,29 @@
 - **Date:** 2026-06-23
 - **Jira:** [AI-122](https://edfi.atlassian.net/browse/AI-122)
 - **Supersedes:** the escalation approach in PR #63 (`AI-122`)
-- **Status:** Design approved; pending spec review
+- **Status:** Partially implemented — see "Implementation status" below.
+
+## Implementation status (2026-07-14)
+
+AI-122 shipped a variation of this design rather than the exact three-entry-point
+plan below:
+
+- **Entry point 1 — `/fiona escalate` (slash, context-free): ✅ implemented.**
+  No channel-history scraping; posts a "no conversation context" note.
+- **Conversational escalation via the `escalate` keyword: ✅ implemented — but as
+  the `escalate` keyword (`@fiona escalate`, and `escalate` in a DM / assistant
+  panel), reusing the existing `parseCommandKeyword` / `routeCommandViaSay`
+  router.** This keyword path is **not** described in this spec; it was chosen
+  over the always-present button as the conversational entry point. It captures
+  the real thread transcript and confirms in-thread. See the AI-122 design doc
+  (`../plans/2026-06-22-escalate-to-human-design.md`).
+- **Entry point 2 — always-present "Get Live Help" button: ❌ not implemented →
+  tracked in [AI-159](https://edfi.atlassian.net/browse/AI-159).**
+- **Entry point 3 — proactive LLM-suggested escalation: ❌ not implemented →
+  tracked in [AI-160](https://edfi.atlassian.net/browse/AI-160).**
+
+The shared `postEscalation` core, context-free slash, and "no channel scraping"
+goals are in place, so AI-159 / AI-160 can build directly on them.
 
 ## Background
 
