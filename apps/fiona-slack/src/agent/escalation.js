@@ -135,7 +135,12 @@ export async function postEscalation({
     summaryPromise,
     permalinkPromise,
   ]);
-  const displayName = user?.displayName || user?.realName || user?.name || `<@${userId}>`;
+  const displayName = (user?.displayName || user?.realName || user?.name || `<@${userId}>`)
+    .replace(/<!channel>/g, 'channel')
+    .replace(/<!here>/g, 'here')
+    .replace(/<!subteam\^[^>|]+(?:\|([^>]+))?>/g, (_match, label) => label || 'user group')
+    .replace(/<@([A-Z0-9]+)>/g, '@$1')
+    .trim();
 
   const usergroupId = process.env.ESCALATION_USERGROUP_ID;
   const mention = usergroupId ? `<!subteam^${usergroupId}> ` : '';
