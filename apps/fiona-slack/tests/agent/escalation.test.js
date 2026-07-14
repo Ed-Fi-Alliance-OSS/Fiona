@@ -146,16 +146,16 @@ describe('escalateViaSay', () => {
     ...over,
   });
 
-  it('posts the escalation and says the channel confirmation on success', async () => {
+  it('posts the escalation and says the channel confirmation in-thread on success', async () => {
     const args = sayArgs();
     await escalateViaSay(args);
     expect(args.client.chat.postMessage).toHaveBeenCalled();
-    expect(mockSay).toHaveBeenCalledWith(ESCALATE_CONFIRM_TEXT);
+    expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_CONFIRM_TEXT, thread_ts: '999.000' });
   });
 
-  it('says the DM confirmation when isDm is true', async () => {
-    await escalateViaSay(sayArgs({ isDm: true, threadTs: null }));
-    expect(mockSay).toHaveBeenCalledWith(ESCALATE_DM_TEXT);
+  it('says the DM confirmation in-thread when isDm is true', async () => {
+    await escalateViaSay(sayArgs({ isDm: true, threadTs: '999.000' }));
+    expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_DM_TEXT, thread_ts: '999.000' });
   });
 
   it('delegates to postEscalation with the real thread ts and source', async () => {
@@ -168,7 +168,7 @@ describe('escalateViaSay', () => {
   it('says the error text and records an escalate error when the channel is unconfigured', async () => {
     delete process.env.ESCALATION_CHANNEL;
     await escalateViaSay(sayArgs());
-    expect(mockSay).toHaveBeenCalledWith(ESCALATE_ERROR_TEXT);
+    expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_ERROR_TEXT, thread_ts: '999.000' });
     expect(mockRecordInteraction).toHaveBeenCalledWith(
       expect.objectContaining({
         interactionType: 'mention_escalate',

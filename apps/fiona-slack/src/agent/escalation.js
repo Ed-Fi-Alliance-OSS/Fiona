@@ -213,14 +213,18 @@ export async function escalateViaSay({
     logger,
   });
 
+  // Thread the reply so the confirmation lands in the conversation the user is
+  // in (say() otherwise posts to the channel root for app_mention).
   if (result.ok) {
-    await say(isDm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT).catch((err) =>
+    await say({ text: isDm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT, thread_ts: threadTs }).catch((err) =>
       logger?.warn?.(`Failed to send escalation confirmation: ${err.message}`),
     );
     return;
   }
 
-  await say(ESCALATE_ERROR_TEXT).catch((err) => logger?.warn?.(`Failed to send escalation error: ${err.message}`));
+  await say({ text: ESCALATE_ERROR_TEXT, thread_ts: threadTs }).catch((err) =>
+    logger?.warn?.(`Failed to send escalation error: ${err.message}`),
+  );
   recordInteraction({
     userId,
     teamId,
