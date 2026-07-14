@@ -135,7 +135,7 @@ export async function postEscalation({
     summaryPromise,
     permalinkPromise,
   ]);
-  logger?.info?.(`userId: ${userId}, displayName: ${user?.displayName}, realName: ${user?.realName}, name: ${user?.name}`);
+
   const displayName = (`<@${userId}>`)
     .replace(/<!channel>/g, 'channel')
     .replace(/<!here>/g, 'here')
