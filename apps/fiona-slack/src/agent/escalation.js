@@ -152,7 +152,15 @@ export async function postEscalation({
     `*Where:* ${locationLink}`,
     `*When:* ${new Date().toISOString()}`,
   ];
-  if (summary) headerLines.push(`*Summary:* ${summary}`);
+  if (summary) {
+    const safeSummary = summary
+      .replace(/<!channel>/g, 'channel')
+      .replace(/<!here>/g, 'here')
+      .replace(/<!subteam\^[^>|]+(?:\|([^>]+))?>/g, (_match, label) => label || 'user group')
+      .replace(/<@([A-Z0-9]+)>/g, '@$1')
+      .trim();
+    if (safeSummary) headerLines.push(`*Summary:* ${safeSummary}`);
+  }
   if (!hasThread) headerLines.push(NO_CONTEXT_NOTE);
 
   let postedTs = null;
