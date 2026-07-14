@@ -128,11 +128,7 @@ export async function postEscalation({
           })
       : Promise.resolve(null);
 
-  const [transcript, summary, permalink] = await Promise.all([
-    transcriptPromise,
-    summaryPromise,
-    permalinkPromise,
-  ]);
+  const [transcript, summary, permalink] = await Promise.all([transcriptPromise, summaryPromise, permalinkPromise]);
 
   const displayName = `<@${userId}>`;
 
