@@ -5,12 +5,10 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const mockGetUser = jest.fn();
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
 const mockRecordFeedback = jest.fn().mockResolvedValue(undefined);
 const mockSummarize = jest.fn();
 
-jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({ getUser: mockGetUser }));
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ recordInteraction: mockRecordInteraction }));
 jest.unstable_mockModule('../../src/agent/feedback-store.js', () => ({ recordFeedback: mockRecordFeedback }));
 jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize }));
@@ -55,7 +53,6 @@ describe('postEscalation', () => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
-    mockGetUser.mockResolvedValue({ displayName: 'Ada Lovelace' });
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
   });
 
@@ -65,14 +62,14 @@ describe('postEscalation', () => {
     expect(result).toEqual({ ok: false, errorType: 'channel_not_configured' });
   });
 
-  it('posts to the configured channel with the display name and a thread link', async () => {
+  it('posts to the configured channel with the requester mention and a thread link', async () => {
     const args = baseArgs();
     const result = await postEscalation(args);
     expect(result.ok).toBe(true);
     const post = args.client.chat.postMessage.mock.calls[0][0];
     expect(post.channel).toBe('C_ESCALATE');
     const text = JSON.stringify(post.blocks);
-    expect(text).toContain('Ada Lovelace');
+    expect(text).toContain('<@U1>');
     expect(text).toContain('https://slack.test/p1');
   });
 
@@ -112,6 +109,29 @@ describe('postEscalation', () => {
     expect(JSON.stringify(args.client.chat.postMessage.mock.calls[0][0].blocks)).not.toContain('*Summary:*');
   });
 
+  it('neutralizes broadcast and mention tokens in the LLM summary before posting', async () => {
+    mockSummarize.mockResolvedValue('User pinged <!channel> and <!here> and <@U999> about the ODS.');
+    const args = baseArgs();
+    await postEscalation(args);
+    const headerText = args.client.chat.postMessage.mock.calls[0][0].blocks[0].text.text;
+    // Summary is included but the live-notification tokens are defused.
+    expect(headerText).toContain('*Summary:*');
+    expect(headerText).not.toContain('<!channel>');
+    expect(headerText).not.toContain('<!here>');
+    expect(headerText).not.toContain('<@U999>');
+    expect(headerText).toContain('@U999');
+  });
+
+  it('rewrites a usergroup token in the summary to its label (or a safe fallback)', async () => {
+    mockSummarize.mockResolvedValue('Escalated by <!subteam^S123|@data-team> for <!subteam^S456>.');
+    const args = baseArgs();
+    await postEscalation(args);
+    const headerText = args.client.chat.postMessage.mock.calls[0][0].blocks[0].text.text;
+    expect(headerText).not.toContain('<!subteam^');
+    expect(headerText).toContain('@data-team');
+    expect(headerText).toContain('user group');
+  });
+
   it('returns post_failed when chat.postMessage throws', async () => {
     const args = baseArgs();
     args.client.chat.postMessage.mockRejectedValueOnce(new Error('not_in_channel'));
@@ -134,7 +154,6 @@ describe('escalateViaSay', () => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
-    mockGetUser.mockResolvedValue({ displayName: 'Ada Lovelace' });
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
     mockSay = jest.fn().mockResolvedValue(undefined);
   });
@@ -184,7 +203,6 @@ describe('postEscalation without a thread (slash path)', () => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
-    mockGetUser.mockResolvedValue({ displayName: 'Ada Lovelace' });
     mockSummarize.mockResolvedValue('should not be used');
   });
 
