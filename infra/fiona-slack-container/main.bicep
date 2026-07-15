@@ -393,7 +393,7 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
               value: interactionsContainerName
             }
             {
-              name: 'ESCALATION_CHANNEL'
+              name: 'ESCALATION_CHANNEL_ID'
               value: escalationChannel
             }
             {

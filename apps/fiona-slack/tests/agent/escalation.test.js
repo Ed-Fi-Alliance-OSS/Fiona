@@ -51,13 +51,13 @@ const baseArgs = () => ({
 describe('postEscalation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
+    process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
   });
 
-  it('returns channel_not_configured when ESCALATION_CHANNEL is unset', async () => {
-    delete process.env.ESCALATION_CHANNEL;
+  it('returns channel_not_configured when ESCALATION_CHANNEL_ID is unset', async () => {
+    delete process.env.ESCALATION_CHANNEL_ID;
     const result = await postEscalation(baseArgs());
     expect(result).toEqual({ ok: false, errorType: 'channel_not_configured' });
   });
@@ -152,7 +152,7 @@ describe('escalateViaSay', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
+    process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
     mockSay = jest.fn().mockResolvedValue(undefined);
@@ -185,7 +185,7 @@ describe('escalateViaSay', () => {
   });
 
   it('says the error text and records an escalate error when the channel is unconfigured', async () => {
-    delete process.env.ESCALATION_CHANNEL;
+    delete process.env.ESCALATION_CHANNEL_ID;
     await escalateViaSay(sayArgs());
     expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_ERROR_TEXT, thread_ts: '999.000' });
     expect(mockRecordInteraction).toHaveBeenCalledWith(
@@ -201,7 +201,7 @@ describe('escalateViaSay', () => {
 describe('postEscalation without a thread (slash path)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.ESCALATION_CHANNEL = 'C_ESCALATE';
+    process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('should not be used');
   });

@@ -93,9 +93,9 @@ export async function postEscalation({
   isDm = false,
   logger,
 }) {
-  const targetChannel = process.env.ESCALATION_CHANNEL;
+  const targetChannel = process.env.ESCALATION_CHANNEL_ID;
   if (!targetChannel) {
-    logger?.warn?.('ESCALATION_CHANNEL is not configured; cannot post escalation.');
+    logger?.warn?.('ESCALATION_CHANNEL_ID is not configured; cannot post escalation.');
     recordEscalationError({
       userId,
       teamId,

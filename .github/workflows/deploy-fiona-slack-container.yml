@@ -94,7 +94,7 @@ jobs:
             captureAllConversations=${{ vars.CAPTURE_ALL_CONVERSATIONS || 'false' }} \
             deploymentType="${{ inputs.environment || 'insiders' }}" \
             escalationUsergroupId=${{ vars.ESCALATION_USERGROUP_ID || '' }} \
-            escalationChannel="${{ vars.ESCALATION_CHANNEL || '' }}" \
+            escalationChannel="${{ vars.ESCALATION_CHANNEL_ID || '' }}" \
             skipRoleAssignments=true
 
     - name: Verify deployment
