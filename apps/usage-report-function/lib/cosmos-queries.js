@@ -184,7 +184,8 @@ export async function getFeedbackResponseRate(interactionsContainer, feedbackCon
       `SELECT VALUE COUNT(1)
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
-         AND f.timestamp > @oneWeekAgoISO`,
+         AND f.timestamp > @oneWeekAgoISO
+         AND f["value"] IN ('good-feedback', 'bad-feedback')`,
       deploymentType,
       oneWeekAgoISO,
     ),

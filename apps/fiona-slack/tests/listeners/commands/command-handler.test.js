@@ -66,6 +66,29 @@ describe('parseCommandKeyword', () => {
     });
   });
 
+  describe('escalate keyword', () => {
+    it('returns escalate keyword for exact "escalate"', () => {
+      expect(parseCommandKeyword('escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('is case-insensitive', () => {
+      expect(parseCommandKeyword('ESCALATE')).toEqual({ keyword: 'escalate', rawArgs: '' });
+      expect(parseCommandKeyword('Escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('does not match when escalate has trailing text', () => {
+      expect(parseCommandKeyword('escalate this please')).toBeNull();
+    });
+
+    it('does not match "escalated"', () => {
+      expect(parseCommandKeyword('escalated')).toBeNull();
+    });
+
+    it('returns escalate keyword for "fiona escalate"', () => {
+      expect(parseCommandKeyword('fiona escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+  });
+
   describe('fiona <command> two-word prefix', () => {
     it('returns help keyword for "fiona help"', () => {
       expect(parseCommandKeyword('fiona help')).toEqual({ keyword: 'help', rawArgs: '' });

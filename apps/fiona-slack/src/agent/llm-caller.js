@@ -484,3 +484,39 @@ export async function callLLM(streamer, prompts, logger) {
 
   return { metadata, botText, systemPromptVersion: SYSTEM_PROMPT_VERSION };
 }
+
+// ─── Escalation Summary ─────────────────────────────────────────────────────
+const ESCALATION_SUMMARY_SYSTEM_PROMPT =
+  'You summarize a Slack conversation between a user and Fiona (an Ed-Fi AI assistant) for a human support team. ' +
+  'In 2-4 sentences, state what the user is trying to do and where they got stuck. ' +
+  'Be factual and concise. Do not add greetings or sign-offs.';
+
+/**
+ * Produce a short human-readable summary of a conversation transcript for an
+ * escalation post. Non-streaming. Returns null when the LLM is unconfigured,
+ * the transcript is empty, or the call fails — callers degrade to transcript-only.
+ *
+ * @param {string} transcriptText
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<string | null>}
+ */
+export async function summarizeForEscalation(transcriptText, logger) {
+  if (!perplexityClient) return null;
+  if (!transcriptText || !transcriptText.trim()) return null;
+
+  try {
+    const response = await perplexityClient.chat.completions.create({
+      model: PERPLEXITY_API_MODEL,
+      messages: [
+        { role: 'system', content: ESCALATION_SUMMARY_SYSTEM_PROMPT },
+        { role: 'user', content: transcriptText },
+      ],
+      stream: false,
+    });
+    const summary = response?.choices?.[0]?.message?.content;
+    return typeof summary === 'string' && summary.trim() ? summary.trim() : null;
+  } catch (error) {
+    logger?.warn?.(`Failed to generate escalation summary: ${error.message}`);
+    return null;
+  }
+}

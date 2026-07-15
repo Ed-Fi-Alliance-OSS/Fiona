@@ -147,7 +147,7 @@ export async function getContainer(logger) {
  * @param {string} interaction.channelId - Slack channel ID
  * @param {string} interaction.threadTs - Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands)
  * @param {string} interaction.messageTs - Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands)
- * @param {string} interaction.interactionType - 'app_mention', 'assistant_message', 'slash_help', 'slash_ask', 'slash_search', or 'slash_unknown'
+ * @param {string} interaction.interactionType - 'app_mention', 'assistant_message', 'slash_help', 'slash_ask', 'slash_search', 'slash_escalate', 'mention_escalate', 'assistant_escalate', 'auto_escalation', or 'slash_unknown'
  * @param {string} interaction.status - 'success' or 'error'
  * @param {string|null} [interaction.errorType] - Error category if status is 'error'
  * @param {boolean} interaction.rateLimited - true if request was rate-limited
