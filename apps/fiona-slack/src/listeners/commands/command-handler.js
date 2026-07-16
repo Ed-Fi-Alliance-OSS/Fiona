@@ -46,6 +46,7 @@ export const ESCALATE_ERROR_TEXT =
  *   - "ask <args>"         — requires non-empty args after "ask "; bare "ask" → null
  *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
+ *   - "/<command>"         — optional leading slash is also stripped so "@fiona /escalate" works
  *
  * @param {string} text - Trimmed, mention-stripped message text.
  * @returns {{ keyword: string, rawArgs: string } | null}
@@ -57,7 +58,10 @@ export function parseCommandKeyword(text) {
 
   // Strip optional "fiona " prefix so "fiona help" resolves the same as "help"
   const body = lower.startsWith('fiona ') ? trimmed.slice('fiona '.length).trim() : trimmed;
-  const bodyLower = body.toLowerCase();
+
+  // Strip optional leading slash so "@fiona /escalate" resolves the same as "@fiona escalate"
+  const normalizedBody = body.startsWith('/') ? body.slice(1).trim() : body;
+  const bodyLower = normalizedBody.toLowerCase();
 
   if (bodyLower === 'help') {
     return { keyword: 'help', rawArgs: '' };
@@ -69,7 +73,7 @@ export function parseCommandKeyword(text) {
 
   for (const kw of ['ask', 'search']) {
     if (bodyLower.startsWith(`${kw} `)) {
-      const rawArgs = body.slice(kw.length + 1).trim();
+      const rawArgs = normalizedBody.slice(kw.length + 1).trim();
       if (rawArgs.length > 0) {
         return { keyword: kw, rawArgs };
       }

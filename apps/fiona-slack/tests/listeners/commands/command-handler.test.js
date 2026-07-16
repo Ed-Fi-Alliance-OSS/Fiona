@@ -87,6 +87,18 @@ describe('parseCommandKeyword', () => {
     it('returns escalate keyword for "fiona escalate"', () => {
       expect(parseCommandKeyword('fiona escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
     });
+
+    it('returns escalate keyword for "/escalate" (slash-prefixed)', () => {
+      expect(parseCommandKeyword('/escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('returns escalate keyword for "fiona /escalate" (slash-prefixed with fiona prefix)', () => {
+      expect(parseCommandKeyword('fiona /escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('returns escalate keyword for "Fiona /escalate" (case-insensitive prefix and slash)', () => {
+      expect(parseCommandKeyword('Fiona /escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
   });
 
   describe('fiona <command> two-word prefix', () => {
@@ -127,6 +139,34 @@ describe('parseCommandKeyword', () => {
 
     it('returns null for bare "fiona" with no sub-command', () => {
       expect(parseCommandKeyword('fiona')).toBeNull();
+    });
+  });
+
+  describe('slash-prefixed commands', () => {
+    it('returns help keyword for "/help"', () => {
+      expect(parseCommandKeyword('/help')).toEqual({ keyword: 'help', rawArgs: '' });
+    });
+
+    it('returns ask keyword for "/ask <args>"', () => {
+      expect(parseCommandKeyword('/ask how do I configure ODS?')).toEqual({
+        keyword: 'ask',
+        rawArgs: 'how do I configure ODS?',
+      });
+    });
+
+    it('returns search keyword for "/search <query>"', () => {
+      expect(parseCommandKeyword('/search Data Standard')).toEqual({
+        keyword: 'search',
+        rawArgs: 'Data Standard',
+      });
+    });
+
+    it('returns null for bare "/ask" with no argument', () => {
+      expect(parseCommandKeyword('/ask')).toBeNull();
+    });
+
+    it('returns null for bare "/search" with no argument', () => {
+      expect(parseCommandKeyword('/search')).toBeNull();
     });
   });
 
