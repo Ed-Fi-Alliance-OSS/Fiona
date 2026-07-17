@@ -18,6 +18,11 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
   throw new Error('llm-caller must not be imported by /fiona slash command handlers');
 });
+
+const mockPostEscalation = jest.fn().mockResolvedValue({ ok: true, errorType: null });
+jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
+  postEscalation: mockPostEscalation,
+}));
 const { fionaCommandCallback } = await import('../../../src/listeners/commands/fiona.js');
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
@@ -52,20 +57,25 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
     });
 
-    it('ack() response includes /fiona help', async () => {
+    it('ack() response lists available commands', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
-    it('ack() response includes /fiona ask', async () => {
+    it('ack() response includes ask command', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona ask'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('ask <question>'));
     });
 
-    it('ack() response includes /fiona search', async () => {
+    it('ack() response includes search command', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona search'));
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('search <query>'));
     });
+
+    // it('ack() response includes /fiona escalate', async () => {
+    //   await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+    //   expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona escalate'));
+    // });
 
     it('calls recordInteraction with interactionType slash_help', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
@@ -163,7 +173,7 @@ describe('fionaCommandCallback', () => {
 
     it('ack() response does not show the full help menu', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
     it('records slash_ask telemetry', async () => {
@@ -192,7 +202,7 @@ describe('fionaCommandCallback', () => {
 
     it('ack() response does not show the full help menu', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('/fiona help'));
+      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
     it('records slash_search telemetry', async () => {
@@ -320,6 +330,76 @@ describe('fionaCommandCallback', () => {
       delete mockCommand.text;
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+    });
+  });
+
+  describe('escalate sub-command', () => {
+    let mockRespond;
+    let mockClient;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockClient = {};
+      mockPostEscalation.mockResolvedValue({ ok: true, errorType: null });
+    });
+
+    const cmd = (over = {}) => ({
+      user_id: 'U1', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1', text: 'escalate', ...over,
+    });
+
+    it('acks and delegates to postEscalation with source slash_escalate', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(mockPostEscalation).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'slash_escalate', userId: 'U1', channelId: 'C1' }),
+      );
+    });
+
+    it('sends the channel confirmation on success in a channel', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('has been escalated') }),
+      );
+      // The confirmation should not name a specific channel the user may not see.
+      expect(mockRespond.mock.calls[0][0].text).not.toContain('#escalation');
+    });
+
+    it('sends the DM confirmation and marks isDm when invoked in a DM', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ channel_id: 'D9', channel_name: 'directmessage' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockPostEscalation).toHaveBeenCalledWith(expect.objectContaining({ isDm: true }));
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: '✅ A team member will follow up shortly.' }),
+      );
+    });
+
+    it('sends an ephemeral error when postEscalation fails', async () => {
+      mockPostEscalation.mockResolvedValue({ ok: false, errorType: 'post_failed' });
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('could not escalate') }),
+      );
+    });
+
+    it('does not call postEscalation and warns the user when rate limited', async () => {
+      // Exhaust the limiter for this user (default RATE_LIMIT_MAX_REQUESTS=20).
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_RL');
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ user_id: 'U_RL' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockPostEscalation).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('request limit') }),
+      );
     });
   });
 });

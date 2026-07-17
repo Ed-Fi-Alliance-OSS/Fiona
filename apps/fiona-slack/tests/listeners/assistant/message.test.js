@@ -37,6 +37,10 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
   checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  rateLimitMessage: jest.fn((retryAfterMs) => {
+    const minutes = Math.ceil(retryAfterMs / 60000);
+    return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+  }),
 }));
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
@@ -54,7 +58,12 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
+  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
+const { escalateViaSay } = await import('../../../src/agent/escalation.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
@@ -528,6 +537,202 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(captureConversation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('keyword command routing', () => {
+    it('responds with help text when message is exactly "help"', async () => {
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('is case-insensitive for the help keyword', async () => {
+      mockMessage.text = 'HELP';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('passes "help me understand X" to the LLM, not treated as command', async () => {
+      mockMessage.text = 'help me understand the ODS API';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(callLLM).toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when message starts with "ask "', async () => {
+      mockMessage.text = 'ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when message starts with "search "', async () => {
+      mockMessage.text = 'search Data Standard 6.0';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with help text when message is "fiona help"', async () => {
+      mockMessage.text = 'fiona help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text for "fiona ask <question>"', async () => {
+      mockMessage.text = 'fiona ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('rate-limited user typing "help" receives rate-limit message, not help text', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('request limit');
+      expect(mockSay.mock.calls[0][0]).not.toContain('Available commands');
+    });
+
+    it('keyword command response does not invoke the LLM', async () => {
+      mockMessage.text = 'help';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(callLLM).not.toHaveBeenCalled();
+      // Telemetry recording via the handleInteractionWithTelemetry finally block
+      // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    it('escalates via escalateViaSay when message is exactly "escalate"', async () => {
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).toHaveBeenCalledTimes(1);
+      expect(escalateViaSay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'assistant_escalate',
+          channelId: 'C123',
+          threadTs: '1234567890.000000',
+          say: mockSay,
+        }),
+      );
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not escalate a rate-limited user typing "escalate"', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(mockSay.mock.calls[0][0]).toContain('request limit');
     });
   });
 });

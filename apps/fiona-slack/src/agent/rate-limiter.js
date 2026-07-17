@@ -53,6 +53,19 @@ function getUserTimestampsSize() {
 export const __testing = { getUserTimestampsSize, sweepExpiredEntries };
 
 /**
+ * Builds the user-facing "rate limit reached" message. Shared by every entry
+ * point (slash command, @-mention, assistant message) so the wording and the
+ * retry-window math stay in one place.
+ *
+ * @param {number} retryAfterMs - Milliseconds until the user may retry.
+ * @returns {string}
+ */
+export function rateLimitMessage(retryAfterMs) {
+  const minutes = Math.ceil(retryAfterMs / 60000);
+  return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+}
+
+/**
  * Check whether a user is within their rate limit.
  *
  * @param {string} userId - Slack user ID

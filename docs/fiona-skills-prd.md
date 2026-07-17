@@ -178,8 +178,8 @@ summary in the designated `#escalation` channel.
 4. Fiona sends an **ephemeral confirmation** to the invoking user:
    *"✅ Your conversation has been escalated to #escalation. A team member will
    follow up shortly."*
-5. The escalation channel name is configurable via environment variable
-   (`ESCALATION_CHANNEL`, default: `#escalation`).
+5. The escalation channel is configurable via environment variable
+   (`ESCALATION_CHANNEL_ID`, a Slack channel ID; unset by default).
 
 **Edge cases:**
 
@@ -270,9 +270,10 @@ Enabling Skills requires the following updates to the Slack app manifest
 
 ## 5. Environment Variables
 
-| Variable              | Default        | Purpose                                            |
-| --------------------- | -------------- | -------------------------------------------------- |
-| `ESCALATION_CHANNEL`  | `#escalation`  | Slack channel where escalation posts are created   |
+| Variable                  | Default | Purpose                                                          |
+| ------------------------- | ------- | ---------------------------------------------------------------- |
+| `ESCALATION_CHANNEL_ID`   | (unset) | Channel **ID** where escalation posts are created (bot must join) |
+| `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user group ID to @-mention on escalation          |
 
 ---
 

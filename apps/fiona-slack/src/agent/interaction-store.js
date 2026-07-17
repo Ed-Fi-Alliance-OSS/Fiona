@@ -11,8 +11,10 @@ const COSMOS_KEY = process.env.COSMOS_KEY;
 const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
+const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
 
 let warnedMissingConfig = false;
+let warnedInsecureProductionCosmosKey = false;
 const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
@@ -97,6 +99,15 @@ export async function getContainer(logger) {
   if (connectionString) {
     client = new CosmosClient({ connectionString });
   } else if (endpoint && key) {
+    if (DEPLOYMENT_TYPE === 'production') {
+      if (!warnedInsecureProductionCosmosKey) {
+        warnedInsecureProductionCosmosKey = true;
+        logger?.warn?.(
+          'Interaction store does not support COSMOS_KEY auth in production. Use COSMOS_CONNECTION_STRING or managed identity (COSMOS_ENDPOINT only).',
+        );
+      }
+      return null;
+    }
     client = new CosmosClient({ endpoint, key });
   } else if (endpoint) {
     client = new CosmosClient({
@@ -136,7 +147,7 @@ export async function getContainer(logger) {
  * @param {string} interaction.channelId - Slack channel ID
  * @param {string} interaction.threadTs - Interaction session identifier (`thread_ts` for message flows, `trigger_id` for slash commands)
  * @param {string} interaction.messageTs - Interaction event identifier (`message_ts` for message flows, `trigger_id` for slash commands)
- * @param {string} interaction.interactionType - 'app_mention', 'assistant_message', 'slash_help', 'slash_ask', 'slash_search', or 'slash_unknown'
+ * @param {string} interaction.interactionType - 'app_mention', 'assistant_message', 'slash_help', 'slash_ask', 'slash_search', 'slash_escalate', 'mention_escalate', 'assistant_escalate', 'auto_escalation', or 'slash_unknown'
  * @param {string} interaction.status - 'success' or 'error'
  * @param {string|null} [interaction.errorType] - Error category if status is 'error'
  * @param {boolean} interaction.rateLimited - true if request was rate-limited

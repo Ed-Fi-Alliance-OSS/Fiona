@@ -33,6 +33,10 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
   checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  rateLimitMessage: jest.fn((retryAfterMs) => {
+    const minutes = Math.ceil(retryAfterMs / 60000);
+    return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+  }),
 }));
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
@@ -54,7 +58,12 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
   captureConversation: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
+  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
+const { escalateViaSay } = await import('../../../src/agent/escalation.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
@@ -337,6 +346,113 @@ describe('appMentionCallback', () => {
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(captureConversation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('keyword command routing', () => {
+    it('responds with help text when mention text is exactly "help"', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not call setStatus (thinking) when routing to help command', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.assistant.threads.setStatus).not.toHaveBeenCalled();
+    });
+
+    it('passes "@fiona help me with X" to the LLM, not treated as command', async () => {
+      mockEvent.text = '<@UFIONA> help me understand the ODS API';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when mention text starts with "ask "', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with coming-soon text when mention text starts with "search "', async () => {
+      mockEvent.text = '<@UFIONA> search Data Standard 6.0';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('responds with help text when mention text is "fiona help"', async () => {
+      mockEvent.text = '<@UFIONA> fiona help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('keyword command response does not invoke the LLM', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(callLLM).not.toHaveBeenCalled();
+      // Telemetry recording via the handleInteractionWithTelemetry finally block
+      // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+      mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('escalates via escalateViaSay when mention is exactly "escalate"', async () => {
+      mockEvent.text = '<@UFIONA> escalate';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(escalateViaSay).toHaveBeenCalledTimes(1);
+      expect(escalateViaSay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'mention_escalate',
+          channelId: 'C123',
+          userId: 'U456',
+          threadTs: '1234567890.000001',
+          messageTs: '1234567890.000001',
+          say: mockSay,
+        }),
+      );
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not escalate a rate-limited user mentioning "escalate"', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockEvent.text = '<@UFIONA> escalate';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
     });
   });
 });

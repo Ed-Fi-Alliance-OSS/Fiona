@@ -5,7 +5,9 @@ import {
   getErrorCount,
   getFeedbackBreakdown,
   getFeedbackResponseRate,
+  getNewUsersCount,
   getRateLimitedCount,
+  getRepresentativeFeedback,
   getSessionCount,
   getTotalInteractions,
 } from '../../lib/cosmos-queries.js';
@@ -167,6 +169,62 @@ describe('cosmos-queries', () => {
     });
   });
 
+  describe('getNewUsersCount', () => {
+    it('returns count of current-period users with no prior successful interaction', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2', 'user-3'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-2'] }),
+        });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(2);
+    });
+
+    it('returns 0 when there are no users in the period', async () => {
+      mockInteractionsContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(0);
+      expect(mockInteractionsContainer.items.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 0 when all current-period users are returning users', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        });
+
+      const result = await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+      expect(result).toBe(0);
+    });
+
+    it('passes the current-period userIds as a parameter to the prior-history query', async () => {
+      mockInteractionsContainer.items.query
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: ['user-1', 'user-2'] }),
+        })
+        .mockReturnValueOnce({
+          fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+        });
+
+      await getNewUsersCount(mockInteractionsContainer, deploymentType, oneWeekAgoISO);
+
+      const [, secondQuerySpec] = mockInteractionsContainer.items.query.mock.calls;
+      expect(secondQuerySpec[0].parameters).toContainEqual({
+        name: '@currentUsers',
+        value: ['user-1', 'user-2'],
+      });
+    });
+  });
+
   describe('getFeedbackResponseRate', () => {
     it('divides feedback count by interaction count and returns percentage', async () => {
       mockInteractionsContainer.items.query.mockReturnValue({
@@ -195,6 +253,123 @@ describe('cosmos-queries', () => {
         oneWeekAgoISO,
       );
       expect(result).toBe(0);
+    });
+
+    it('feedback count query uses value allow-list to exclude escalation rows', async () => {
+      mockInteractionsContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [100] }),
+      });
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [10] }),
+      });
+      await getFeedbackResponseRate(mockInteractionsContainer, mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+      const [feedbackQuerySpec] = mockFeedbackContainer.items.query.mock.calls[0];
+      expect(feedbackQuerySpec.query).toContain(`f["value"] IN ('good-feedback', 'bad-feedback')`);
+    });
+  });
+
+  describe('getRepresentativeFeedback', () => {
+    it('prioritizes entries with a reason over reason-less entries', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({
+          resources: [
+            {
+              userMessage: 'no reason newest',
+              botResponse: 'resp1',
+              value: 'good-feedback',
+              reason: null,
+              timestamp: '2026-03-16T00:00:00.000Z',
+            },
+            {
+              userMessage: 'has reason',
+              botResponse: 'resp2',
+              value: 'bad-feedback',
+              reason: 'confusing answer',
+              timestamp: '2026-03-15T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      const result = await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({ userMessage: 'has reason', hasReason: true });
+      expect(result[1]).toMatchObject({ userMessage: 'no reason newest', hasReason: false });
+    });
+
+    it('fills remaining slots with reason-less entries when fewer than limit have reasons', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({
+          resources: [
+            {
+              userMessage: 'reason A',
+              botResponse: 'respA',
+              value: 'good-feedback',
+              reason: 'great',
+              timestamp: '2026-03-16T00:00:00.000Z',
+            },
+            {
+              userMessage: 'no reason B',
+              botResponse: 'respB',
+              value: 'good-feedback',
+              reason: null,
+              timestamp: '2026-03-15T00:00:00.000Z',
+            },
+            {
+              userMessage: 'no reason C',
+              botResponse: 'respC',
+              value: 'bad-feedback',
+              reason: null,
+              timestamp: '2026-03-14T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      const result = await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO, 5);
+
+      expect(result).toHaveLength(3);
+      expect(result.map((r) => r.userMessage)).toEqual(['reason A', 'no reason B', 'no reason C']);
+    });
+
+    it('caps results at the given limit', async () => {
+      const resources = Array.from({ length: 8 }, (_, i) => ({
+        userMessage: `msg-${i}`,
+        botResponse: `resp-${i}`,
+        value: 'good-feedback',
+        reason: `reason-${i}`,
+        timestamp: `2026-03-${10 + i}T00:00:00.000Z`,
+      }));
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources }),
+      });
+
+      const result = await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO, 5);
+
+      expect(result).toHaveLength(5);
+    });
+
+    it('returns an empty array when there is no feedback in the window', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      const result = await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+
+      expect(result).toEqual([]);
+    });
+
+    it('passes correct query parameters', async () => {
+      mockFeedbackContainer.items.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+      });
+
+      await getRepresentativeFeedback(mockFeedbackContainer, deploymentType, oneWeekAgoISO);
+
+      const [querySpec] = mockFeedbackContainer.items.query.mock.calls[0];
+      expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: 'production' });
+      expect(querySpec.parameters).toContainEqual({ name: '@oneWeekAgoISO', value: oneWeekAgoISO });
     });
   });
 });

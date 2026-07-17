@@ -15,6 +15,8 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
+import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { parseCommandKeyword } from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -75,6 +77,26 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         return;
       }
 
+      // Route command keywords (help, ask, search, escalate) before invoking the LLM.
+      // Only exact "help"/"escalate" match; "@fiona help me with X" falls through to the LLM.
+      const cmd = parseCommandKeyword(text);
+      if (cmd) {
+        await dispatchKeywordViaSay({
+          cmd,
+          say,
+          logger,
+          markInteractionRecorded,
+          client,
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          source: 'mention_escalate',
+        });
+        return;
+      }
+
       await client.assistant.threads.setStatus({
         channel_id: channel,
         thread_ts: thread_ts,
@@ -117,22 +139,26 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       await streamer.stop({ blocks: [feedbackBlock] });
       finalizeMetadataEnvelope(metadata);
 
-      await captureConversation({
-        userId: user,
-        teamId: team,
-        channelId: channel,
-        threadTs: thread_ts,
-        messageTs,
-        entryPoint: 'app_mention',
-        userMessage: text,
-        botResponse: botText,
-        threadHistory: prompts,
-        llmProvider: metadata?.provider ?? 'perplexity',
-        llmModel: LLM_MODEL,
-        systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
-        sources: metadata?.sources,
-        logger,
-      });
+      try {
+        await captureConversation({
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          entryPoint: 'app_mention',
+          userMessage: text,
+          botResponse: botText,
+          threadHistory: prompts,
+          llmProvider: metadata?.provider ?? 'perplexity',
+          llmModel: LLM_MODEL,
+          systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
+          sources: metadata?.sources,
+          logger,
+        });
+      } catch (err) {
+        logger?.warn?.(`Failed to capture conversation: ${err.message}`);
+      }
     },
   );
 };

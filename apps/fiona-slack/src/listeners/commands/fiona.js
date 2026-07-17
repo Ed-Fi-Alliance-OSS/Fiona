@@ -3,32 +3,23 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
-
-const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
-
-*Available commands:*
-\`\`\`
-/fiona help              Show this help message
-/fiona ask <question>    Ask Fiona a question about Ed-Fi (coming soon)
-/fiona search <query>    Search Ed-Fi documentation (coming soon)
-\`\`\`
-_Tip: You can also @-mention Fiona in any channel, or send her a direct message._`;
-
-const ASK_NOT_YET_TEXT =
-  `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
-
-const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send her a direct message.`;
+import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import {
+  ASK_NOT_YET_TEXT,
+  ESCALATE_CONFIRM_TEXT,
+  ESCALATE_DM_TEXT,
+  ESCALATE_ERROR_TEXT,
+  HELP_TEXT,
+  SEARCH_NOT_YET_TEXT,
+} from './command-handler.js';
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
  * back to help for unrecognized / missing input. Never invokes the LLM.
  */
-export const fionaCommandCallback = async ({ command, ack, logger }) => {
+export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
 
@@ -41,13 +32,10 @@ export const fionaCommandCallback = async ({ command, ack, logger }) => {
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({
-        command,
-        ack,
-        logger,
-        subCommand: 'search',
-        text: SEARCH_NOT_YET_TEXT,
-      });
+      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      break;
+    case 'escalate':
+      await handleEscalate({ command, ack, respond, client, logger });
       break;
     default:
       await handleUnknown({ command, ack, logger, subCommand });
@@ -120,4 +108,56 @@ async function handleUnknown({ command, ack, logger, subCommand }) {
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: 'slash_unknown' });
+}
+
+function isDmChannel(command) {
+  return command.channel_name === 'directmessage' || (command.channel_id || '').startsWith('D');
+}
+
+async function handleEscalate({ command, ack, respond, client, logger }) {
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona escalate: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping escalate');
+    await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_escalate'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_escalate interaction: ${err.name}`));
+    return;
+  }
+
+  const dm = isDmChannel(command);
+  const result = await postEscalation({
+    client,
+    userId: command.user_id,
+    teamId: command.team_id,
+    channelId: command.channel_id,
+    threadTs: null,
+    messageTs: command.trigger_id,
+    source: 'slash_escalate',
+    isDm: dm,
+    logger,
+  });
+
+  // postEscalation records the interaction on both success and failure; this
+  // path only renders the ephemeral confirmation or error to the invoking user.
+  await respond({
+    response_type: 'ephemeral',
+    text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
+  });
 }
