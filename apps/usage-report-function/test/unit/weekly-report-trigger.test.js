@@ -19,6 +19,8 @@ const mockGetRateLimitedCount = jest.fn();
 const mockGetFeedbackBreakdown = jest.fn();
 const mockGetAvgInteractionsPerUser = jest.fn();
 const mockGetFeedbackResponseRate = jest.fn();
+const mockGetNewUsersCount = jest.fn();
+const mockGetRepresentativeFeedback = jest.fn();
 const mockGetSlackWebhookUrl = jest.fn();
 const mockFormatWeeklyReport = jest.fn();
 
@@ -52,6 +54,8 @@ jest.unstable_mockModule('../../lib/cosmos-queries.js', () => ({
   getFeedbackBreakdown: mockGetFeedbackBreakdown,
   getAvgInteractionsPerUser: mockGetAvgInteractionsPerUser,
   getFeedbackResponseRate: mockGetFeedbackResponseRate,
+  getNewUsersCount: mockGetNewUsersCount,
+  getRepresentativeFeedback: mockGetRepresentativeFeedback,
 }));
 jest.unstable_mockModule('../../lib/key-vault-client.js', () => ({
   getSlackWebhookUrl: mockGetSlackWebhookUrl,
@@ -142,6 +146,16 @@ describe('WeeklyReportTrigger', () => {
       ]);
       mockGetAvgInteractionsPerUser.mockResolvedValue(8.3);
       mockGetFeedbackResponseRate.mockResolvedValue(9.8);
+      mockGetNewUsersCount.mockResolvedValue(15);
+      mockGetRepresentativeFeedback.mockResolvedValue([
+        {
+          userMessage: 'How do I reset my password?',
+          botResponse: 'Go to settings.',
+          value: 'good-feedback',
+          reason: 'Clear and fast',
+          hasReason: true,
+        },
+      ]);
 
       mockGetSlackWebhookUrl.mockResolvedValue('https://hooks.slack.com/test');
       mockFormatWeeklyReport.mockReturnValue('Fiona Usage Report text');
@@ -157,7 +171,7 @@ describe('WeeklyReportTrigger', () => {
       expect(logger).toHaveBeenCalledWith('Weekly report function triggered');
     });
 
-    it('passes all 8 KPI queries to Promise.all', async () => {
+    it('passes all 10 KPI queries to Promise.all', async () => {
       await handler({}, context);
       expect(mockGetDistinctUsers).toHaveBeenCalledTimes(1);
       expect(mockGetSessionCount).toHaveBeenCalledTimes(1);
@@ -167,6 +181,8 @@ describe('WeeklyReportTrigger', () => {
       expect(mockGetFeedbackBreakdown).toHaveBeenCalledTimes(1);
       expect(mockGetAvgInteractionsPerUser).toHaveBeenCalledTimes(1);
       expect(mockGetFeedbackResponseRate).toHaveBeenCalledTimes(1);
+      expect(mockGetNewUsersCount).toHaveBeenCalledTimes(1);
+      expect(mockGetRepresentativeFeedback).toHaveBeenCalledTimes(1);
     });
 
     it('queries with the correct deployment type and lookback window', async () => {
@@ -216,6 +232,56 @@ describe('WeeklyReportTrigger', () => {
       expect(kpis.feedbackRatio).toBe(0);
     });
 
+    it('calculates newUserPercentage as newUsersCount / distinctUsers * 100', async () => {
+      mockGetDistinctUsers.mockResolvedValue(50);
+      mockGetNewUsersCount.mockResolvedValue(10);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.newUserPercentage).toBeCloseTo(20.0);
+    });
+
+    it('calculates newUserPercentage as 0 when there are no distinct users', async () => {
+      mockGetDistinctUsers.mockResolvedValue(0);
+      mockGetNewUsersCount.mockResolvedValue(0);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.newUserPercentage).toBe(0);
+    });
+
+    it('calculates returningUsersCount as distinctUsers minus newUsersCount', async () => {
+      mockGetDistinctUsers.mockResolvedValue(50);
+      mockGetNewUsersCount.mockResolvedValue(10);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.returningUsersCount).toBe(40);
+    });
+
+    it('calculates repeatRate as 100 minus newUserPercentage', async () => {
+      mockGetDistinctUsers.mockResolvedValue(50);
+      mockGetNewUsersCount.mockResolvedValue(10);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.repeatRate).toBeCloseTo(80.0);
+    });
+
+    it('calculates repeatRate as 0 when there are no distinct users', async () => {
+      mockGetDistinctUsers.mockResolvedValue(0);
+      mockGetNewUsersCount.mockResolvedValue(0);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.repeatRate).toBe(0);
+    });
+
     it('assembles KPIs with correct date range', async () => {
       await handler({}, context);
 
@@ -238,8 +304,25 @@ describe('WeeklyReportTrigger', () => {
         badFeedback: 7,
         avgInteractionsPerUser: 8.3,
         feedbackResponseRate: 9.8,
+        newUsersCount: 15,
+        returningUsersCount: 27,
         environment: 'production',
       });
+    });
+
+    it('passes representativeFeedback through to formatWeeklyReport', async () => {
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.representativeFeedback).toEqual([
+        {
+          userMessage: 'How do I reset my password?',
+          botResponse: 'Go to settings.',
+          value: 'good-feedback',
+          reason: 'Clear and fast',
+          hasReason: true,
+        },
+      ]);
     });
 
     it('fetches the webhook URL using the default Key Vault secret name', async () => {

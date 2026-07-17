@@ -66,6 +66,65 @@ describe('parseCommandKeyword', () => {
     });
   });
 
+  describe('escalate keyword', () => {
+    it('returns escalate keyword for exact "escalate"', () => {
+      expect(parseCommandKeyword('escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('is case-insensitive', () => {
+      expect(parseCommandKeyword('ESCALATE')).toEqual({ keyword: 'escalate', rawArgs: '' });
+      expect(parseCommandKeyword('Escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('does not match when escalate has trailing text', () => {
+      expect(parseCommandKeyword('escalate this please')).toBeNull();
+    });
+
+    it('does not match "escalated"', () => {
+      expect(parseCommandKeyword('escalated')).toBeNull();
+    });
+
+    it('returns escalate keyword for "fiona escalate"', () => {
+      expect(parseCommandKeyword('fiona escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+  });
+
+  describe('leading slash tolerance', () => {
+    it('returns escalate keyword for "/escalate" (stray slash from slash-command habit)', () => {
+      expect(parseCommandKeyword('/escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('returns help keyword for "/help"', () => {
+      expect(parseCommandKeyword('/help')).toEqual({ keyword: 'help', rawArgs: '' });
+    });
+
+    it('returns ask keyword with args for "/ask <question>"', () => {
+      expect(parseCommandKeyword('/ask how do I set up ODS')).toEqual({
+        keyword: 'ask',
+        rawArgs: 'how do I set up ODS',
+      });
+    });
+
+    it('returns search keyword with args for "/search <query>"', () => {
+      expect(parseCommandKeyword('/search Data Standard')).toEqual({
+        keyword: 'search',
+        rawArgs: 'Data Standard',
+      });
+    });
+
+    it('is case-insensitive with a leading slash', () => {
+      expect(parseCommandKeyword('/ESCALATE')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('returns escalate keyword for "/fiona escalate"', () => {
+      expect(parseCommandKeyword('/fiona escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+    });
+
+    it('still returns null for "/escalate this please" — trailing text is a query', () => {
+      expect(parseCommandKeyword('/escalate this please')).toBeNull();
+    });
+  });
+
   describe('fiona <command> two-word prefix', () => {
     it('returns help keyword for "fiona help"', () => {
       expect(parseCommandKeyword('fiona help')).toEqual({ keyword: 'help', rawArgs: '' });

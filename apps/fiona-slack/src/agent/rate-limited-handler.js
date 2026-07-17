@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordInteraction } from './interaction-store.js';
-import { checkRateLimit } from './rate-limiter.js';
+import { checkRateLimit, rateLimitMessage } from './rate-limiter.js';
 
 /**
  * Handles rate-limited interactions by checking limits, recording the event,
@@ -52,10 +52,7 @@ export async function handleRateLimitedInteraction({
     }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
     markInteractionRecorded();
 
-    const minutes = Math.ceil(retryAfterMs / 60000);
-    await say(
-      `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`,
-    );
+    await say(rateLimitMessage(retryAfterMs));
     return true;
   }
   return false;
