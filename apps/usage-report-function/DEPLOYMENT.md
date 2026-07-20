@@ -142,7 +142,9 @@ directory for the full link-pipeline design.
   same week), generates the PDF via
   `scripts/generate-executive-report-artifact.js`, uploads it to
   `usage-reports/executive-report-<deploymentType>-<start>-to-<end>.pdf`,
-  generates a 90-day SAS URL for it, and overwrites
+  generates a 6-day SAS URL for it (the Azure AD user delegation SAS this
+  uses has a hard 7-day maximum lifetime, so each week's link stays valid
+  through roughly the next week's message before expiring) and overwrites
   `usage-reports/latest-link.json` with `{ url, weekStart, weekEnd,
   deploymentType }`.
 - `WeeklyReportTrigger` reads that pointer before posting; if it's missing

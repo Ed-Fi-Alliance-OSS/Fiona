@@ -82,7 +82,10 @@ jobs:
           WEEK_END=$(jq -r .weekEnd reports/report-meta.json)
           DEPLOYMENT_TYPE_VALUE=$(jq -r .deploymentType reports/report-meta.json)
 
-          EXPIRY=$(date -u -d '+90 days' '+%Y-%m-%dT%H:%MZ')
+          # Azure AD user delegation SAS (--as-user, no shared account key)
+          # has a hard 7-day maximum lifetime -- 6 days here to leave margin
+          # for clock skew/propagation delay.
+          EXPIRY=$(date -u -d '+6 days' '+%Y-%m-%dT%H:%MZ')
           SAS_TOKEN=$(az storage blob generate-sas \
             --account-name "$AZURE_STORAGE_ACCOUNT" \
             --container-name "$AZURE_STORAGE_CONTAINER" \
