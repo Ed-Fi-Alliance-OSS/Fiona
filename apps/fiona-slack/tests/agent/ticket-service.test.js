@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 const mockCreateIssue = jest.fn();
 const mockIsGithubConfigured = jest.fn();
@@ -139,5 +139,40 @@ describe('submitTicket (direct path)', () => {
     );
     expect(result.mode).toBe('created');
     expect(result.key).toBe('#300');
+  });
+});
+
+describe('submitTicket (approval gate)', () => {
+  beforeEach(() => {
+    process.env.TICKET_APPROVAL_REQUIRED = 'true';
+    process.env.TICKET_TRIAGE_CHANNEL_ID = 'C_TRIAGE';
+  });
+  afterEach(() => {
+    delete process.env.TICKET_APPROVAL_REQUIRED;
+    delete process.env.TICKET_TRIAGE_CHANNEL_ID;
+  });
+
+  it('posts a draft to the triage channel instead of creating', async () => {
+    const ctx = context();
+    ctx.client.chat = { postMessage: jest.fn().mockResolvedValue({ ts: '1.1' }) };
+    const result = await submitTicket(
+      { ticketType: 'bug', summary: 'Broke', description: 'd', priorityName: 'High', bugFields: {} },
+      ctx,
+    );
+    expect(result.mode).toBe('queued_for_approval');
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    const post = ctx.client.chat.postMessage.mock.calls[0][0];
+    expect(post.channel).toBe('C_TRIAGE');
+    expect(post.metadata.event_type).toBe('ticket_draft');
+    expect(post.metadata.event_payload.summary).toBe('Broke');
+  });
+
+  it('creates directly when approval is required but no triage channel is set', async () => {
+    delete process.env.TICKET_TRIAGE_CHANNEL_ID;
+    const result = await submitTicket(
+      { ticketType: 'bug', summary: 'Broke', description: 'd', priorityName: 'High', bugFields: {} },
+      context(),
+    );
+    expect(result.mode).toBe('created');
   });
 });

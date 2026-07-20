@@ -6,6 +6,12 @@
 import { CREATE_TICKET_ACTION } from '../commands/command-handler.js';
 import { createTicketActionCallback } from './create_ticket.js';
 import { feedbackActionCallback } from './feedback.js';
+import {
+  TICKET_APPROVE_ACTION,
+  TICKET_DISCARD_ACTION,
+  ticketApproveActionCallback,
+  ticketDiscardActionCallback,
+} from './ticket_approval.js';
 
 /**
  * @param {import("@slack/bolt").App} app
@@ -13,4 +19,6 @@ import { feedbackActionCallback } from './feedback.js';
 export const register = (app) => {
   app.action('feedback', feedbackActionCallback);
   app.action(CREATE_TICKET_ACTION, createTicketActionCallback);
+  app.action(TICKET_APPROVE_ACTION, ticketApproveActionCallback);
+  app.action(TICKET_DISCARD_ACTION, ticketDiscardActionCallback);
 };

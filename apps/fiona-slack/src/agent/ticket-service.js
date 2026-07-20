@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { TICKET_APPROVE_ACTION, TICKET_DISCARD_ACTION } from '../listeners/actions/ticket_approval.js';
 import { createIssue, isGithubConfigured } from './github-client.js';
 import { recordInteraction } from './interaction-store.js';
 import { getUser } from './slack-users-store.js';
@@ -10,6 +11,61 @@ import { getUser } from './slack-users-store.js';
 /** True when GitHub is configured (feature enabled). */
 export function isTicketingEnabled() {
   return isGithubConfigured();
+}
+
+/** True when the approval gate is enabled AND a triage channel is configured. */
+export function isApprovalRequired() {
+  return process.env.TICKET_APPROVAL_REQUIRED === 'true' && Boolean(process.env.TICKET_TRIAGE_CHANNEL_ID);
+}
+
+function draftBlocks(payload) {
+  const lines = [
+    `*New ${payload.ticketType} request* — pending approval`,
+    `*Summary:* ${payload.summary}`,
+    `*Priority:* ${payload.priorityName}`,
+    `*Description:* ${payload.description}`,
+  ];
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: lines.join('\n').slice(0, 2900) } },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          style: 'primary',
+          action_id: TICKET_APPROVE_ACTION,
+          text: { type: 'plain_text', text: 'Approve & create' },
+          value: 'approve',
+        },
+        {
+          type: 'button',
+          style: 'danger',
+          action_id: TICKET_DISCARD_ACTION,
+          text: { type: 'plain_text', text: 'Discard' },
+          value: 'discard',
+        },
+      ],
+    },
+  ];
+}
+
+async function postDraftForApproval(payload, ctx) {
+  const { client, userId, teamId, channelId, logger } = ctx;
+  try {
+    await client.chat.postMessage({
+      channel: process.env.TICKET_TRIAGE_CHANNEL_ID,
+      text: `New ${payload.ticketType} request pending approval: ${payload.summary}`,
+      blocks: draftBlocks(payload),
+      metadata: {
+        event_type: 'ticket_draft',
+        event_payload: { ...payload, requester: { userId, teamId, channelId } },
+      },
+    });
+    return { ok: true, mode: 'queued_for_approval', key: null, url: null, errorType: null };
+  } catch (err) {
+    logger?.error?.(`Failed to post ticket draft for approval: ${err.message}`);
+    return { ok: false, mode: 'error', key: null, url: null, errorType: 'draft_post_failed' };
+  }
 }
 
 /** Map the internal ticket type to a GitHub label (env-overridable; must exist in the repo). */
@@ -95,14 +151,18 @@ export async function createTicketNow(payload, ctx) {
 }
 
 /**
- * Entry point used by listeners. Direct-create only in this task; Task 7 adds
- * the config-gated approval branch ahead of the create call.
+ * Entry point used by listeners. When the approval gate is enabled (see
+ * `isApprovalRequired`), posts a draft to the triage channel instead of
+ * creating immediately; otherwise creates the issue directly.
  *
  * @returns {Promise<{ ok: boolean, mode: string, key: string|null, url: string|null, errorType: string|null }>}
  */
 export async function submitTicket(payload, ctx) {
   if (!isTicketingEnabled()) {
     return { ok: false, mode: 'not_configured', key: null, url: null, errorType: 'github_not_configured' };
+  }
+  if (isApprovalRequired()) {
+    return postDraftForApproval(payload, ctx);
   }
   const result = await createTicketNow(payload, ctx);
   return { ...result, mode: result.ok ? 'created' : 'error' };
