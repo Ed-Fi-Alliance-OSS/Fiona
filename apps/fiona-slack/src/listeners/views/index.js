@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { feedbackReasonClosedCallback, feedbackReasonViewCallback } from './feedback_reason.js';
+import { TICKET_MODAL_CALLBACK, ticketModalSubmitCallback } from './ticket_modal.js';
 
 /**
  * @param {import("@slack/bolt").App} app
@@ -11,4 +12,5 @@ import { feedbackReasonClosedCallback, feedbackReasonViewCallback } from './feed
 export const register = (app) => {
   app.view('feedback_reason', feedbackReasonViewCallback);
   app.view({ callback_id: 'feedback_reason', type: 'view_closed' }, feedbackReasonClosedCallback);
+  app.view(TICKET_MODAL_CALLBACK, ticketModalSubmitCallback);
 };

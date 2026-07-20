@@ -3,6 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { submitTicket } from '../../agent/ticket-service.js';
+import { TICKET_CREATED_TEXT, TICKET_ERROR_TEXT, TICKET_NOT_CONFIGURED_TEXT } from '../commands/command-handler.js';
+
 export const TICKET_MODAL_CALLBACK = 'ticket_modal';
 export const PRIORITY_OPTIONS = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
 const DEFAULT_PRIORITY = 'Medium';
@@ -86,3 +89,65 @@ export function buildTicketModal({ ticketType, channelId, threadTs, prefill = {}
     blocks,
   };
 }
+
+function readValue(view, blockId, actionId) {
+  return view.state.values?.[blockId]?.[actionId]?.value?.trim() || '';
+}
+
+/**
+ * Handle the ticket modal submission: assemble the payload, create/queue the
+ * issue via the service, and DM the invoking user the outcome.
+ *
+ * @param {Object} params
+ * @param {import("@slack/bolt").AckFn<any>} params.ack
+ * @param {import("@slack/bolt").SlackViewAction} params.body
+ * @param {import("@slack/bolt").ViewOutput} params.view
+ * @param {import("@slack/web-api").WebClient} params.client
+ * @param {import("@slack/logger").Logger} params.logger
+ */
+export const ticketModalSubmitCallback = async ({ ack, body, view, client, logger }) => {
+  await ack();
+  const userId = body.user?.id;
+  try {
+    const { ticketType, channelId } = JSON.parse(view.private_metadata || '{}');
+    const payload = {
+      ticketType,
+      summary: readValue(view, 'summary_block', 'summary_input'),
+      description: readValue(view, 'description_block', 'description_input'),
+      priorityName: view.state.values?.priority_block?.priority_input?.selected_option?.value || 'Medium',
+      bugFields:
+        ticketType === 'bug'
+          ? {
+              stepsToReproduce: readValue(view, 'steps_block', 'steps_input'),
+              expectedActual: readValue(view, 'expected_block', 'expected_input'),
+              environment: readValue(view, 'env_block', 'env_input'),
+            }
+          : {},
+    };
+
+    const result = await submitTicket(payload, {
+      client,
+      userId,
+      teamId: body.team?.id,
+      channelId,
+      triggerId: `${userId}-${Date.now()}`,
+      source: `modal_${ticketType}`,
+      logger,
+    });
+
+    let text = TICKET_ERROR_TEXT;
+    if (result.mode === 'created') text = TICKET_CREATED_TEXT(result.key, result.url);
+    else if (result.mode === 'queued_for_approval')
+      text = ':hourglass_flowing_sand: Your request was sent for review. The team will follow up.';
+    else if (result.mode === 'not_configured') text = TICKET_NOT_CONFIGURED_TEXT;
+
+    await client.chat.postMessage({ channel: userId, text });
+  } catch (err) {
+    logger?.error?.(`Ticket modal submission failed: ${err.message}`);
+    if (userId) {
+      await client.chat
+        .postMessage({ channel: userId, text: TICKET_ERROR_TEXT })
+        .catch((e) => logger?.warn?.(`Failed to DM ticket error: ${e.message}`));
+    }
+  }
+};
