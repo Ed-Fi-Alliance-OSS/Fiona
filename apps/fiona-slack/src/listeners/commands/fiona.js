@@ -6,6 +6,8 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { isTicketingEnabled } from '../../agent/ticket-service.js';
+import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
@@ -13,6 +15,7 @@ import {
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
   SEARCH_NOT_YET_TEXT,
+  TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
 
 /**
@@ -36,6 +39,12 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
+      break;
+    case 'bug':
+      await handleTicket({ command, ack, respond, client, logger, ticketType: 'bug' });
+      break;
+    case 'feature':
+      await handleTicket({ command, ack, respond, client, logger, ticketType: 'feature' });
       break;
     default:
       await handleUnknown({ command, ack, logger, subCommand });
@@ -160,4 +169,42 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
     response_type: 'ephemeral',
     text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
   });
+}
+
+async function handleTicket({ command, ack, respond, client, logger, ticketType }) {
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ${ticketType}: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping ticket');
+    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+    return;
+  }
+
+  if (!isTicketingEnabled()) {
+    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+    fireAndForgetRecord({ command, logger, interactionType: `slash_${ticketType}` });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    return;
+  }
+
+  try {
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: buildTicketModal({ ticketType, channelId: command.channel_id }),
+    });
+    fireAndForgetRecord({ command, logger, interactionType: `slash_${ticketType}` });
+  } catch (err) {
+    logger?.error?.(`Failed to open ${ticketType} modal: ${err.message}`);
+    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+  }
 }

@@ -11,6 +11,8 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
+bug                     Report a bug (opens a form)
+feature                 Request a feature (opens a form)
 \`\`\`
 
 *How to reach Fiona:*
