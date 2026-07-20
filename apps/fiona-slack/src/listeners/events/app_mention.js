@@ -15,7 +15,8 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { parseCommandKeyword, routeCommandViaSay } from '../commands/command-handler.js';
+import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { parseCommandKeyword } from '../commands/command-handler.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
@@ -76,11 +77,23 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         return;
       }
 
-      // Route command keywords (help, ask, search) before invoking the LLM.
-      // Only exact "help" matches; "@fiona help me with X" falls through to the LLM.
+      // Route command keywords (help, ask, search, escalate) before invoking the LLM.
+      // Only exact "help"/"escalate" match; "@fiona help me with X" falls through to the LLM.
       const cmd = parseCommandKeyword(text);
       if (cmd) {
-        await routeCommandViaSay(say, logger, cmd);
+        await dispatchKeywordViaSay({
+          cmd,
+          say,
+          logger,
+          markInteractionRecorded,
+          client,
+          userId: user,
+          teamId: team,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          source: 'mention_escalate',
+        });
         return;
       }
 

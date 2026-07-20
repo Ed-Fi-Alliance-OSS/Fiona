@@ -365,3 +365,111 @@ describe('formatLongitudinalReport', () => {
     expect(message).toContain('No interaction data recorded for this period.');
   });
 });
+
+describe('formatFeedbackSection', () => {
+  it('shows a fallback message when there is no feedback', () => {
+    const section = formatFeedbackSection([]);
+    expect(section).toContain('No feedback recorded for this period.');
+  });
+
+  it('renders positive sentiment for good-feedback', () => {
+    const section = formatFeedbackSection([
+      {
+        userMessage: 'How do I reset my password?',
+        botResponse: 'Go to settings.',
+        value: 'good-feedback',
+        reason: 'Clear and fast',
+        hasReason: true,
+      },
+    ]);
+    expect(section).toContain('👍 Positive');
+    expect(section).toContain('Q: How do I reset my password?');
+    expect(section).toContain('A: Go to settings.');
+    expect(section).toContain('Reason: Clear and fast');
+  });
+
+  it('renders negative sentiment for bad-feedback', () => {
+    const section = formatFeedbackSection([
+      {
+        userMessage: 'Why did this fail?',
+        botResponse: 'Unclear error.',
+        value: 'bad-feedback',
+        reason: null,
+        hasReason: false,
+      },
+    ]);
+    expect(section).toContain('👎 Negative');
+  });
+
+  it('flags fallback items with no reason provided', () => {
+    const section = formatFeedbackSection([
+      { userMessage: 'q', botResponse: 'a', value: 'good-feedback', reason: null, hasReason: false },
+    ]);
+    expect(section).toContain('Reason: (no reason provided)');
+  });
+
+  it('truncates question, response, and reason to 150 characters', () => {
+    const long = 'x'.repeat(200);
+    const section = formatFeedbackSection([
+      { userMessage: long, botResponse: long, value: 'good-feedback', reason: long, hasReason: true },
+    ]);
+    const truncated = `${'x'.repeat(150)}…`;
+    expect(section).toContain(`Q: ${truncated}`);
+    expect(section).toContain(`A: ${truncated}`);
+    expect(section).toContain(`Reason: ${truncated}`);
+  });
+
+  it('numbers multiple items in order', () => {
+    const section = formatFeedbackSection([
+      { userMessage: 'first', botResponse: 'r1', value: 'good-feedback', reason: 'r', hasReason: true },
+      { userMessage: 'second', botResponse: 'r2', value: 'bad-feedback', reason: null, hasReason: false },
+    ]);
+    expect(section).toContain('1. 👍 Positive');
+    expect(section).toContain('2. 👎 Negative');
+  });
+});
+
+describe('formatWeeklyReport with representativeFeedback', () => {
+  const baseKpis = {
+    distinctUsers: 42,
+    sessionCount: 118,
+    totalInteractions: 347,
+    errorCount: 8,
+    errorRate: 2.3,
+    rateLimitedCount: 6,
+    goodFeedback: 29,
+    badFeedback: 7,
+    feedbackRatio: 80.6,
+    avgInteractionsPerUser: 8.3,
+    feedbackResponseRate: 9.8,
+    newUsersCount: 15,
+    newUserPercentage: 35.7,
+    returningUsersCount: 27,
+    repeatRate: 64.3,
+    environment: 'production',
+    startDate: '2026-03-10',
+    endDate: '2026-03-16',
+  };
+
+  it('appends the representative feedback section', () => {
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      representativeFeedback: [
+        {
+          userMessage: 'How do I do X?',
+          botResponse: 'Here is how.',
+          value: 'good-feedback',
+          reason: 'Helpful',
+          hasReason: true,
+        },
+      ],
+    });
+    expect(message).toContain('Representative Feedback');
+    expect(message).toContain('How do I do X?');
+  });
+
+  it('shows the no-feedback message when representativeFeedback is empty', () => {
+    const message = formatWeeklyReport({ ...baseKpis, representativeFeedback: [] });
+    expect(message).toContain('No feedback recorded for this period.');
+  });
+});
