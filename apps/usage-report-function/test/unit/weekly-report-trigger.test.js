@@ -22,6 +22,7 @@ const mockGetFeedbackResponseRate = jest.fn();
 const mockGetNewUsersCount = jest.fn();
 const mockGetRepresentativeFeedback = jest.fn();
 const mockGetSlackWebhookUrl = jest.fn();
+const mockGetLatestReportLink = jest.fn();
 const mockFormatWeeklyReport = jest.fn();
 
 // -- Register all mocks before importing the module under test --
@@ -59,6 +60,9 @@ jest.unstable_mockModule('../../lib/cosmos-queries.js', () => ({
 }));
 jest.unstable_mockModule('../../lib/key-vault-client.js', () => ({
   getSlackWebhookUrl: mockGetSlackWebhookUrl,
+}));
+jest.unstable_mockModule('../../lib/report-link.js', () => ({
+  getLatestReportLink: mockGetLatestReportLink,
 }));
 jest.unstable_mockModule('../../lib/slack-formatter.js', () => ({
   formatWeeklyReport: mockFormatWeeklyReport,
@@ -158,6 +162,7 @@ describe('WeeklyReportTrigger', () => {
       ]);
 
       mockGetSlackWebhookUrl.mockResolvedValue('https://hooks.slack.com/test');
+      mockGetLatestReportLink.mockResolvedValue(null);
       mockFormatWeeklyReport.mockReturnValue('Fiona Usage Report text');
       mockAxiosPost.mockResolvedValue({ status: 200 });
     });
@@ -323,6 +328,32 @@ describe('WeeklyReportTrigger', () => {
           hasReason: true,
         },
       ]);
+    });
+
+    it('fetches the latest report link with the computed deployment type and end date', async () => {
+      await handler({}, context);
+      expect(mockGetLatestReportLink).toHaveBeenCalledWith(
+        { deploymentType: 'production', weekEnd: EXPECTED_END_DATE },
+        expect.anything(),
+      );
+    });
+
+    it('passes the resolved report URL through to formatWeeklyReport', async () => {
+      mockGetLatestReportLink.mockResolvedValue('https://example.test/report.pdf');
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.reportUrl).toBe('https://example.test/report.pdf');
+    });
+
+    it('passes a null reportUrl through to formatWeeklyReport when no link is available', async () => {
+      mockGetLatestReportLink.mockResolvedValue(null);
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.reportUrl).toBeNull();
     });
 
     it('fetches the webhook URL using the default Key Vault secret name', async () => {

@@ -124,6 +124,26 @@ describe('formatWeeklyReport', () => {
     const message = formatWeeklyReport(crossYearKpis);
     expect(message).toContain('Dec 29–Jan 4, 2026');
   });
+
+  it('appends the report link line when reportUrl is present', () => {
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      reportUrl: 'https://fionastorage.blob.core.windows.net/usage-reports/executive-report-production.pdf?sas=abc',
+    });
+    expect(message).toContain(
+      '📎 *Full executive report:* https://fionastorage.blob.core.windows.net/usage-reports/executive-report-production.pdf?sas=abc',
+    );
+  });
+
+  it('omits the report link line when reportUrl is null', () => {
+    const message = formatWeeklyReport({ ...baseKpis, reportUrl: null });
+    expect(message).not.toContain('Full executive report');
+  });
+
+  it('omits the report link line when reportUrl is absent', () => {
+    const message = formatWeeklyReport(baseKpis);
+    expect(message).not.toContain('Full executive report');
+  });
 });
 
 describe('formatFeedbackSection', () => {
