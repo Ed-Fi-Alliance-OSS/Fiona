@@ -201,4 +201,32 @@ describe('recordFeedback - with connection string', () => {
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to record feedback'));
   });
+
+  it('includes interactionType on the doc when provided', async () => {
+    await recordFeedback({
+      userId: 'U900',
+      channelId: 'C900',
+      messageTs: 'trigger-xyz',
+      value: 'escalation',
+      interactionType: 'slash_escalate',
+      userMessage: 'transcript here',
+      botResponse: 'summary here',
+    });
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.interactionType).toBe('slash_escalate');
+    expect(doc.value).toBe('escalation');
+  });
+
+  it('omits interactionType from the doc when not provided', async () => {
+    await recordFeedback({
+      userId: 'U901',
+      channelId: 'C901',
+      messageTs: '1234567890.000099',
+      value: 'good-feedback',
+      userMessage: null,
+      botResponse: null,
+    });
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc).not.toHaveProperty('interactionType');
+  });
 });

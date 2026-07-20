@@ -12,6 +12,7 @@ help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
+
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel
 • *@-mention* (\`@fiona …\`) — in a channel or thread
@@ -29,21 +30,33 @@ export const SEARCH_NOT_YET_TEXT =
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
 
+// User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
+// keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
+export const ESCALATE_CONFIRM_TEXT = '✅ Your conversation has been escalated. A team member will follow up shortly.';
+export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
+export const ESCALATE_ERROR_TEXT =
+  ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
+
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
  * Disambiguation rules:
  *   - "help"               — exact whole-message match only; trailing text → null (treat as query)
+ *   - "escalate"           — exact whole-message match only; trailing text → null (treat as query)
  *   - "ask <args>"         — requires non-empty args after "ask "; bare "ask" → null
  *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
+ *   - "/<command>"         — a stray leading slash is stripped first, so "/escalate" == "escalate"
  *
  * @param {string} text - Trimmed, mention-stripped message text.
  * @returns {{ keyword: string, rawArgs: string } | null}
  *   `rawArgs` is direct user input — sanitize before passing to the LLM or any external system.
  */
 export function parseCommandKeyword(text) {
-  const trimmed = text.trim();
+  // Tolerate a stray leading slash: users habitually type "/escalate" (or "/help")
+  // when @-mentioning Fiona, mirroring the "/fiona" slash command. Strip it so the
+  // keyword resolves the same as the slash-free form.
+  const trimmed = text.trim().replace(/^\/+\s*/, '');
   const lower = trimmed.toLowerCase();
 
   // Strip optional "fiona " prefix so "fiona help" resolves the same as "help"
@@ -52,6 +65,10 @@ export function parseCommandKeyword(text) {
 
   if (bodyLower === 'help') {
     return { keyword: 'help', rawArgs: '' };
+  }
+
+  if (bodyLower === 'escalate') {
+    return { keyword: 'escalate', rawArgs: '' };
   }
 
   for (const kw of ['ask', 'search']) {

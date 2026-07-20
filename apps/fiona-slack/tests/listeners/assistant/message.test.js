@@ -37,6 +37,10 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
   checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  rateLimitMessage: jest.fn((retryAfterMs) => {
+    const minutes = Math.ceil(retryAfterMs / 60000);
+    return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+  }),
 }));
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
@@ -54,7 +58,12 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
+  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
+const { escalateViaSay } = await import('../../../src/agent/escalation.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
 const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
 const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
@@ -683,6 +692,47 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    it('escalates via escalateViaSay when message is exactly "escalate"', async () => {
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).toHaveBeenCalledTimes(1);
+      expect(escalateViaSay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'assistant_escalate',
+          channelId: 'C123',
+          threadTs: '1234567890.000000',
+          say: mockSay,
+        }),
+      );
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('does not escalate a rate-limited user typing "escalate"', async () => {
+      checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 60000 });
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(mockSay.mock.calls[0][0]).toContain('request limit');
     });
   });
 });

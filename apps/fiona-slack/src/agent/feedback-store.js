@@ -141,11 +141,12 @@ async function getContainer(logger) {
  * @param {Object} feedback
  * @param {string} feedback.userId - Slack user ID
  * @param {string} feedback.channelId - Slack channel ID
- * @param {string} feedback.messageTs - Timestamp of the bot message being rated
- * @param {string} feedback.value - 'good-feedback' or 'bad-feedback'
+ * @param {string} feedback.messageTs - Bot message timestamp or slash-command trigger_id for escalations
+ * @param {string} feedback.value - 'good-feedback', 'bad-feedback', or 'escalation'
  * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
+ * @param {string} [feedback.interactionType] - Optional interaction type (e.g., 'slash_escalate')
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
 export async function recordFeedback({
@@ -156,6 +157,7 @@ export async function recordFeedback({
   reason,
   userMessage,
   botResponse,
+  interactionType,
   logger,
 }) {
   const c = await getContainer(logger);
@@ -173,6 +175,7 @@ export async function recordFeedback({
     reason: reason?.trim() ? reason.trim() : null,
     userMessage,
     botResponse,
+    ...(interactionType ? { interactionType } : {}),
     deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),
   };
