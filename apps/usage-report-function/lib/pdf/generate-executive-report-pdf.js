@@ -27,9 +27,9 @@ function readChartJsSource() {
  * Assembles the narrative-style executive PDF report from a
  * `buildExecutiveReportData` bundle and writes it to `outputPath`.
  * Renders via Puppeteer (headless Chromium) rather than pdfkit — see
- * docs/usage-report/2026-07-10-usage-report-narrative-pdf-redesign-design.md
- * for why. This path only ever runs ad hoc via the agent, never inside the
- * deployed Azure Function.
+ * docs/usage-report/usage-report-pdf-design.md (§4.1) for why. This path
+ * only ever runs ad hoc via the agent or the generate-usage-report-pdf
+ * GitHub Actions workflow (§6), never inside the deployed Azure Function.
  */
 export async function generateExecutiveReportPdf(reportData, outputPath) {
   const trendWeekly = reportData.trendWeekly ?? reportData.weeklyTrend;

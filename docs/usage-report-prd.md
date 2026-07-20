@@ -60,7 +60,7 @@ Slack via incoming webhook.
 | Full executive report link (2.5) | Link to the matching week's executive PDF, when available (§2.5)                                                    |
 
 The webhook URL is retrieved from Azure Key Vault at runtime using Managed
-Identity. See `docs/usage-report/2026-03-20-fiona-slack-usage-analytics-design.md`.
+Identity. See `docs/usage-report/usage-report-pdf-design.md` (§2, §3).
 
 > [!NOTE]
 > AI-141 also calls for new-user/returning-user metrics to appear in the
@@ -79,7 +79,7 @@ This path runs **ad hoc only**, invoked by the `azure-usage-report` agent
 skill (§2.6) or by the scheduled GitHub Actions workflow (§2.5) — never by
 the deployed `WeeklyReportTrigger` Function, because Puppeteer's bundled
 Chromium is impractical to run reliably on a Consumption-plan Function.
-See `docs/usage-report/2026-07-10-usage-report-narrative-pdf-redesign-design.md`.
+See `docs/usage-report/usage-report-pdf-design.md` (§4).
 
 ### 2.3 Longitudinal Trend Analysis
 
@@ -88,7 +88,7 @@ See `docs/usage-report/2026-07-10-usage-report-narrative-pdf-redesign-design.md`
 arbitrary date range in a single pass per Cosmos container (not one query
 per week), bucketed into Monday–Sunday weeks. Used by the agent skill for
 "how has usage trended" requests spanning more than one week. See
-`docs/usage-report/2026-07-10-usage-report-longitudinal-trends-design.md`.
+`docs/usage-report/usage-report-pdf-design.md` (§5).
 
 ### 2.4 Representative Feedback Selection
 
@@ -98,7 +98,7 @@ by §2.2/§2.3) select up to 5 feedback examples per report, prioritizing
 entries with a user-provided reason. Sentiment is always the raw thumbs
 rating restated (`good-feedback` → Positive, `bad-feedback` → Negative),
 never LLM-classified or reinterpreted. See
-`docs/usage-report/2026-07-10-usage-report-feedback-summary-design.md`.
+`docs/usage-report/usage-report-pdf-design.md` (§7).
 
 ### 2.5 Automated Executive Report Link
 
@@ -108,9 +108,9 @@ without any manual/agent step, uploads it to Azure Blob Storage, and writes
 a pointer that `WeeklyReportTrigger` reads before posting — so every
 Monday's Slack message (§2.1) includes a link to the matching week's full
 report, with no infrastructure change to the deployed Function. See
-`docs/usage-report/2026-07-20-usage-report-pdf-link-pipeline-design.md`
-for the full design, including a hard Azure platform constraint discovered
-during implementation (Azure AD user delegation SAS URLs cap at a 7-day
+`docs/usage-report/usage-report-pdf-design.md` (§6) for the full design,
+including a hard Azure platform constraint discovered during
+implementation (Azure AD user delegation SAS URLs cap at a 7-day
 lifetime).
 
 ### 2.6 Natural-Language Ad Hoc Analysis (Agent Skill)
@@ -219,16 +219,10 @@ apps/usage-report-function/
 
 ### 4.4 Related Design Docs
 
-| Doc                                                                  | Covers                                                            |
-| ---------------------------------------------------------------------| -------------------------------------------------------------------|
-| `2026-03-20-fiona-slack-usage-analytics-design.md`                    | Original interaction/feedback recording + weekly KPI report design |
-| `2026-07-10-usage-report-executive-pdf-design.md`                     | First executive PDF implementation (pdfkit, retired)              |
-| `2026-07-10-usage-report-narrative-pdf-redesign-design.md`            | Current narrative-style PDF (Puppeteer + HTML/CSS + Chart.js)      |
-| `2026-07-10-usage-report-narrative-pdf-redesign-plan.md`              | Implementation plan for the above                                 |
-| `2026-07-10-usage-report-longitudinal-trends-design.md`               | Week-over-week trend query + formatter (§2.3)                     |
-| `2026-07-10-usage-report-feedback-summary-design.md`                  | Representative feedback selection (§2.4)                          |
-| `2026-07-20-usage-report-pdf-link-pipeline-design.md`                 | Automated executive report link (§2.5), including the SAS-lifetime constraint discovered during rollout |
-| `manual-testing-usage-report.md`                                       | Manual test procedures                                            |
+| Doc                                    | Covers                                                                                          |
+| ----------------------------------------| ---------------------------------------------------------------------------------------------------|
+| `usage-report-pdf-design.md`             | Consolidated design doc: interaction recording rationale, weekly KPI report, executive PDF (data slices, rendering pipeline, page mapping), longitudinal trends, representative feedback selection, and the automated report-link pipeline (§2.1–§2.5) |
+| `manual-testing-usage-report.md`          | Manual test procedures                                                                            |
 
 ## 5. Environment Variables
 

@@ -9,8 +9,8 @@ import { formatWeekLabel } from './format.js';
  * Every string this module produces is a fixed template filled with a
  * computed fact (a peak value, a total, a rate) — never free-form or
  * agent-authored interpretation. See
- * docs/usage-report/2026-07-10-usage-report-narrative-pdf-redesign-design.md
- * for why: deterministic and unit-testable, at the cost of not producing
+ * docs/usage-report/usage-report-pdf-design.md (§4.1) for why: deterministic
+ * and unit-testable, at the cost of not producing
  * genuinely analytical observations a human/agent might notice.
  */
 
