@@ -48,6 +48,41 @@ export function TICKET_CREATED_TEXT(key, url) {
   return `:white_check_mark: Created *<${url}|${key}>*. Thanks — the team will take it from here.`;
 }
 
+export const CREATE_TICKET_ACTION = 'create_ticket';
+
+// Explicit-phrase → ticket type. v1 is high-precision (exact whole-message match).
+// LLM-based intent detection is deferred (AI-174).
+const TICKET_PHRASES = new Map([
+  ['file a bug', 'bug'],
+  ['report a bug', 'bug'],
+  ['bug report', 'bug'],
+  ['request a feature', 'feature'],
+  ['feature request', 'feature'],
+  ['file a feature', 'feature'],
+]);
+
+/**
+ * Blocks for the conversational "Create ticket" offer.
+ * @param {'bug'|'feature'} ticketType
+ */
+export function buildCreateTicketBlocks(ticketType, channelId, threadTs) {
+  const label = ticketType === 'bug' ? 'Report a bug' : 'Request a feature';
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: `Want to ${label.toLowerCase()}? I can open a form for you.` } },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: CREATE_TICKET_ACTION,
+          text: { type: 'plain_text', text: label },
+          value: JSON.stringify({ ticketType, channelId, threadTs }),
+        },
+      ],
+    },
+  ];
+}
+
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
@@ -58,6 +93,7 @@ export function TICKET_CREATED_TEXT(key, url) {
  *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
  *   - "/<command>"         — a stray leading slash is stripped first, so "/escalate" == "escalate"
+ *   - ticket phrases       — exact whole-message match only (e.g. "file a bug"); see TICKET_PHRASES
  *
  * @param {string} text - Trimmed, mention-stripped message text.
  * @returns {{ keyword: string, rawArgs: string } | null}
@@ -89,6 +125,10 @@ export function parseCommandKeyword(text) {
         return { keyword: kw, rawArgs };
       }
     }
+  }
+
+  if (TICKET_PHRASES.has(bodyLower)) {
+    return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
   return null;

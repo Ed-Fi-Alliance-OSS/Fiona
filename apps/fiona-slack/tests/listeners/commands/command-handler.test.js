@@ -5,8 +5,17 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
-  await import('../../../src/listeners/commands/command-handler.js');
+const {
+  parseCommandKeyword,
+  handleHelpViaSay,
+  handleComingSoonViaSay,
+  routeCommandViaSay,
+  buildCreateTicketBlocks,
+  CREATE_TICKET_ACTION,
+  HELP_TEXT,
+  ASK_NOT_YET_TEXT,
+  SEARCH_NOT_YET_TEXT,
+} = await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
   describe('help keyword', () => {
@@ -178,6 +187,32 @@ describe('parseCommandKeyword', () => {
     it('returns null for text that starts with a command word mid-sentence', () => {
       expect(parseCommandKeyword('please help me with this')).toBeNull();
     });
+  });
+});
+
+describe('parseCommandKeyword — ticket phrases', () => {
+  it.each([
+    ['file a bug', 'bug'],
+    ['report a bug', 'bug'],
+    ['bug report', 'bug'],
+    ['request a feature', 'feature'],
+    ['feature request', 'feature'],
+    ['file a feature', 'feature'],
+  ])('detects "%s" as file_ticket/%s', (phrase, expected) => {
+    expect(parseCommandKeyword(phrase)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
+
+  it('does not fire on unrelated text', () => {
+    expect(parseCommandKeyword('how do I fix a bug in the ODS?')).toBeNull();
+  });
+});
+
+describe('buildCreateTicketBlocks', () => {
+  it('emits a button with the ticket type and location encoded', () => {
+    const blocks = buildCreateTicketBlocks('bug', 'C1', '123.45');
+    const button = blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
+    expect(button).toBeTruthy();
+    expect(JSON.parse(button.value)).toEqual({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
   });
 });
 
