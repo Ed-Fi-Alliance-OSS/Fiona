@@ -15,6 +15,7 @@ import {
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
   SEARCH_NOT_YET_TEXT,
+  TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
 
@@ -187,13 +188,26 @@ async function handleTicket({ command, ack, respond, client, logger, ticketType 
 
   if (!isTicketingEnabled()) {
     await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
-    fireAndForgetRecord({ command, logger, interactionType: `slash_${ticketType}` });
+    recordInteraction({
+      ...slashInteractionRecord(command, `slash_${ticketType}`),
+      status: 'error',
+      errorType: 'not_configured',
+      rateLimited: false,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_${ticketType} interaction: ${err.name}`));
     return;
   }
 
   const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
   if (!allowed) {
     await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, `slash_${ticketType}`),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_${ticketType} interaction: ${err.name}`));
     return;
   }
 
@@ -205,6 +219,6 @@ async function handleTicket({ command, ack, respond, client, logger, ticketType 
     fireAndForgetRecord({ command, logger, interactionType: `slash_${ticketType}` });
   } catch (err) {
     logger?.error?.(`Failed to open ${ticketType} modal: ${err.message}`);
-    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+    await respond({ response_type: 'ephemeral', text: TICKET_ERROR_TEXT });
   }
 }
