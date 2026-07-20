@@ -37,6 +37,15 @@ export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
 export const ESCALATE_ERROR_TEXT =
   ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
 
+// GitHub issue-creation copy, shared by the slash sub-commands and the modal handler.
+export const TICKET_NOT_CONFIGURED_TEXT =
+  ':information_source: Issue creation is not available right now. Please reach out to the team directly.';
+export const TICKET_ERROR_TEXT =
+  ':warning: Sorry, I could not create your issue right now. Please try again later or reach out to the team directly.';
+export function TICKET_CREATED_TEXT(key, url) {
+  return `:white_check_mark: Created *<${url}|${key}>*. Thanks — the team will take it from here.`;
+}
+
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
