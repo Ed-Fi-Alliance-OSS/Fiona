@@ -290,36 +290,15 @@ Cosmos DB `interactions` container for long-term engagement analysis.
 > Message content is deliberately excluded from interaction records. Only
 > metadata is stored, preserving user privacy.
 
-### 2.8 Weekly Usage Report
+### 2.8 Weekly Usage Report & Executive Reporting
 
-A separate Azure Function (`apps/usage-report-function`) runs on a configurable
-cron schedule (default: 9 AM UTC every Monday) and posts an engagement summary
-to a Slack channel via incoming webhook.
+A separate Azure Function (`apps/usage-report-function`) posts a weekly KPI
+engagement summary to Slack, and a broader reporting subsystem built on the
+same telemetry (executive PDF, longitudinal trend analysis, and an
+automated report link) has grown well past this bot's own scope.
 
-**KPIs reported:**
-
-| Metric                  | Description                                              |
-| ----------------------- | -------------------------------------------------------- |
-| Distinct users          | Count of unique users with successful interactions       |
-| New users (count & %)   | Distinct users in the window with no prior successful interaction, and their share of distinct users (`newUsersCount / distinctUsers * 100`) (AI-141) |
-| Returning users & repeat rate | Derived, not queried: `distinctUsers - newUsersCount` and `100 - newUserPercentage` (AI-141) |
-| Sessions                | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions |
-| Total interactions      | All interactions (success + error) in the window         |
-| Error count & rate      | Absolute count and percentage of errored interactions    |
-| Rate-limited hits       | Count of rate-limiter blocks                             |
-| Good / bad feedback     | Feedback button click counts                             |
-| Feedback ratio          | `good / (good + bad) * 100`                              |
-| Avg interactions / user | Mean interactions per active user                        |
-| Feedback response rate  | Percentage of successful interactions that were rated    |
-| Representative feedback | Up to 5 feedback examples (question, response, thumb-derived sentiment, restated reason), prioritizing entries with a reason, then most-recent reason-less entries (AI-141) |
-
-> [!NOTE]
-> AI-141 also calls for both metrics to appear in the trend report that
-> accompanies the Sprint report. That trend-report integration is not yet
-> built.
-
-The lookback window defaults to the past 7 days. The webhook URL is retrieved
-from Azure Key Vault at runtime using Managed Identity.
+> For full requirements, the KPI reference, and reporting architecture see
+> **[Fiona Usage Analytics & Executive Reporting PRD](usage-report-prd.md)**.
 
 ### 2.9 Loading / Status Messages
 
@@ -431,6 +410,11 @@ Fiona monitors regular conversation for escalation intent (e.g., the word
 └──────────────────────────────────────────────┘
 ```
 
+> This diagram omits the reporting subsystem's GitHub Actions PDF-link
+> pipeline (executive PDF generation + Blob Storage) — see
+> [Fiona Usage Analytics & Executive Reporting PRD §4.2](usage-report-prd.md#42-deployment-topology)
+> for the full topology.
+
 ### 4.3 Deployment Environments
 
 | Environment  | Purpose                  | How to Run                                                           |
@@ -472,17 +456,12 @@ src/
         └── feedback_block.js      # Feedback button UI block builder
 ```
 
-**`apps/usage-report-function/`**
-
-```none
-WeeklyReportTrigger/
-├── function.json                  # TimerTrigger binding config
-└── index.js                       # Queries Cosmos DB, formats report, posts to Slack
-lib/
-├── cosmos-queries.js              # 10 KPI query functions (distinct users, new users, sessions, representative feedback, etc.)
-├── slack-formatter.js             # Formats the weekly Slack message string
-└── key-vault-client.js            # Retrieves Slack webhook URL from Azure Key Vault
-```
+**`apps/usage-report-function/`** — see
+[Fiona Usage Analytics & Executive Reporting PRD §4.3](usage-report-prd.md#43-module-structure)
+for the current module structure; it has grown well past a single
+`WeeklyReportTrigger` + 3 `lib/` files into its own reporting subsystem
+(executive PDF generation, longitudinal trends, and an automated
+GitHub Actions PDF-link pipeline).
 
 ## 5. Backlog
 
@@ -535,9 +514,6 @@ documentation. Key groups:
 
 ### 7.2 Usage Report Function (`apps/usage-report-function`)
 
-| Group      | Variables                                                                                                        |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| Schedule   | `REPORT_SCHEDULE` (cron expression, default: `0 9 * * 1`)                                                        |
-| Cosmos DB  | `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_FEEDBACK_CONTAINER`               |
-| Deployment | `DEPLOYMENT_TYPE`                                                                                                |
-| Key Vault  | `KEY_VAULT_URL`, `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME` (secret name, default: `slack-fiona-weekly-report-webhook`) |
+See [Fiona Usage Analytics & Executive Reporting PRD §5](usage-report-prd.md#5-environment-variables)
+for the full, current list, including the GitHub Actions PDF-link
+pipeline's secrets.

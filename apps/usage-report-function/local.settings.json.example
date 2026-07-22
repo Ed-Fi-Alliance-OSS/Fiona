@@ -16,6 +16,8 @@
     "KEY_VAULT_URL": "https://YOUR_KEYVAULT.vault.azure.net/",
     "SLACK_WEBHOOK_KEYVAULT_SECRET_NAME": "slack-fiona-weekly-report-webhook",
 
+    "USAGE_REPORTS_STORAGE_ACCOUNT_URL": "https://YOUR_STORAGE_ACCOUNT.blob.core.windows.net",
+
     "REPORT_SCHEDULE": "* * * * * *"
   }
 }

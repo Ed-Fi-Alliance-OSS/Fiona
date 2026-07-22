@@ -16,6 +16,12 @@ async function runScalarQuery(container, queryText, deploymentType, oneWeekAgoIS
   return resources[0] ?? 0;
 }
 
+function hasVisibleConversation(feedbackItem) {
+  const hasQuestion = typeof feedbackItem.userMessage === 'string' && feedbackItem.userMessage.trim() !== '';
+  const hasAnswer = typeof feedbackItem.botResponse === 'string' && feedbackItem.botResponse.trim() !== '';
+  return hasQuestion || hasAnswer;
+}
+
 export async function getDistinctUsers(container, deploymentType, oneWeekAgoISO) {
   return runScalarQuery(
     container,
@@ -215,8 +221,81 @@ export async function getRepresentativeFeedback(container, deploymentType, oneWe
     })
     .fetchAll();
 
-  const withReason = resources.filter((f) => f.reason);
-  const withoutReason = resources.filter((f) => !f.reason);
+  const visibleConversation = resources.filter(hasVisibleConversation);
+  const withReason = visibleConversation.filter((f) => f.reason);
+  const withoutReason = visibleConversation.filter((f) => !f.reason);
+
+  return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
+    userMessage: f.userMessage,
+    botResponse: f.botResponse,
+    value: f.value,
+    reason: f.reason ?? null,
+    timestamp: f.timestamp,
+    hasReason: Boolean(f.reason),
+  }));
+}
+
+/**
+ * Returns an unfiltered, chronological (newest-first) feedback listing for
+ * [startISO, endISO), capped at `limit`. Unlike `getRepresentativeFeedback`
+ * (5 items, reason-prioritized, for the Slack report's qualitative
+ * highlights), this is a plain recency-ordered listing for the PDF report's
+ * Feedback Details table.
+ */
+export async function getFeedbackDetails(container, deploymentType, startISO, endISO, limit = 25) {
+  const { resources } = await container.items
+    .query({
+      // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
+      query: `SELECT f.timestamp, f.userId, f["value"] AS feedbackValue, f.userMessage, f.botResponse
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp >= @startISO
+         AND f.timestamp < @endISO
+       ORDER BY f.timestamp DESC`,
+      parameters: [
+        { name: '@deploymentType', value: deploymentType },
+        { name: '@startISO', value: startISO },
+        { name: '@endISO', value: endISO },
+      ],
+    })
+    .fetchAll();
+
+  return resources.slice(0, limit).map((f) => ({
+    timestamp: f.timestamp,
+    userId: f.userId,
+    value: f.feedbackValue,
+    userMessage: f.userMessage,
+    botResponse: f.botResponse,
+  }));
+}
+
+/**
+ * Same reason-prioritized selection as `getRepresentativeFeedback`, but
+ * bounded to [startISO, endISO) instead of open-ended past `oneWeekAgoISO`.
+ * `getRepresentativeFeedback` is left untouched since `WeeklyReportTrigger`
+ * relies on its current open-ended-to-now semantics; this is a separate
+ * function for the executive PDF report's arbitrary past date ranges.
+ */
+export async function getRepresentativeFeedbackInRange(container, deploymentType, startISO, endISO, limit = 5) {
+  const { resources } = await container.items
+    .query({
+      query: `SELECT f.userMessage, f.botResponse, f["value"], f.reason, f.timestamp
+       FROM feedback f
+       WHERE f.deploymentType = @deploymentType
+         AND f.timestamp >= @startISO
+         AND f.timestamp < @endISO
+       ORDER BY f.timestamp DESC`,
+      parameters: [
+        { name: '@deploymentType', value: deploymentType },
+        { name: '@startISO', value: startISO },
+        { name: '@endISO', value: endISO },
+      ],
+    })
+    .fetchAll();
+
+  const visibleConversation = resources.filter(hasVisibleConversation);
+  const withReason = visibleConversation.filter((f) => f.reason);
+  const withoutReason = visibleConversation.filter((f) => !f.reason);
 
   return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
     userMessage: f.userMessage,

@@ -20,6 +20,7 @@ import {
   getTotalInteractions,
 } from '../lib/cosmos-queries.js';
 import { getSlackWebhookUrl } from '../lib/key-vault-client.js';
+import { getLatestReportLink } from '../lib/report-link.js';
 import { formatWeeklyReport } from '../lib/slack-formatter.js';
 
 // Configure axios instance with timeout and retry policy
@@ -136,6 +137,13 @@ app.timer('WeeklyReportTrigger', {
 
       // Build week label dates
       const endOfReport = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const startDate = oneWeekAgo.toISOString().split('T')[0];
+      const endDate = endOfReport.toISOString().split('T')[0];
+
+      const reportUrl = await getLatestReportLink(
+        { deploymentType: DEPLOYMENT_TYPE, weekEnd: endDate },
+        { warn: logger },
+      );
 
       const kpis = {
         distinctUsers,
@@ -154,9 +162,10 @@ app.timer('WeeklyReportTrigger', {
         returningUsersCount,
         repeatRate,
         environment: DEPLOYMENT_TYPE,
-        startDate: oneWeekAgo.toISOString().split('T')[0],
-        endDate: endOfReport.toISOString().split('T')[0],
+        startDate,
+        endDate,
         representativeFeedback,
+        reportUrl,
       };
 
       const message = formatWeeklyReport(kpis);
