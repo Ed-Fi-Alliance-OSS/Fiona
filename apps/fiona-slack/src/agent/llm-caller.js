@@ -487,11 +487,15 @@ export async function callLLM(streamer, prompts, logger) {
 
 // ─── Source Search ─────────────────────────────────────────────────────────
 const SEARCH_MAX_SOURCES = 5;
+const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
 
 /**
- * Call Perplexity non-streaming to retrieve source documents for a query.
+ * Call the Perplexity Search API to retrieve source documents for a query.
  * Returns a list of normalized sources (URL, title, optional snippet) with no
  * synthesized answer. Used by the `/fiona search` command.
+ *
+ * Uses POST /search (not chat completions) so the API handles result ranking
+ * and count limiting natively via `max_results`.
  *
  * @param {string} query - Search query from the user (unsanitized)
  * @param {Object} [options]
@@ -500,34 +504,28 @@ const SEARCH_MAX_SOURCES = 5;
  * @returns {Promise<Array<import('./utils/source-normalizer.js').NormalizedSource>>}
  */
 export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES, logger } = {}) {
-  if (!perplexityClient) return [];
+  if (!PERPLEXITY_API_KEY) return [];
   if (!query || !query.trim()) return [];
 
   try {
-    const response = await perplexityClient.chat.completions.create({
-      model: PERPLEXITY_API_MODEL,
-      messages: [{ role: 'user', content: query }],
-      search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
-      stream: false,
+    const response = await fetch(PERPLEXITY_SEARCH_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, max_results: maxSources }),
     });
 
-    // Prefer search_results (has title, url, snippet) over citations (URL-only)
-    const rawSearchResults = response?.search_results;
-    if (Array.isArray(rawSearchResults) && rawSearchResults.length > 0) {
-      const { sources } = normalizeSources(
-        rawSearchResults.map((r) => ({ url: r.url, title: r.title, snippet: r.snippet })),
-        { maxSources },
-      );
-      return sources;
+    if (!response.ok) {
+      throw new Error(`Perplexity search returned HTTP ${response.status}`);
     }
 
-    // Fall back to citations array (URL-only)
-    const citations = response?.citations;
-    if (Array.isArray(citations) && citations.length > 0) {
-      const { sources } = normalizeSources(
-        citations.map((url) => ({ url })),
-        { maxSources },
-      );
+    const data = await response.json();
+    const rawResults = data?.results;
+
+    if (Array.isArray(rawResults) && rawResults.length > 0) {
+      const { sources } = normalizeSources(rawResults, { maxSources });
       return sources;
     }
 

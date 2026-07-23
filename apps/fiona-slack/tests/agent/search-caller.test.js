@@ -5,10 +5,11 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const mockCreate = jest.fn();
+// Mock the OpenAI module to prevent module init errors (llm-caller.js creates
+// an OpenAI client on load when PERPLEXITY_API_KEY is set).
 jest.unstable_mockModule('openai', () => ({
   OpenAI: jest.fn().mockImplementation(() => ({
-    chat: { completions: { create: mockCreate } },
+    chat: { completions: { create: jest.fn() } },
   })),
 }));
 
@@ -18,17 +19,25 @@ const { searchForSources, formatSearchResults, escapeMrkdwn, SEARCH_ERROR_TEXT }
   '../../src/agent/search-caller.js'
 );
 
-describe('searchForSources', () => {
-  beforeEach(() => jest.clearAllMocks());
+/** Build a resolved fetch mock that returns the given results array. */
+function mockFetchOk(results) {
+  globalThis.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ results }),
+  });
+}
 
-  it('returns normalized sources from search_results', async () => {
-    mockCreate.mockResolvedValue({
-      search_results: [
-        { url: 'https://docs.ed-fi.org/assessment', title: 'Assessment API', snippet: 'Snippet text' },
-        { url: 'https://www.ed-fi.org/guide', title: 'API Guide', snippet: null },
-      ],
-      citations: [],
-    });
+describe('searchForSources', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    globalThis.fetch = jest.fn();
+  });
+
+  it('returns normalized sources from search results', async () => {
+    mockFetchOk([
+      { url: 'https://docs.ed-fi.org/assessment', title: 'Assessment API', snippet: 'Snippet text' },
+      { url: 'https://www.ed-fi.org/guide', title: 'API Guide', snippet: null },
+    ]);
     const sources = await searchForSources('assessment API');
     expect(sources).toHaveLength(2);
     expect(sources[0].url).toBe('https://docs.ed-fi.org/assessment');
@@ -37,56 +46,65 @@ describe('searchForSources', () => {
     expect(sources[1].url).toBe('https://www.ed-fi.org/guide');
   });
 
-  it('falls back to citations when search_results is absent', async () => {
-    mockCreate.mockResolvedValue({
-      citations: ['https://docs.ed-fi.org/a', 'https://docs.ed-fi.org/b'],
-    });
-    const sources = await searchForSources('Ed-Fi ODS');
-    expect(sources).toHaveLength(2);
-    expect(sources[0].url).toBe('https://docs.ed-fi.org/a');
+  it('returns empty array when results array is empty', async () => {
+    mockFetchOk([]);
+    const sources = await searchForSources('nothing');
+    expect(sources).toEqual([]);
   });
 
-  it('falls back to citations when search_results is empty', async () => {
-    mockCreate.mockResolvedValue({
-      search_results: [],
-      citations: ['https://docs.ed-fi.org/c'],
+  it('returns empty array when results field is absent', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
     });
-    const sources = await searchForSources('Ed-Fi ODS');
-    expect(sources).toHaveLength(1);
-    expect(sources[0].url).toBe('https://docs.ed-fi.org/c');
-  });
-
-  it('returns empty array when both search_results and citations are empty', async () => {
-    mockCreate.mockResolvedValue({ search_results: [], citations: [] });
     const sources = await searchForSources('nothing');
     expect(sources).toEqual([]);
   });
 
   it('returns empty array for empty query without calling the API', async () => {
     const sources = await searchForSources('');
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(sources).toEqual([]);
   });
 
   it('returns empty array for whitespace-only query without calling the API', async () => {
     const sources = await searchForSources('   ');
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(sources).toEqual([]);
   });
 
-  it('returns no more than maxSources results', async () => {
+  it('passes max_results to the API and caps results via normalizeSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
       title: `Page ${i}`,
       snippet: `Snippet ${i}`,
     }));
-    mockCreate.mockResolvedValue({ search_results: manyResults });
+    mockFetchOk(manyResults);
     const sources = await searchForSources('query', { maxSources: 3 });
     expect(sources).toHaveLength(3);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.perplexity.ai/search',
+      expect.objectContaining({
+        body: expect.stringContaining('"max_results":3'),
+      }),
+    );
+  });
+
+  it('sends the correct authorization header', async () => {
+    mockFetchOk([]);
+    await searchForSources('query');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.perplexity.ai/search',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer ' + process.env.PERPLEXITY_API_KEY,
+        }),
+      }),
+    );
   });
 
   it('warns and returns empty array when the API throws', async () => {
-    mockCreate.mockRejectedValue(new Error('network failure'));
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network failure'));
     const logger = { warn: jest.fn() };
     const sources = await searchForSources('query', { logger });
     expect(sources).toEqual([]);
@@ -94,8 +112,16 @@ describe('searchForSources', () => {
   });
 
   it('does not throw when the API throws', async () => {
-    mockCreate.mockRejectedValue(new Error('boom'));
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('boom'));
     await expect(searchForSources('query')).resolves.toEqual([]);
+  });
+
+  it('warns and returns empty array on HTTP error response', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 429 });
+    const logger = { warn: jest.fn() };
+    const sources = await searchForSources('query', { logger });
+    expect(sources).toEqual([]);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Search failed'));
   });
 });
 
