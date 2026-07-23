@@ -19,7 +19,11 @@ const { searchForSources, formatSearchResults, escapeMrkdwn, SEARCH_ERROR_TEXT }
   '../../src/agent/search-caller.js'
 );
 
-/** Build a resolved fetch mock that returns the given results array. */
+/**
+ * Build a resolved fetch mock that returns the given results array.
+ *
+ * @param {Array<{url: string, title?: string, snippet?: string}>} results
+ */
 function mockFetchOk(results) {
   globalThis.fetch = jest.fn().mockResolvedValue({
     ok: true,

@@ -518,7 +518,7 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
     });
 
     if (!response.ok) {
-      throw new Error(`Perplexity search returned HTTP ${response.status}`);
+      throw new Error(`Perplexity search returned HTTP ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
