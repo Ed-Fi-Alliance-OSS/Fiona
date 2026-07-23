@@ -216,7 +216,8 @@ describe('HELP_TEXT', () => {
 
   it('lists search command without "(coming soon)"', () => {
     expect(HELP_TEXT).toMatch('search <query>');
-    expect(HELP_TEXT).not.toMatch('search <query>          Search Ed-Fi documentation (coming soon)');
+    // Only 'ask' remains as coming soon; search is now available
+    expect(HELP_TEXT).not.toMatch(/search.*coming soon/);
   });
 });
 

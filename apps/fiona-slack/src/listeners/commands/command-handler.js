@@ -137,13 +137,13 @@ export async function handleSearchViaSay(say, logger, query) {
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
- * @param {string} subCommand - 'ask'
+ * @param {string} keyword - The command keyword ('ask')
  * @param {string} text - The coming-soon message text to send.
  */
-export async function handleComingSoonViaSay(say, logger, subCommand, text) {
+export async function handleComingSoonViaSay(say, logger, keyword, text) {
   try {
     await say(text);
   } catch (err) {
-    logger?.error?.(`Failed to send coming-soon response for ${subCommand}: ${err.name}`);
+    logger?.error?.(`Failed to send coming-soon response for ${keyword}: ${err.name}`);
   }
 }
