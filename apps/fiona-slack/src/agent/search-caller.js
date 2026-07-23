@@ -43,7 +43,7 @@ function truncateSnippet(text) {
     .replace(/\s{2,}/g, ' ')
     .trim();
   // Strip bold markers (**text**) and heading markers (## …)
-  cleaned = cleaned.replace(/\*\*([^*]*?)\*\*/g, '$1').replace(/#{1,6}\s+/g, '');
+  cleaned = cleaned.replace(/\*\*([\s\S]*?)\*\*/g, '$1').replace(/#{1,6}\s+/g, '');
   if (cleaned.length <= SNIPPET_MAX_CHARS) return cleaned;
   // Truncate at the last word boundary before the limit
   const truncated = cleaned.slice(0, SNIPPET_MAX_CHARS).replace(/\s+\S*$/, '');
