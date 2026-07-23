@@ -32,6 +32,9 @@ async function fetchMessageText(client, channelId, messageTs) {
     inclusive: true,
     limit: 1,
   });
+  if (!Array.isArray(messages)) {
+    throw new Error('Slack conversations.history did not return a messages array.');
+  }
   return messages?.[0]?.text ?? null;
 }
 

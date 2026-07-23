@@ -5,6 +5,8 @@
 
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+?)"_/;
+
 function getFeedbackBlockId(body, action) {
   if (typeof action?.block_id === 'string' && action.block_id.length > 0) {
     return action.block_id;
@@ -16,7 +18,7 @@ function getFeedbackBlockId(body, action) {
 
 function extractSearchQuery(messageText) {
   if (typeof messageText !== 'string') return null;
-  const match = messageText.match(/^🔍 \*Search results for:\* _"([\s\S]+?)"_/);
+  const match = messageText.match(SEARCH_QUERY_PATTERN);
   return match?.[1] ?? null;
 }
 
