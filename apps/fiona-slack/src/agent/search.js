@@ -42,8 +42,10 @@ const SEARCH_SYSTEM_PROMPT =
  */
 export function escapeMrkdwn(text) {
   if (!text || typeof text !== 'string') return '';
-  // Slack mrkdwn interprets: & < > * _ ~ ` (and backtick/code)
+  // Escape backslash first to avoid double-escaping; then escape Slack mrkdwn
+  // special characters: & < > * _ ~ `
   return text
+    .replace(/\\/g, '\\\\')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

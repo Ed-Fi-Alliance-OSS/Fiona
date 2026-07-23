@@ -27,12 +27,6 @@ export const ASK_NOT_YET_TEXT =
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
 
-// Kept for backward compatibility; the slash-command path now calls search.js directly.
-export const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
-  `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
-
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
 export const ESCALATE_CONFIRM_TEXT = '✅ Your conversation has been escalated. A team member will follow up shortly.';

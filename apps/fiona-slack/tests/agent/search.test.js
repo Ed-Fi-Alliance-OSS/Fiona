@@ -24,6 +24,11 @@ describe('escapeMrkdwn', () => {
     );
   });
 
+  it('escapes backslashes first to prevent double-escaping', () => {
+    expect(escapeMrkdwn('a\\b')).toBe('a\\\\b');
+    expect(escapeMrkdwn('\\*bold\\*')).toBe('\\\\\\*bold\\\\\\*');
+  });
+
   it('returns empty string for falsy input', () => {
     expect(escapeMrkdwn('')).toBe('');
     expect(escapeMrkdwn(null)).toBe('');

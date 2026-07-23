@@ -13,7 +13,7 @@ jest.unstable_mockModule('../../../src/agent/search.js', () => ({
   formatSearchResults: mockFormatSearchResults,
 }));
 
-const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, handleSearchViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
+const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, handleSearchViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT } =
   await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
@@ -259,11 +259,6 @@ describe('handleComingSoonViaSay', () => {
 
   it('ASK_NOT_YET_TEXT mentions @fiona ask as alternative', () => {
     expect(ASK_NOT_YET_TEXT).toMatch('@fiona ask');
-  });
-
-  it('SEARCH_NOT_YET_TEXT is still exported for backward compatibility', () => {
-    expect(typeof SEARCH_NOT_YET_TEXT).toBe('string');
-    expect(SEARCH_NOT_YET_TEXT.length).toBeGreaterThan(0);
   });
 });
 
