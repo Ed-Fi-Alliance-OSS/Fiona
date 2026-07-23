@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { formatSearchResults, searchForSources } from '../../agent/search-caller.js';
+import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 
 export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
@@ -88,11 +89,11 @@ export function parseCommandKeyword(text) {
  * @param {import('@slack/logger').Logger} logger
  * @param {{ keyword: string, rawArgs: string }} cmd
  */
-export async function routeCommandViaSay(say, logger, cmd) {
+export async function routeCommandViaSay(say, logger, cmd, options = {}) {
   if (cmd.keyword === 'help') {
     await handleHelpViaSay(say, logger);
   } else if (cmd.keyword === 'search') {
-    await handleSearchViaSay(say, logger, cmd.rawArgs);
+    await handleSearchViaSay(say, logger, cmd.rawArgs, options);
   } else {
     await handleComingSoonViaSay(say, logger, cmd.keyword, ASK_NOT_YET_TEXT);
   }
@@ -122,11 +123,18 @@ export async function handleHelpViaSay(say, logger) {
  * @param {import('@slack/logger').Logger} logger
  * @param {string} query - The search query (rawArgs from parseCommandKeyword)
  */
-export async function handleSearchViaSay(say, logger, query) {
+export async function handleSearchViaSay(say, logger, query, { interactionType = null } = {}) {
   const sources = await searchForSources(query, { logger });
   const { text, blocks } = formatSearchResults(query, sources);
+  const feedbackBlock = createFeedbackBlock({
+    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
+    interactionType,
+  });
+  const responseBlocks = Array.isArray(blocks)
+    ? [...blocks, { type: 'divider' }, feedbackBlock]
+    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
   try {
-    await say({ text, blocks, unfurl_links: false, unfurl_media: false });
+    await say({ text, blocks: responseBlocks, unfurl_links: false, unfurl_media: false });
   } catch (err) {
     logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
   }

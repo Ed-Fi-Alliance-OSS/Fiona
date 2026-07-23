@@ -4,6 +4,36 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordFeedback } from '../../agent/feedback-store.js';
+import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
+
+async function fetchThreadContext(client, channelId, threadTs, messageTs) {
+  const { messages } = await client.conversations.replies({ channel: channelId, ts: threadTs });
+  if (!messages) {
+    return { userMessage: null, botResponse: null };
+  }
+
+  const botIndex = messages.findIndex((message) => message.ts === messageTs);
+  if (botIndex < 0) {
+    return { userMessage: null, botResponse: null };
+  }
+
+  const botResponse = messages[botIndex].text ?? null;
+  const preceding = botIndex > 0 ? messages[botIndex - 1] : null;
+  return {
+    userMessage: preceding?.text ?? null,
+    botResponse,
+  };
+}
+
+async function fetchMessageText(client, channelId, messageTs) {
+  const { messages } = await client.conversations.history({
+    channel: channelId,
+    latest: messageTs,
+    inclusive: true,
+    limit: 1,
+  });
+  return messages?.[0]?.text ?? null;
+}
 
 /**
  * Handles the `feedback_reason` modal submission. Records the feedback and reason
@@ -17,7 +47,10 @@ import { recordFeedback } from '../../agent/feedback-store.js';
  */
 export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) => {
   try {
-    const { channelId, messageTs, userId, value, thread_ts } = JSON.parse(view.private_metadata);
+    const { channelId, messageTs, userId, value, thread_ts, responseType, interactionType, searchQuery } = JSON.parse(
+      view.private_metadata,
+    );
+    const normalizedResponseType = responseType ?? FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
@@ -27,20 +60,16 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     await ack();
-    let userMessage = null;
+    let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? searchQuery ?? null : null;
     let botResponse = null;
     try {
-      const { messages } = await client.conversations.replies({ channel: channelId, ts: thread_ts });
-      if (messages) {
-        const botIndex = messages.findIndex((m) => m.ts === messageTs);
-        if (botIndex >= 0) {
-          botResponse = messages[botIndex].text ?? null;
-          const preceding = botIndex > 0 ? messages[botIndex - 1] : null;
-          if (preceding?.text) userMessage = preceding.text;
-        }
+      if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {
+        ({ userMessage, botResponse } = await fetchThreadContext(client, channelId, thread_ts, messageTs));
+      } else {
+        botResponse = await fetchMessageText(client, channelId, messageTs);
       }
     } catch (e) {
-      logger.error('Failed to fetch thread context:', e);
+      logger.error('Failed to fetch feedback context:', e);
     }
 
     try {
@@ -52,6 +81,8 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
         reason: rawReason,
         userMessage,
         botResponse,
+        responseType: normalizedResponseType,
+        interactionType,
         logger,
       });
     } catch (e) {
@@ -87,7 +118,8 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
 export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
   try {
     await ack();
-    const { channelId, messageTs, userId, value } = JSON.parse(view.private_metadata);
+    const { channelId, messageTs, userId, value, responseType, interactionType } = JSON.parse(view.private_metadata);
+    const normalizedResponseType = responseType ?? FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
     if (value !== 'good-feedback') return;
     await recordFeedback({
       userId,
@@ -97,6 +129,8 @@ export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
       reason: null,
       userMessage: null,
       botResponse: null,
+      responseType: normalizedResponseType,
+      interactionType,
       logger,
     });
   } catch (error) {

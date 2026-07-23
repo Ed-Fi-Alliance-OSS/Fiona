@@ -27,6 +27,7 @@ describe('feedbackReasonViewCallback', () => {
     mockClient = {
       conversations: {
         replies: jest.fn().mockResolvedValue({ messages: [] }),
+        history: jest.fn().mockResolvedValue({ messages: [] }),
       },
       chat: {
         postEphemeral: jest.fn().mockResolvedValue(undefined),
@@ -39,6 +40,8 @@ describe('feedbackReasonViewCallback', () => {
         userId: 'U123',
         value: 'good-feedback',
         thread_ts: '1234567890.000000',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
       state: {
         values: {
@@ -73,6 +76,8 @@ describe('feedbackReasonViewCallback', () => {
         reason: 'Very helpful answer!',
         userMessage: 'User question',
         botResponse: 'Bot response',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
     );
   });
@@ -184,6 +189,37 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
   });
 
+  it('records search feedback using responseType metadata and fetched message text', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: 'Search result response' }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+    expect(mockClient.conversations.history).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', latest: '1234567890.000001', inclusive: true, limit: 1 }),
+    );
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: 'Search result response',
+        responseType: 'search',
+        interactionType: 'slash_search',
+      }),
+    );
+  });
+
   it('logs error but does not throw when recordFeedback fails', async () => {
     mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
 
@@ -230,6 +266,8 @@ describe('feedbackReasonClosedCallback', () => {
         userId: 'U123',
         value: 'good-feedback',
         thread_ts: '1234567890.000000',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
     };
   });
@@ -253,6 +291,8 @@ describe('feedbackReasonClosedCallback', () => {
         reason: null,
         userMessage: null,
         botResponse: null,
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
     );
   });

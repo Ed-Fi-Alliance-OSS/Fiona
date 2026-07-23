@@ -256,7 +256,12 @@ describe('fionaCommandCallback', () => {
       it('calls respond() with response_type ephemeral', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(
-          expect.objectContaining({ response_type: 'ephemeral', unfurl_links: false, unfurl_media: false }),
+          expect.objectContaining({
+            response_type: 'ephemeral',
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|slash_search' })]),
+          }),
         );
       });
 

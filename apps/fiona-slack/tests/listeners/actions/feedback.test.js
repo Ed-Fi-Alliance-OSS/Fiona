@@ -31,9 +31,9 @@ describe('feedbackActionCallback', () => {
       message: {
         ts: '1234567890.000001',
         thread_ts: '1234567890.000000',
-        text: 'Bot response text',
+        text: '🔍 *Search results for:* _"Bot response text"_',
       },
-      actions: [{ type: 'feedback_buttons', value: 'good-feedback' }],
+      actions: [{ type: 'feedback_buttons', value: 'good-feedback', block_id: 'feedback|search|slash_search' }],
     };
   });
 
@@ -120,7 +120,7 @@ describe('feedbackActionCallback', () => {
     expect(view.blocks[0].optional).toBe(false);
   });
 
-  it('private_metadata contains channelId, messageTs, userId, value, thread_ts', async () => {
+  it('private_metadata contains channelId, messageTs, userId, value, thread_ts, and feedback context', async () => {
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
     const [{ view }] = mockClient.views.open.mock.calls[0];
@@ -131,6 +131,9 @@ describe('feedbackActionCallback', () => {
       userId: 'U123',
       value: 'good-feedback',
       thread_ts: '1234567890.000000',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'Bot response text',
     });
   });
 
@@ -142,6 +145,18 @@ describe('feedbackActionCallback', () => {
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta.thread_ts).toBe('1234567890.000001');
+  });
+
+  it('defaults feedback context to synthesis when block_id is absent', async () => {
+    delete mockBody.actions[0].block_id;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.responseType).toBe('synthesis');
+    expect(meta.interactionType).toBeNull();
+    expect(meta).not.toHaveProperty('searchQuery');
   });
 
   it('logs error and does not throw when views.open rejects', async () => {

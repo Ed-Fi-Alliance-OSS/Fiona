@@ -3,6 +3,23 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
+
+function getFeedbackBlockId(body, action) {
+  if (typeof action?.block_id === 'string' && action.block_id.length > 0) {
+    return action.block_id;
+  }
+
+  if (!Array.isArray(body?.message?.blocks)) return null;
+  return body.message.blocks.find((block) => block?.type === 'context_actions')?.block_id ?? null;
+}
+
+function extractSearchQuery(messageText) {
+  if (typeof messageText !== 'string') return null;
+  const match = messageText.match(/^🔍 \*Search results for:\* _"([\s\S]+?)"_/);
+  return match?.[1] ?? null;
+}
+
 /**
  * The `feedbackActionCallback` action responds to the `feedbackBlock` that displays
  * positive and negative feedback icons. This block is attached to the bottom of LLM
@@ -34,6 +51,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
     const channel_id = body.channel.id;
     const user_id = body.user.id;
     const value = action.value;
+    const { responseType, interactionType } = parseFeedbackBlockId(getFeedbackBlockId(body, action));
 
     if (value !== 'good-feedback' && value !== 'bad-feedback') {
       logger.warn('Received unexpected feedback value', { value, channel_id, user_id, message_ts });
@@ -61,6 +79,9 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
           userId: user_id,
           value,
           thread_ts,
+          responseType,
+          interactionType,
+          ...(responseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? { searchQuery: extractSearchQuery(body.message?.text) } : {}),
         }),
         blocks: [
           {

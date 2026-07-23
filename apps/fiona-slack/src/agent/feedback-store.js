@@ -12,6 +12,7 @@ const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
+const FEEDBACK_RESPONSE_TYPES = new Set(['synthesis', 'search', 'ask']);
 
 let warnedMissingConfig = false;
 let warnedInsecureProductionCosmosKey = false;
@@ -146,6 +147,7 @@ async function getContainer(logger) {
  * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
+ * @param {'synthesis'|'search'|'ask'} [feedback.responseType] - Response category for the feedback
  * @param {string} [feedback.interactionType] - Optional interaction type (e.g., 'slash_escalate')
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
@@ -157,11 +159,14 @@ export async function recordFeedback({
   reason,
   userMessage,
   botResponse,
+  responseType,
   interactionType,
   logger,
 }) {
   const c = await getContainer(logger);
   if (!c) return;
+
+  const normalizedResponseType = FEEDBACK_RESPONSE_TYPES.has(responseType) ? responseType : 'synthesis';
 
   const doc = {
     id: `${userId}_${messageTs}`,
@@ -175,6 +180,7 @@ export async function recordFeedback({
     reason: reason?.trim() ? reason.trim() : null,
     userMessage,
     botResponse,
+    responseType: normalizedResponseType,
     ...(interactionType ? { interactionType } : {}),
     deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),

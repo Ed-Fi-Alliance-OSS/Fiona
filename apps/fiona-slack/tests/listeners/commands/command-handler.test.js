@@ -275,7 +275,12 @@ describe('handleSearchViaSay', () => {
     ]);
     mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
-    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 Found 1 source(s).' }));
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '🔍 Found 1 source(s).',
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|' })]),
+      }),
+    );
   });
 
   it('calls say() with no-results message when sources are empty', async () => {
@@ -287,6 +292,15 @@ describe('handleSearchViaSay', () => {
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
     expect(mockSay).toHaveBeenCalledWith(
       expect.objectContaining({ unfurl_links: false, unfurl_media: false }),
+    );
+  });
+
+  it('tags say-based search feedback with the supplied interaction type', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API', { interactionType: 'assistant_message' });
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|assistant_message' })]),
+      }),
     );
   });
 
@@ -357,10 +371,15 @@ describe('routeCommandViaSay', () => {
   });
 
   it('calls searchForSources and say() results when keyword is "search"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' }, { interactionType: 'app_mention' });
     expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
     expect(mockSay).toHaveBeenCalledWith(
-      expect.objectContaining({ text: '🔍 No sources found.', unfurl_links: false, unfurl_media: false }),
+      expect.objectContaining({
+        text: '🔍 No sources found.',
+        unfurl_links: false,
+        unfurl_media: false,
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|app_mention' })]),
+      }),
     );
   });
 

@@ -42,6 +42,7 @@ export async function dispatchKeywordViaSay({
   threadTs,
   messageTs,
   source,
+  interactionType,
 }) {
   if (cmd.keyword === 'escalate') {
     // postEscalation records the escalate interaction itself; suppress the
@@ -61,5 +62,5 @@ export async function dispatchKeywordViaSay({
     });
     return;
   }
-  await routeCommandViaSay(say, logger, cmd);
+  await routeCommandViaSay(say, logger, cmd, { interactionType });
 }

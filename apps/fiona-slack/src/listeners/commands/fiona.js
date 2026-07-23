@@ -7,6 +7,7 @@ import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
+import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
@@ -138,9 +139,22 @@ async function handleSearch({ command, ack, respond, logger }) {
   logger?.info?.(`/fiona search: querying for "${query}"`);
   const sources = await searchForSources(query, { logger });
   const { text, blocks } = formatSearchResults(query, sources);
+  const feedbackBlock = createFeedbackBlock({
+    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
+    interactionType: 'slash_search',
+  });
+  const responseBlocks = Array.isArray(blocks)
+    ? [...blocks, { type: 'divider' }, feedbackBlock]
+    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
 
   try {
-    await respond({ response_type: 'ephemeral', text, blocks, unfurl_links: false, unfurl_media: false });
+    await respond({
+      response_type: 'ephemeral',
+      text,
+      blocks: responseBlocks,
+      unfurl_links: false,
+      unfurl_media: false,
+    });
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
     return;
