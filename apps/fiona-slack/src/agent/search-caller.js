@@ -16,6 +16,34 @@ const SEARCH_NO_RESULTS_TEXT = '🔍 No sources found for _"{{query}}"_. Try rep
 // Exported so slash and say()-based handlers can share a single error string.
 export const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
+const SNIPPET_MAX_CHARS = 150;
+
+/**
+ * Strip common markdown syntax from a snippet and truncate to SNIPPET_MAX_CHARS.
+ * Perplexity Search API snippets can contain bold markers, headings, and multi-
+ * paragraph text; stripping and truncating keeps the Slack source list compact.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function truncateSnippet(text) {
+  if (!text || typeof text !== 'string') return '';
+  // Collapse newlines and runs of whitespace to a single space
+  let cleaned = text
+    .replace(/\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  // Strip markdown: bold (**text**), italic (*text*), heading markers (## )
+  cleaned = cleaned
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\*\*([^*]*)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1');
+  if (cleaned.length <= SNIPPET_MAX_CHARS) return cleaned;
+  // Truncate at the last word boundary before the limit
+  const truncated = cleaned.slice(0, SNIPPET_MAX_CHARS).replace(/\s+\S*$/, '');
+  return `${truncated}…`;
+}
+
 /**
  * Escape user-supplied text before embedding it in a Slack mrkdwn message.
  * Only `&`, `<`, and `>` need HTML-entity encoding per the Slack API spec.
@@ -46,7 +74,8 @@ export function formatSearchResults(query, sources) {
 
   const items = sources.map((source, i) => {
     const link = `*<${source.url}|${escapeMrkdwn(source.title || source.hostname)}>*`;
-    const snippet = source.snippet ? `\n_"${escapeMrkdwn(source.snippet.trim())}"_` : '';
+    const rawSnippet = truncateSnippet(source.snippet);
+    const snippet = rawSnippet ? `\n_"${escapeMrkdwn(rawSnippet)}"_` : '';
     return `${i + 1}. ${link}${snippet}`;
   });
 

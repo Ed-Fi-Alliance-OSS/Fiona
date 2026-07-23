@@ -486,7 +486,9 @@ export async function callLLM(streamer, prompts, logger) {
 }
 
 // ─── Source Search ─────────────────────────────────────────────────────────
-const SEARCH_MAX_SOURCES = 5;
+// Read from env (default 5). Hard-capped at SEARCH_ABSOLUTE_MAX before the API call.
+const SEARCH_MAX_SOURCES = parsePositiveIntEnv(process.env.SEARCH_MAX_SOURCES, 5);
+const SEARCH_ABSOLUTE_MAX = 10;
 const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
 
 /**
@@ -499,13 +501,15 @@ const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
  *
  * @param {string} query - Search query from the user (unsanitized)
  * @param {Object} [options]
- * @param {number} [options.maxSources=5] - Maximum sources to return
+ * @param {number} [options.maxSources] - Maximum sources to return (defaults to SEARCH_MAX_SOURCES env, capped at 10)
  * @param {import('@slack/logger').Logger} [options.logger]
  * @returns {Promise<Array<import('./utils/source-normalizer.js').NormalizedSource>>}
  */
 export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES, logger } = {}) {
   if (!PERPLEXITY_API_KEY) return [];
   if (!query || !query.trim()) return [];
+
+  const cappedMaxSources = Math.min(maxSources, SEARCH_ABSOLUTE_MAX);
 
   try {
     const response = await fetch(PERPLEXITY_SEARCH_URL, {
@@ -514,7 +518,7 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
         Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ query, max_results: maxSources }),
+      body: JSON.stringify({ query, max_results: cappedMaxSources }),
     });
 
     if (!response.ok) {
@@ -525,7 +529,7 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
     const rawResults = data?.results;
 
     if (Array.isArray(rawResults) && rawResults.length > 0) {
-      const { sources } = normalizeSources(rawResults, { maxSources });
+      const { sources } = normalizeSources(rawResults, { maxSources: cappedMaxSources });
       return sources;
     }
 

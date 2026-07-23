@@ -77,6 +77,17 @@ describe('searchForSources', () => {
     expect(sources).toEqual([]);
   });
 
+  it('caps max_results at 10 even when maxSources exceeds 10', async () => {
+    mockFetchOk([]);
+    await searchForSources('query', { maxSources: 20 });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.perplexity.ai/search',
+      expect.objectContaining({
+        body: expect.stringContaining('"max_results":10'),
+      }),
+    );
+  });
+
   it('passes max_results to the API and caps results via normalizeSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
@@ -190,6 +201,68 @@ describe('formatSearchResults', () => {
     expect(result).toContain('&amp;');
     expect(result).toContain('&lt;');
     expect(result).toContain('&gt;');
+  });
+
+  it('strips ** bold markers from snippet', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: '**Ed-Fi API v8** is the next-generation platform.',
+      },
+    ];
+    const result = formatSearchResults('query', sources);
+    expect(result).not.toContain('**');
+    expect(result).toContain('Ed-Fi API v8');
+  });
+
+  it('strips markdown heading markers from snippet', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: '### Important Epics\n- DMS-928 - Relational storage model',
+      },
+    ];
+    const result = formatSearchResults('query', sources);
+    expect(result).not.toContain('###');
+    expect(result).toContain('Important Epics');
+  });
+
+  it('collapses newlines in snippet to a single line', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: 'Line one.\nLine two.\nLine three.',
+      },
+    ];
+    const result = formatSearchResults('query', sources);
+    // The snippet section of the output should not contain raw newlines
+    const snippetMatch = result.match(/_"(.+?)"_/s);
+    expect(snippetMatch).not.toBeNull();
+    expect(snippetMatch[1]).not.toContain('\n');
+  });
+
+  it('truncates long snippets and appends ellipsis', () => {
+    const longSnippet = 'A word '.repeat(40); // well over 150 chars
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: longSnippet,
+      },
+    ];
+    const result = formatSearchResults('query', sources);
+    expect(result).toContain('…');
+    // Extract the snippet content and verify it is ≤ 150 chars + ellipsis
+    const snippetMatch = result.match(/_"(.+?)"_/s);
+    expect(snippetMatch).not.toBeNull();
+    expect(snippetMatch[1].replace('…', '').length).toBeLessThanOrEqual(150);
   });
 });
 
