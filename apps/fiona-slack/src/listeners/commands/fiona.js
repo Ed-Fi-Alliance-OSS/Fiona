@@ -137,10 +137,10 @@ async function handleSearch({ command, ack, respond, logger }) {
 
   logger?.info?.(`/fiona search: querying for "${query}"`);
   const sources = await searchForSources(query, { logger });
-  const text = formatSearchResults(query, sources);
+  const { text, blocks } = formatSearchResults(query, sources);
 
   try {
-    await respond({ response_type: 'ephemeral', text });
+    await respond({ response_type: 'ephemeral', text, blocks });
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
     return;

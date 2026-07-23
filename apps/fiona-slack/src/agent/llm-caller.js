@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import Perplexity from '@perplexity-ai/perplexity_ai';
 import { OpenAI } from 'openai';
 import {
   incrementDegradedNoMetadataCount,
@@ -88,12 +89,16 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 // use the OpenAI SDK with a custom baseURL.
 /** @type {OpenAI | undefined} */
 let perplexityClient;
+// Dedicated Perplexity SDK client for the Search API (POST /search).
+/** @type {Perplexity | undefined} */
+let perplexitySearchClient;
 
 if (PERPLEXITY_API_KEY) {
   perplexityClient = new OpenAI({
     apiKey: PERPLEXITY_API_KEY,
     baseURL: 'https://api.perplexity.ai',
   });
+  perplexitySearchClient = new Perplexity({ apiKey: PERPLEXITY_API_KEY });
 }
 
 /**
@@ -489,7 +494,6 @@ export async function callLLM(streamer, prompts, logger) {
 // Read from env (default 5). Hard-capped at SEARCH_ABSOLUTE_MAX before the API call.
 const SEARCH_MAX_SOURCES = parsePositiveIntEnv(process.env.SEARCH_MAX_SOURCES, 5);
 const SEARCH_ABSOLUTE_MAX = 10;
-const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
 
 /**
  * Call the Perplexity Search API to retrieve source documents for a query.
@@ -506,27 +510,19 @@ const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
  * @returns {Promise<Array<import('./utils/source-normalizer.js').NormalizedSource>>}
  */
 export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES, logger } = {}) {
-  if (!PERPLEXITY_API_KEY) return [];
+  if (!perplexitySearchClient) return [];
   if (!query || !query.trim()) return [];
 
   const cappedMaxSources = Math.min(maxSources, SEARCH_ABSOLUTE_MAX);
 
   try {
-    const response = await fetch(PERPLEXITY_SEARCH_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, max_results: cappedMaxSources }),
+    const response = await perplexitySearchClient.search.create({
+      query,
+      max_results: cappedMaxSources,
+      search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
     });
 
-    if (!response.ok) {
-      throw new Error(`Perplexity search returned HTTP ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const rawResults = data?.results;
+    const rawResults = response?.results;
 
     if (Array.isArray(rawResults) && rawResults.length > 0) {
       const { sources } = normalizeSources(rawResults, { maxSources: cappedMaxSources });

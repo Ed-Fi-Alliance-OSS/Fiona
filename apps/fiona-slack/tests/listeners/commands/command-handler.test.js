@@ -7,9 +7,10 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock search-caller so command-handler tests don't load the LLM client.
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
-const mockFormatSearchResults = jest.fn().mockImplementation((_q, sources) =>
-  sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
-);
+const mockFormatSearchResults = jest.fn().mockImplementation((_q, sources) => ({
+  text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+  blocks: null,
+}));
 
 jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   searchForSources: mockSearchForSources,
@@ -257,9 +258,10 @@ describe('handleSearchViaSay', () => {
     mockSay = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
     mockSearchForSources.mockResolvedValue([]);
-    mockFormatSearchResults.mockImplementation((_q, sources) =>
-      sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
-    );
+    mockFormatSearchResults.mockImplementation((_q, sources) => ({
+      text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+      blocks: null,
+    }));
   });
 
   it('calls searchForSources with the query and logger', async () => {
@@ -271,14 +273,14 @@ describe('handleSearchViaSay', () => {
     mockSearchForSources.mockResolvedValueOnce([
       { url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' },
     ]);
-    mockFormatSearchResults.mockReturnValueOnce('🔍 Found 1 source(s).');
+    mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
-    expect(mockSay).toHaveBeenCalledWith('🔍 Found 1 source(s).');
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 Found 1 source(s).' }));
   });
 
   it('calls say() with no-results message when sources are empty', async () => {
     await handleSearchViaSay(mockSay, mockLogger, 'unknown query');
-    expect(mockSay).toHaveBeenCalledWith('🔍 No sources found.');
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
   });
 
   it('logs error when say() throws', async () => {
@@ -334,7 +336,7 @@ describe('routeCommandViaSay', () => {
     mockSay = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
     mockSearchForSources.mockResolvedValue([]);
-    mockFormatSearchResults.mockReturnValue('🔍 No sources found.');
+    mockFormatSearchResults.mockReturnValue({ text: '🔍 No sources found.', blocks: null });
   });
 
   it('sends HELP_TEXT when keyword is "help"', async () => {
@@ -350,7 +352,7 @@ describe('routeCommandViaSay', () => {
   it('calls searchForSources and say() results when keyword is "search"', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
     expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
-    expect(mockSay).toHaveBeenCalledWith('🔍 No sources found.');
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
   });
 
   it('does not throw when say() throws', async () => {

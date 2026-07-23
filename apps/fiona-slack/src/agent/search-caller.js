@@ -18,13 +18,14 @@ const SEARCH_NO_RESULTS_TEXT = '🔍 No sources found for _"{{query}}"_. Try rep
 // Exported so slash and say()-based handlers can share a single error string.
 export const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
-// Read snippet max length from env so operators can tune it without code changes.
-// Falls back to 150 when the env var is absent, non-numeric, or not a positive integer.
-const _snippetMaxRaw = Number.parseInt(process.env.SEARCH_SNIPPET_MAX_CHARS ?? '', 10);
-const SNIPPET_MAX_CHARS = Number.isFinite(_snippetMaxRaw) && _snippetMaxRaw > 0 ? _snippetMaxRaw : 150;
+// Read snippet max word count from SEARCH_SNIPPET_MAX_WORDS env var.
+// Falls back to 160 when the env var is absent, non-numeric, or not a positive integer.
+const _snippetMaxRaw = Number.parseInt(process.env.SEARCH_SNIPPET_MAX_WORDS ?? '', 10);
+const SNIPPET_MAX_WORDS = Number.isFinite(_snippetMaxRaw) && _snippetMaxRaw > 0 ? _snippetMaxRaw : 160;
 
 /**
- * Strip common markdown syntax from a snippet and truncate to SNIPPET_MAX_CHARS.
+ * Strip common markdown syntax from a snippet and truncate to the configured
+ * maximum word count (SNIPPET_MAX_WORDS).
  * Perplexity Search API snippets can contain bold markers, headings, and multi-
  * paragraph text; stripping and truncating keeps the Slack source list compact.
  *
@@ -44,10 +45,9 @@ function truncateSnippet(text) {
     .trim();
   // Strip bold markers (**text**) and heading markers (## …)
   cleaned = cleaned.replace(/\*\*([\s\S]*?)\*\*/g, '$1').replace(/#{1,6}\s+/g, '');
-  if (cleaned.length <= SNIPPET_MAX_CHARS) return cleaned;
-  // Truncate at the last word boundary before the limit
-  const truncated = cleaned.slice(0, SNIPPET_MAX_CHARS).replace(/\s+\S*$/, '');
-  return `${truncated}…`;
+  const words = cleaned.split(/\s+/);
+  if (words.length <= SNIPPET_MAX_WORDS) return cleaned;
+  return `${words.slice(0, SNIPPET_MAX_WORDS).join(' ')}…`;
 }
 
 /**
@@ -63,27 +63,51 @@ export function escapeMrkdwn(text) {
 }
 
 /**
- * Format a list of normalized sources into a Slack mrkdwn ephemeral message.
+ * Format a list of normalized sources into a Slack Block Kit message with
+ * a mrkdwn plain-text fallback. Each result is rendered as a section block
+ * (title link) and an optional context block (snippet), separated by dividers.
  *
  * @param {string} query - The original search query (unsanitized)
  * @param {Array<import('./llm-caller.js').NormalizedSource>} sources - Normalized source list
- * @returns {string} Slack mrkdwn-formatted search results string
+ * @returns {{ text: string, blocks: Array<object> | null }} Slack message payload
  */
 export function formatSearchResults(query, sources) {
   const safeQuery = escapeMrkdwn(query);
 
   if (!Array.isArray(sources) || sources.length === 0) {
-    return SEARCH_NO_RESULTS_TEXT.replace('{{query}}', safeQuery);
+    return { text: SEARCH_NO_RESULTS_TEXT.replace('{{query}}', safeQuery), blocks: null };
   }
 
-  const header = `🔍 *Search results for:* _"${safeQuery}"_`;
+  const headerText = `🔍 *Search results for:* _"${safeQuery}"_`;
 
-  const items = sources.map((source, i) => {
+  // ── Block Kit layout ───────────────────────────────────────────────────────
+  const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: headerText } }, { type: 'divider' }];
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
     const link = `*<${source.url}|${escapeMrkdwn(source.title || source.hostname)}>*`;
-    const rawSnippet = truncateSnippet(source.snippet);
-    const snippet = rawSnippet ? `\n_"${escapeMrkdwn(rawSnippet)}"_` : '';
-    return `${i + 1}. ${link}${snippet}`;
-  });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `${i + 1}. ${link}` } });
 
-  return `${header}\n\n${items.join('\n\n')}`;
+    const rawSnippet = truncateSnippet(source.snippet);
+    if (rawSnippet) {
+      blocks.push({
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `_"${escapeMrkdwn(rawSnippet)}"_` }],
+      });
+    }
+
+    if (i < sources.length - 1) {
+      blocks.push({ type: 'divider' });
+    }
+  }
+
+  // ── Plain-text fallback (used by Slack notifications / accessibility) ──────
+  const items = sources.map((source, i) => {
+    const rawSnippet = truncateSnippet(source.snippet);
+    const snippet = rawSnippet ? `\n${rawSnippet}` : '';
+    return `${i + 1}. ${source.title || source.hostname} — ${source.url}${snippet}`;
+  });
+  const text = `${headerText}\n\n${items.join('\n\n')}`;
+
+  return { text, blocks };
 }

@@ -621,7 +621,9 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/search results|No sources found/i);
+      const sayArg = mockSay.mock.calls[0][0];
+      const sayText = typeof sayArg === 'string' ? sayArg : sayArg?.text ?? '';
+      expect(sayText).toMatch(/search results|No sources found/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 

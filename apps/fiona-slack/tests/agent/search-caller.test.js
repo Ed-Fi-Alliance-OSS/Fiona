@@ -13,6 +13,14 @@ jest.unstable_mockModule('openai', () => ({
   })),
 }));
 
+// Mock the Perplexity SDK so tests control search results without hitting the API.
+const mockSearchCreate = jest.fn();
+jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
+  default: jest.fn().mockImplementation(() => ({
+    search: { create: mockSearchCreate },
+  })),
+}));
+
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
 const { searchForSources, formatSearchResults, escapeMrkdwn, SEARCH_ERROR_TEXT } = await import(
@@ -20,25 +28,21 @@ const { searchForSources, formatSearchResults, escapeMrkdwn, SEARCH_ERROR_TEXT }
 );
 
 /**
- * Build a resolved fetch mock that returns the given results array.
+ * Configure mockSearchCreate to resolve with the given results array.
  *
  * @param {Array<{url: string, title?: string, snippet?: string}>} results
  */
-function mockFetchOk(results) {
-  globalThis.fetch = jest.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ results }),
-  });
+function mockSearchOk(results) {
+  mockSearchCreate.mockResolvedValue({ results });
 }
 
 describe('searchForSources', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    globalThis.fetch = jest.fn();
   });
 
   it('returns normalized sources from search results', async () => {
-    mockFetchOk([
+    mockSearchOk([
       { url: 'https://docs.ed-fi.org/assessment', title: 'Assessment API', snippet: 'Snippet text' },
       { url: 'https://www.ed-fi.org/guide', title: 'API Guide', snippet: null },
     ]);
@@ -51,92 +55,70 @@ describe('searchForSources', () => {
   });
 
   it('returns empty array when results array is empty', async () => {
-    mockFetchOk([]);
+    mockSearchOk([]);
     const sources = await searchForSources('nothing');
     expect(sources).toEqual([]);
   });
 
   it('returns empty array when results field is absent', async () => {
-    globalThis.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    });
+    mockSearchCreate.mockResolvedValue({});
     const sources = await searchForSources('nothing');
     expect(sources).toEqual([]);
   });
 
   it('returns empty array for empty query without calling the API', async () => {
     const sources = await searchForSources('');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mockSearchCreate).not.toHaveBeenCalled();
     expect(sources).toEqual([]);
   });
 
   it('returns empty array for whitespace-only query without calling the API', async () => {
     const sources = await searchForSources('   ');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mockSearchCreate).not.toHaveBeenCalled();
     expect(sources).toEqual([]);
   });
 
   it('caps max_results at 10 even when maxSources exceeds 10', async () => {
-    mockFetchOk([]);
+    mockSearchOk([]);
     await searchForSources('query', { maxSources: 20 });
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://api.perplexity.ai/search',
-      expect.objectContaining({
-        body: expect.stringContaining('"max_results":10'),
-      }),
+    expect(mockSearchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ max_results: 10 }),
     );
   });
 
-  it('passes max_results to the API and caps results via normalizeSources', async () => {
+  it('passes max_results to the SDK and caps results via normalizeSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
       title: `Page ${i}`,
       snippet: `Snippet ${i}`,
     }));
-    mockFetchOk(manyResults);
+    mockSearchOk(manyResults);
     const sources = await searchForSources('query', { maxSources: 3 });
     expect(sources).toHaveLength(3);
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://api.perplexity.ai/search',
-      expect.objectContaining({
-        body: expect.stringContaining('"max_results":3'),
-      }),
+    expect(mockSearchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ max_results: 3 }),
     );
   });
 
-  it('sends the correct authorization header', async () => {
-    mockFetchOk([]);
+  it('passes search_domain_filter to the SDK', async () => {
+    mockSearchOk([]);
     await searchForSources('query');
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://api.perplexity.ai/search',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer ' + process.env.PERPLEXITY_API_KEY,
-        }),
-      }),
+    expect(mockSearchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ search_domain_filter: expect.any(Array) }),
     );
   });
 
-  it('warns and returns empty array when the API throws', async () => {
-    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network failure'));
+  it('warns and returns empty array when the SDK throws', async () => {
+    mockSearchCreate.mockRejectedValue(new Error('network failure'));
     const logger = { warn: jest.fn() };
     const sources = await searchForSources('query', { logger });
     expect(sources).toEqual([]);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Search failed'));
   });
 
-  it('does not throw when the API throws', async () => {
-    globalThis.fetch = jest.fn().mockRejectedValue(new Error('boom'));
+  it('does not throw when the SDK throws', async () => {
+    mockSearchCreate.mockRejectedValue(new Error('boom'));
     await expect(searchForSources('query')).resolves.toEqual([]);
-  });
-
-  it('warns and returns empty array on HTTP error response', async () => {
-    globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 429 });
-    const logger = { warn: jest.fn() };
-    const sources = await searchForSources('query', { logger });
-    expect(sources).toEqual([]);
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Search failed'));
   });
 });
 
@@ -156,54 +138,91 @@ describe('formatSearchResults', () => {
     },
   ];
 
-  it('includes the query in the header', () => {
-    const result = formatSearchResults('assessment API', sampleSources);
-    expect(result).toContain('assessment API');
+  it('includes the query in the header text', () => {
+    const { text } = formatSearchResults('assessment API', sampleSources);
+    expect(text).toContain('assessment API');
   });
 
-  it('includes source URLs as hyperlinks', () => {
-    const result = formatSearchResults('query', sampleSources);
-    expect(result).toContain('https://docs.ed-fi.org/assessment');
-    expect(result).toContain('https://www.ed-fi.org/guide');
+  it('includes source URLs in text fallback', () => {
+    const { text } = formatSearchResults('query', sampleSources);
+    expect(text).toContain('https://docs.ed-fi.org/assessment');
+    expect(text).toContain('https://www.ed-fi.org/guide');
   });
 
-  it('includes source titles', () => {
-    const result = formatSearchResults('query', sampleSources);
-    expect(result).toContain('Assessment API');
-    expect(result).toContain('API Guide');
+  it('includes source titles in text fallback', () => {
+    const { text } = formatSearchResults('query', sampleSources);
+    expect(text).toContain('Assessment API');
+    expect(text).toContain('API Guide');
   });
 
-  it('includes snippet when present', () => {
-    const result = formatSearchResults('query', sampleSources);
-    expect(result).toContain('The Assessment API provides endpoints for assessment metadata.');
+  it('includes snippet in text fallback when present', () => {
+    const { text } = formatSearchResults('query', sampleSources);
+    expect(text).toContain('The Assessment API provides endpoints for assessment metadata.');
   });
 
-  it('returns no-results message for empty sources array', () => {
-    const result = formatSearchResults('unknown topic', []);
-    expect(result).toContain('No sources found');
-    expect(result).toContain('unknown topic');
+  it('returns no-results text and null blocks for empty sources array', () => {
+    const { text, blocks } = formatSearchResults('unknown topic', []);
+    expect(text).toContain('No sources found');
+    expect(text).toContain('unknown topic');
+    expect(blocks).toBeNull();
   });
 
-  it('returns no-results message for null/undefined sources', () => {
-    expect(formatSearchResults('query', null)).toContain('No sources found');
-    expect(formatSearchResults('query', undefined)).toContain('No sources found');
+  it('returns no-results text and null blocks for null/undefined sources', () => {
+    expect(formatSearchResults('query', null).text).toContain('No sources found');
+    expect(formatSearchResults('query', null).blocks).toBeNull();
+    expect(formatSearchResults('query', undefined).text).toContain('No sources found');
   });
 
-  it('numbers each result starting at 1', () => {
-    const result = formatSearchResults('query', sampleSources);
-    expect(result).toMatch(/1\./);
-    expect(result).toMatch(/2\./);
+  it('numbers each result starting at 1 in text fallback', () => {
+    const { text } = formatSearchResults('query', sampleSources);
+    expect(text).toMatch(/1\./);
+    expect(text).toMatch(/2\./);
   });
 
   it('escapes & < > characters in the query', () => {
-    const result = formatSearchResults('search & <find> more', []);
-    expect(result).not.toContain('&find');
-    expect(result).toContain('&amp;');
-    expect(result).toContain('&lt;');
-    expect(result).toContain('&gt;');
+    const { text } = formatSearchResults('search & <find> more', []);
+    expect(text).not.toContain('&find');
+    expect(text).toContain('&amp;');
+    expect(text).toContain('&lt;');
+    expect(text).toContain('&gt;');
   });
 
-  it('strips ** bold markers from snippet', () => {
+  it('returns blocks array for non-empty sources', () => {
+    const { blocks } = formatSearchResults('query', sampleSources);
+    expect(Array.isArray(blocks)).toBe(true);
+    expect(blocks.length).toBeGreaterThan(0);
+  });
+
+  it('blocks include a section with the header text', () => {
+    const { blocks, text } = formatSearchResults('my query', sampleSources);
+    const header = blocks.find((b) => b.type === 'section' && b.text?.text?.includes('my query'));
+    expect(header).toBeDefined();
+    expect(text).toContain('my query');
+  });
+
+  it('blocks include divider blocks between results', () => {
+    const { blocks } = formatSearchResults('query', sampleSources);
+    const dividers = blocks.filter((b) => b.type === 'divider');
+    expect(dividers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('blocks include a section block with source link for each result', () => {
+    const { blocks } = formatSearchResults('query', sampleSources);
+    const sections = blocks.filter((b) => b.type === 'section' && b.text?.text?.includes('docs.ed-fi.org/assessment'));
+    expect(sections.length).toBeGreaterThan(0);
+  });
+
+  it('blocks include a context block with snippet for sources with snippets', () => {
+    const { blocks } = formatSearchResults('query', sampleSources);
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    expect(contextBlocks.length).toBeGreaterThan(0);
+    const snippetBlock = contextBlocks.find((b) =>
+      b.elements?.some((el) => el.text?.includes('Assessment API provides')),
+    );
+    expect(snippetBlock).toBeDefined();
+  });
+
+  it('strips ** bold markers from snippet in blocks', () => {
     const sources = [
       {
         url: 'https://docs.ed-fi.org/a',
@@ -212,9 +231,12 @@ describe('formatSearchResults', () => {
         snippet: '**Ed-Fi API v8** is the next-generation platform.',
       },
     ];
-    const result = formatSearchResults('query', sources);
-    expect(result).not.toContain('**');
-    expect(result).toContain('Ed-Fi API v8');
+    const { blocks } = formatSearchResults('query', sources);
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    expect(contextBlocks.length).toBeGreaterThan(0);
+    const blockText = contextBlocks.map((b) => b.elements?.map((el) => el.text).join('')).join('');
+    expect(blockText).not.toContain('**');
+    expect(blockText).toContain('Ed-Fi API v8');
   });
 
   it('strips markdown heading markers from snippet', () => {
@@ -226,9 +248,12 @@ describe('formatSearchResults', () => {
         snippet: '### Important Epics\n- DMS-928 - Relational storage model',
       },
     ];
-    const result = formatSearchResults('query', sources);
-    expect(result).not.toContain('###');
-    expect(result).toContain('Important Epics');
+    const { text, blocks } = formatSearchResults('query', sources);
+    expect(text).not.toContain('###');
+    expect(text).toContain('Important Epics');
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    const blockText = contextBlocks.map((b) => b.elements?.map((el) => el.text).join('')).join('');
+    expect(blockText).not.toContain('###');
   });
 
   it('collapses newlines in snippet to a single line', () => {
@@ -240,15 +265,14 @@ describe('formatSearchResults', () => {
         snippet: 'Line one.\nLine two.\nLine three.',
       },
     ];
-    const result = formatSearchResults('query', sources);
-    // The snippet section of the output should not contain raw newlines
-    const snippetMatch = result.match(/_"(.+?)"_/s);
-    expect(snippetMatch).not.toBeNull();
-    expect(snippetMatch[1]).not.toContain('\n');
+    const { blocks } = formatSearchResults('query', sources);
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    const blockText = contextBlocks.map((b) => b.elements?.map((el) => el.text).join('')).join('');
+    expect(blockText).not.toContain('\n');
   });
 
-  it('truncates long snippets and appends ellipsis', () => {
-    const longSnippet = 'A word '.repeat(40); // well over 150 chars
+  it('truncates long snippets to 160 words and appends ellipsis', () => {
+    const longSnippet = Array.from({ length: 200 }, (_, i) => `word${i}`).join(' ');
     const sources = [
       {
         url: 'https://docs.ed-fi.org/a',
@@ -257,12 +281,14 @@ describe('formatSearchResults', () => {
         snippet: longSnippet,
       },
     ];
-    const result = formatSearchResults('query', sources);
-    expect(result).toContain('…');
-    // Extract the snippet content and verify it is ≤ 150 chars + ellipsis
-    const snippetMatch = result.match(/_"(.+?)"_/s);
-    expect(snippetMatch).not.toBeNull();
-    expect(snippetMatch[1].replace('…', '').length).toBeLessThanOrEqual(150);
+    const { blocks } = formatSearchResults('query', sources);
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    const blockText = contextBlocks.map((b) => b.elements?.map((el) => el.text).join('')).join('');
+    expect(blockText).toContain('…');
+    // Extract the plain snippet text (strip the surrounding italic markers)
+    const snippetContent = blockText.replace(/^_"/, '').replace(/"_$/, '');
+    const wordCount = snippetContent.replace('…', '').trim().split(/\s+/).length;
+    expect(wordCount).toBeLessThanOrEqual(160);
   });
 });
 
@@ -299,3 +325,4 @@ describe('SEARCH_ERROR_TEXT', () => {
     expect(SEARCH_ERROR_TEXT.length).toBeGreaterThan(0);
   });
 });
+

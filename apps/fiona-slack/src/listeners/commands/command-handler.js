@@ -124,9 +124,9 @@ export async function handleHelpViaSay(say, logger) {
  */
 export async function handleSearchViaSay(say, logger, query) {
   const sources = await searchForSources(query, { logger });
-  const text = formatSearchResults(query, sources);
+  const { text, blocks } = formatSearchResults(query, sources);
   try {
-    await say(text);
+    await say({ text, blocks });
   } catch (err) {
     logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
   }

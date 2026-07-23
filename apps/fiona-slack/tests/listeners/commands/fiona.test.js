@@ -22,9 +22,10 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
 const mockFormatSearchResults = jest
   .fn()
-  .mockImplementation((_query, sources) =>
-    sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
-  );
+  .mockImplementation((_query, sources) => ({
+    text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+    blocks: null,
+  }));
 const MOCK_SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
 jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
@@ -206,9 +207,10 @@ describe('fionaCommandCallback', () => {
       jest.clearAllMocks();
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockSearchForSources.mockResolvedValue([]);
-      mockFormatSearchResults.mockImplementation((_q, sources) =>
-        sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
-      );
+      mockFormatSearchResults.mockImplementation((_q, sources) => ({
+        text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+        blocks: null,
+      }));
     });
 
     describe('bare search (no query)', () => {
@@ -260,7 +262,7 @@ describe('fionaCommandCallback', () => {
 
       it('respond() text contains formatted search results', async () => {
         mockSearchForSources.mockResolvedValueOnce([{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' }]);
-        mockFormatSearchResults.mockReturnValueOnce('🔍 Found 1 source(s).');
+        mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(
           expect.objectContaining({ text: '🔍 Found 1 source(s).' }),
