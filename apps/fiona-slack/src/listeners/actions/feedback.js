@@ -7,6 +7,13 @@ import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback
 
 const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+?)"_/;
 
+/**
+ * Resolve the contextual feedback block id from the action payload.
+ *
+ * @param {import("@slack/bolt").SlackAction} body
+ * @param {Record<string, any>} action
+ * @returns {string|null}
+ */
 function getFeedbackBlockId(body, action) {
   if (typeof action?.block_id === 'string' && action.block_id.length > 0) {
     return action.block_id;
@@ -16,6 +23,12 @@ function getFeedbackBlockId(body, action) {
   return body.message.blocks.find((block) => block?.type === 'context_actions')?.block_id ?? null;
 }
 
+/**
+ * Extract the original query from a formatted Fiona search response.
+ *
+ * @param {string} messageText
+ * @returns {string|null}
+ */
 function extractSearchQuery(messageText) {
   if (typeof messageText !== 'string') return null;
   const match = messageText.match(SEARCH_QUERY_PATTERN);

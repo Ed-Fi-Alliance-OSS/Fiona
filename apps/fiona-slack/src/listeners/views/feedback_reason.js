@@ -6,6 +6,16 @@
 import { recordFeedback } from '../../agent/feedback-store.js';
 import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
 
+/**
+ * Retrieve thread-based feedback context by locating the rated bot message and
+ * the user message immediately before it.
+ *
+ * @param {import("@slack/web-api").WebClient} client
+ * @param {string} channelId
+ * @param {string} threadTs
+ * @param {string} messageTs
+ * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
+ */
 async function fetchThreadContext(client, channelId, threadTs, messageTs) {
   const { messages } = await client.conversations.replies({ channel: channelId, ts: threadTs });
   if (!messages) {
@@ -25,6 +35,14 @@ async function fetchThreadContext(client, channelId, threadTs, messageTs) {
   };
 }
 
+/**
+ * Retrieve the text of a single Slack message by timestamp.
+ *
+ * @param {import("@slack/web-api").WebClient} client
+ * @param {string} channelId
+ * @param {string} messageTs
+ * @returns {Promise<string | null>}
+ */
 async function fetchMessageText(client, channelId, messageTs) {
   const { messages } = await client.conversations.history({
     channel: channelId,
