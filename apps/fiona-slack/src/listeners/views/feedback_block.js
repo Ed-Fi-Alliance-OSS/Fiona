@@ -23,7 +23,10 @@ export function parseFeedbackBlockId(blockId) {
     return { responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType: null };
   }
 
-  const [, responseType, interactionType = ''] = blockId.split('|');
+  const [prefix, responseType, interactionType = ''] = blockId.split('|');
+  if (prefix !== FEEDBACK_BLOCK_PREFIX) {
+    return { responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType: null };
+  }
   const normalizedResponseType = Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
     ? responseType
     : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
