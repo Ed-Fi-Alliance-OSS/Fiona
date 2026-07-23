@@ -5,7 +5,15 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
+// Mock the search module used by command-handler's routeCommandViaSay / handleSearchViaSay.
+const mockFetchSearchSources = jest.fn().mockResolvedValue([]);
+const mockFormatSearchResults = jest.fn().mockReturnValue(':mag: Search results');
+jest.unstable_mockModule('../../../src/agent/search.js', () => ({
+  fetchSearchSources: mockFetchSearchSources,
+  formatSearchResults: mockFormatSearchResults,
+}));
+
+const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, handleSearchViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
   await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
@@ -236,11 +244,6 @@ describe('handleComingSoonViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
   });
 
-  it('calls say() with SEARCH_NOT_YET_TEXT for search sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'search', SEARCH_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
-  });
-
   it('logs error when say() throws', async () => {
     mockSay.mockRejectedValueOnce(new Error('timeout'));
     await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
@@ -258,8 +261,55 @@ describe('handleComingSoonViaSay', () => {
     expect(ASK_NOT_YET_TEXT).toMatch('@fiona ask');
   });
 
-  it('SEARCH_NOT_YET_TEXT mentions @fiona search as alternative', () => {
-    expect(SEARCH_NOT_YET_TEXT).toMatch('@fiona search');
+  it('SEARCH_NOT_YET_TEXT is still exported for backward compatibility', () => {
+    expect(typeof SEARCH_NOT_YET_TEXT).toBe('string');
+    expect(SEARCH_NOT_YET_TEXT.length).toBeGreaterThan(0);
+  });
+});
+
+describe('handleSearchViaSay', () => {
+  let mockSay;
+  let mockLogger;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSay = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+    mockFetchSearchSources.mockResolvedValue([{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs' }]);
+    mockFormatSearchResults.mockReturnValue(':mag: Search results for: "Data Standard"');
+  });
+
+  it('calls fetchSearchSources with the query', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Data Standard');
+    expect(mockFetchSearchSources).toHaveBeenCalledWith('Data Standard', expect.objectContaining({ logger: mockLogger }));
+  });
+
+  it('calls formatSearchResults with query and sources', async () => {
+    const sources = [{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs' }];
+    mockFetchSearchSources.mockResolvedValue(sources);
+    await handleSearchViaSay(mockSay, mockLogger, 'Data Standard');
+    expect(mockFormatSearchResults).toHaveBeenCalledWith('Data Standard', sources);
+  });
+
+  it('calls say() with the formatted result', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Data Standard');
+    expect(mockSay).toHaveBeenCalledWith(':mag: Search results for: "Data Standard"');
+  });
+
+  it('logs error when say() throws', async () => {
+    mockSay.mockRejectedValueOnce(new Error('network error'));
+    await handleSearchViaSay(mockSay, mockLogger, 'Data Standard');
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('search response'));
+  });
+
+  it('does not throw when say() throws', async () => {
+    mockSay.mockRejectedValueOnce(new Error('network error'));
+    await expect(handleSearchViaSay(mockSay, mockLogger, 'Data Standard')).resolves.not.toThrow();
+  });
+
+  it('does not throw when fetchSearchSources throws', async () => {
+    mockFetchSearchSources.mockRejectedValueOnce(new Error('api error'));
+    await expect(handleSearchViaSay(mockSay, mockLogger, 'Data Standard')).resolves.not.toThrow();
   });
 });
 
@@ -268,8 +318,11 @@ describe('routeCommandViaSay', () => {
   let mockLogger;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     mockSay = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+    mockFetchSearchSources.mockResolvedValue([]);
+    mockFormatSearchResults.mockReturnValue(':mag: No matching sources found');
   });
 
   it('sends HELP_TEXT when keyword is "help"', async () => {
@@ -282,9 +335,13 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
   });
 
-  it('sends SEARCH_NOT_YET_TEXT when keyword is "search"', async () => {
+  it('calls fetchSearchSources and sends formatted results when keyword is "search"', async () => {
+    const sources = [{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs' }];
+    mockFetchSearchSources.mockResolvedValue(sources);
+    mockFormatSearchResults.mockReturnValue(':mag: Search results for: "Data Standard"');
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
+    expect(mockFetchSearchSources).toHaveBeenCalledWith('Data Standard', expect.objectContaining({ logger: mockLogger }));
+    expect(mockSay).toHaveBeenCalledWith(':mag: Search results for: "Data Standard"');
   });
 
   it('does not throw when say() throws', async () => {

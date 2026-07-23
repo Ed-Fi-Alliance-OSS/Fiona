@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { fetchSearchSources, formatSearchResults } from '../../agent/search.js';
+
 export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
@@ -10,7 +12,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 \`\`\`
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
-search <query>          Search Ed-Fi documentation (coming soon)
+search <query>          Search Ed-Fi documentation
 \`\`\`
 
 *How to reach Fiona:*
@@ -25,6 +27,7 @@ export const ASK_NOT_YET_TEXT =
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
 
+// Kept for backward compatibility; the slash-command path now calls search.js directly.
 export const SEARCH_NOT_YET_TEXT =
   `*/fiona search* is not yet available. ` +
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
@@ -85,7 +88,6 @@ export function parseCommandKeyword(text) {
 
 const NOT_YET_TEXT = {
   ask: ASK_NOT_YET_TEXT,
-  search: SEARCH_NOT_YET_TEXT,
 };
 
 /**
@@ -99,8 +101,10 @@ const NOT_YET_TEXT = {
 export async function routeCommandViaSay(say, logger, cmd) {
   if (cmd.keyword === 'help') {
     await handleHelpViaSay(say, logger);
+  } else if (cmd.keyword === 'search') {
+    await handleSearchViaSay(say, logger, cmd.rawArgs);
   } else {
-    const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
+    const text = NOT_YET_TEXT[cmd.keyword] ?? ASK_NOT_YET_TEXT;
     await handleComingSoonViaSay(say, logger, cmd.keyword, text);
   }
 }
@@ -121,11 +125,29 @@ export async function handleHelpViaSay(say, logger) {
 }
 
 /**
- * Sends a "coming soon" response via say() for ask/search commands in non-slash contexts.
+ * Handles `search <query>` via say() — fetches sources from the search backend
+ * and sends the formatted result list, visible to all thread/channel participants.
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
- * @param {string} subCommand - 'ask' or 'search'
+ * @param {string} query - The raw search query (already validated as non-empty).
+ */
+export async function handleSearchViaSay(say, logger, query) {
+  try {
+    const sources = await fetchSearchSources(query, { logger });
+    const text = formatSearchResults(query, sources);
+    await say(text);
+  } catch (err) {
+    logger?.error?.(`Failed to send search response: ${err.name}`);
+  }
+}
+
+/**
+ * Sends a "coming soon" response via say() for ask commands in non-slash contexts.
+ *
+ * @param {Function} say
+ * @param {import('@slack/logger').Logger} logger
+ * @param {string} subCommand - 'ask'
  * @param {string} text - The coming-soon message text to send.
  */
 export async function handleComingSoonViaSay(say, logger, subCommand, text) {
@@ -135,3 +157,4 @@ export async function handleComingSoonViaSay(say, logger, subCommand, text) {
     logger?.error?.(`Failed to send coming-soon response for ${subCommand}: ${err.name}`);
   }
 }
+

@@ -62,6 +62,11 @@ jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
   escalateViaSay: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.unstable_mockModule('../../../src/agent/search.js', () => ({
+  fetchSearchSources: jest.fn().mockResolvedValue([]),
+  formatSearchResults: jest.fn().mockReturnValue(':mag: Search results'),
+}));
+
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
 const { escalateViaSay } = await import('../../../src/agent/escalation.js');
 const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
@@ -70,6 +75,7 @@ const { buildThreadHistory } = await import('../../../src/agent/thread-history.j
 const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
 const { recordInteraction } = await import('../../../src/agent/interaction-store.js');
 const { captureConversation } = await import('../../../src/agent/conversation-capture-store.js');
+const { fetchSearchSources: mockFetchSearchSources, formatSearchResults: mockFormatSearchResults } = await import('../../../src/agent/search.js');
 
 describe('message (assistant thread handler)', () => {
   let mockSay;
@@ -607,7 +613,7 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when message starts with "search "', async () => {
+    it('calls fetchSearchSources and sends formatted results when message starts with "search "', async () => {
       mockMessage.text = 'search Data Standard 6.0';
 
       await messageHandler({
@@ -620,7 +626,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockSay.mock.calls[0][0]).toMatch(/:mag:/);
       expect(callLLM).not.toHaveBeenCalled();
     });
 

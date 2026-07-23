@@ -6,13 +6,13 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { fetchSearchSources, formatSearchResults } from '../../agent/search.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
-  SEARCH_NOT_YET_TEXT,
 } from './command-handler.js';
 
 /**
@@ -32,7 +32,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      await handleSearch({ command, ack, respond, logger });
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
@@ -113,6 +113,56 @@ async function handleUnknown({ command, ack, logger, subCommand }) {
 function isDmChannel(command) {
   return command.channel_name === 'directmessage' || (command.channel_id || '').startsWith('D');
 }
+
+async function handleSearch({ command, ack, respond, logger }) {
+  // Extract the query: everything after "search " (first token)
+  const rawText = (command.text ?? '').trim();
+  const query = rawText.replace(/^search\s*/i, '').trim();
+
+  // Empty query → fall back to help
+  if (!query) {
+    await handleHelp({ command, ack, logger });
+    return;
+  }
+
+  // Acknowledge the command immediately — Slack requires ack() within 3 seconds.
+  // The actual search response is sent via respond() after the API call.
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona search: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping search');
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_search'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_search rate-limited interaction: ${err.name}`));
+    return;
+  }
+
+  try {
+    const sources = await fetchSearchSources(query, { logger });
+    const text = formatSearchResults(query, sources);
+    await respond({ response_type: 'ephemeral', text });
+  } catch (err) {
+    logger?.error?.(`Failed to complete /fiona search: ${err.name}`);
+    return;
+  }
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_search' });
+}
+
 
 async function handleEscalate({ command, ack, respond, client, logger }) {
   try {

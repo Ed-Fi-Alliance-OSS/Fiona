@@ -19,6 +19,14 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
   throw new Error('llm-caller must not be imported by /fiona slash command handlers');
 });
 
+// Mock the search module so tests do not hit the real Perplexity API.
+const mockFetchSearchSources = jest.fn().mockResolvedValue([]);
+const mockFormatSearchResults = jest.fn().mockReturnValue(':mag: Search results');
+jest.unstable_mockModule('../../../src/agent/search.js', () => ({
+  fetchSearchSources: mockFetchSearchSources,
+  formatSearchResults: mockFormatSearchResults,
+}));
+
 const mockPostEscalation = jest.fn().mockResolvedValue({ ok: true, errorType: null });
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
   postEscalation: mockPostEscalation,
@@ -27,6 +35,7 @@ const { fionaCommandCallback } = await import('../../../src/listeners/commands/f
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
 
 describe('fionaCommandCallback', () => {
   let mockAck;
@@ -186,31 +195,113 @@ describe('fionaCommandCallback', () => {
   });
 
   describe('search sub-command', () => {
+    let mockRespond;
+
     beforeEach(() => {
-      mockCommand.text = 'search';
+      jest.clearAllMocks();
+      mockAck = jest.fn().mockResolvedValue(undefined);
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockCommand.text = 'search assessment API endpoints';
+      mockFetchSearchSources.mockResolvedValue([
+        { url: 'https://docs.ed-fi.org/api', title: 'Assessment API', snippet: 'The API provides…' },
+      ]);
+      mockFormatSearchResults.mockReturnValue(':mag: Search results for: "assessment API endpoints"');
     });
 
     it('calls ack() exactly once', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
       expect(mockAck).toHaveBeenCalledTimes(1);
     });
 
-    it('ack() response indicates the feature is not yet available', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringMatching(/not yet available|coming soon/i));
+    it('calls ack() with no arguments (acknowledges immediately)', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith();
     });
 
-    it('ack() response does not show the full help menu', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
+    it('calls fetchSearchSources with the query', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockFetchSearchSources).toHaveBeenCalledWith(
+        'assessment API endpoints',
+        expect.objectContaining({ logger: mockLogger }),
+      );
+    });
+
+    it('calls formatSearchResults with query and sources', async () => {
+      const sources = [{ url: 'https://docs.ed-fi.org/api', title: 'Assessment API' }];
+      mockFetchSearchSources.mockResolvedValue(sources);
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockFormatSearchResults).toHaveBeenCalledWith('assessment API endpoints', sources);
+    });
+
+    it('sends formatted results via respond() as ephemeral', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_type: 'ephemeral',
+          text: ':mag: Search results for: "assessment API endpoints"',
+        }),
+      );
     });
 
     it('records slash_search telemetry', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
       await flushMicrotasks();
       expect(mockRecordInteraction).toHaveBeenCalledWith(
         expect.objectContaining({ interactionType: 'slash_search' }),
       );
+    });
+
+    it('falls back to help when the query is empty', async () => {
+      mockCommand.text = 'search';
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+      expect(mockFetchSearchSources).not.toHaveBeenCalled();
+    });
+
+    it('falls back to help when the query is whitespace only', async () => {
+      mockCommand.text = 'search   ';
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+      expect(mockFetchSearchSources).not.toHaveBeenCalled();
+    });
+
+    it('does not call fetchSearchSources when rate limited', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH');
+      await fionaCommandCallback({
+        command: { ...mockCommand, user_id: 'U_RL_SEARCH', text: 'search something' },
+        ack: mockAck, respond: mockRespond, logger: mockLogger,
+      });
+      expect(mockFetchSearchSources).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('request limit') }),
+      );
+    });
+
+    it('records slash_search with rate_limited status when rate limited', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH2');
+      await fionaCommandCallback({
+        command: { ...mockCommand, user_id: 'U_RL_SEARCH2', text: 'search something' },
+        ack: mockAck, respond: mockRespond, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_search', rateLimited: true }),
+      );
+    });
+
+    it('does not throw when fetchSearchSources rejects', async () => {
+      mockFetchSearchSources.mockRejectedValueOnce(new Error('api error'));
+      await expect(
+        fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('does not call respond when ack() rejects', async () => {
+      mockAck.mockRejectedValueOnce(new Error('slack timeout'));
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+      expect(mockRespond).not.toHaveBeenCalled();
     });
   });
 
