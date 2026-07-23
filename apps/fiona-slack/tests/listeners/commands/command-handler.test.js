@@ -278,7 +278,7 @@ describe('handleSearchViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(
       expect.objectContaining({
         text: '🔍 Found 1 source(s).',
-        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|' })]),
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search' })]),
       }),
     );
   });

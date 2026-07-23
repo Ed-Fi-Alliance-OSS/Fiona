@@ -3,21 +3,19 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { FEEDBACK_RESPONSE_TYPES } from '../../agent/feedback-response-types.js';
+
+export { FEEDBACK_RESPONSE_TYPES };
+
 /**
  * `feedbackBlock` are feedback buttons included with messages.
  *
  * @type {import("@slack/bolt").types.ContextActionsBlock}
  */
-export const FEEDBACK_RESPONSE_TYPES = Object.freeze({
-  SYNTHESIS: 'synthesis',
-  SEARCH: 'search',
-  ASK: 'ask',
-});
-
 const FEEDBACK_BLOCK_PREFIX = 'feedback';
 
 export function buildFeedbackBlockId(responseType = FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType = null) {
-  return `${FEEDBACK_BLOCK_PREFIX}|${responseType}|${interactionType ?? ''}`;
+  return interactionType ? `${FEEDBACK_BLOCK_PREFIX}|${responseType}|${interactionType}` : `${FEEDBACK_BLOCK_PREFIX}|${responseType}`;
 }
 
 export function parseFeedbackBlockId(blockId) {

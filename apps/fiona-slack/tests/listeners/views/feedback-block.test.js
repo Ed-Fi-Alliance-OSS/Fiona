@@ -18,7 +18,7 @@ describe('feedbackBlock', () => {
   });
 
   it('defaults block_id to synthesis feedback context', () => {
-    expect(feedbackBlock.block_id).toBe('feedback|synthesis|');
+    expect(feedbackBlock.block_id).toBe('feedback|synthesis');
   });
 
   it('has exactly one element', () => {
