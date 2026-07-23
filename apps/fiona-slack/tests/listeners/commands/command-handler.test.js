@@ -283,6 +283,13 @@ describe('handleSearchViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
   });
 
+  it('disables link unfurls for search results', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ unfurl_links: false, unfurl_media: false }),
+    );
+  });
+
   it('logs error when say() throws', async () => {
     mockSay.mockRejectedValueOnce(new Error('say error'));
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
@@ -352,7 +359,9 @@ describe('routeCommandViaSay', () => {
   it('calls searchForSources and say() results when keyword is "search"', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
     expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
-    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ text: '🔍 No sources found.', unfurl_links: false, unfurl_media: false }),
+    );
   });
 
   it('does not throw when say() throws', async () => {
