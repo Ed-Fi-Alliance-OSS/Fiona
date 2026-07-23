@@ -13,7 +13,8 @@
 export { searchForSources } from './llm-caller.js';
 
 const SEARCH_NO_RESULTS_TEXT = '🔍 No sources found for _"{{query}}"_. Try rephrasing your query.';
-const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
+// Exported so slash and say()-based handlers can share a single error string.
+export const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
 /**
  * Escape user-supplied text before embedding it in a Slack mrkdwn message.
@@ -51,5 +52,3 @@ export function formatSearchResults(query, sources) {
 
   return `${header}\n\n${items.join('\n\n')}`;
 }
-
-export { SEARCH_ERROR_TEXT };

@@ -128,7 +128,7 @@ export async function handleSearchViaSay(say, logger, query) {
   try {
     await say(text);
   } catch (err) {
-    logger?.error?.(`Failed to send search response: ${err.name}`);
+    logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
   }
 }
 
