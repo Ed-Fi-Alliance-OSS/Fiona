@@ -10,7 +10,9 @@
  * directly (preserving the architectural separation of concerns).
  */
 
-export { searchForSources } from './llm-caller.js';
+import { searchForSources } from './llm-caller.js';
+
+export { searchForSources };
 
 const SEARCH_NO_RESULTS_TEXT = '🔍 No sources found for _"{{query}}"_. Try rephrasing your query.';
 // Exported so slash and say()-based handlers can share a single error string.
@@ -18,13 +20,17 @@ export const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please 
 
 // Read snippet max length from env so operators can tune it without code changes.
 // Falls back to 150 when the env var is absent, non-numeric, or not a positive integer.
-const _rawSnippetMaxChars = Number.parseInt(process.env.SEARCH_SNIPPET_MAX_CHARS ?? '', 10);
-const SNIPPET_MAX_CHARS = Number.isFinite(_rawSnippetMaxChars) && _rawSnippetMaxChars > 0 ? _rawSnippetMaxChars : 150;
+const _snippetMaxRaw = Number.parseInt(process.env.SEARCH_SNIPPET_MAX_CHARS ?? '', 10);
+const SNIPPET_MAX_CHARS = Number.isFinite(_snippetMaxRaw) && _snippetMaxRaw > 0 ? _snippetMaxRaw : 150;
 
 /**
  * Strip common markdown syntax from a snippet and truncate to SNIPPET_MAX_CHARS.
  * Perplexity Search API snippets can contain bold markers, headings, and multi-
  * paragraph text; stripping and truncating keeps the Slack source list compact.
+ *
+ * Only `**bold**` and `### heading` patterns are removed; single-asterisk italic
+ * is intentionally left untouched to avoid false positives on maths/code notation
+ * (e.g. `a * b`).
  *
  * @param {string} text
  * @returns {string}
@@ -36,12 +42,8 @@ function truncateSnippet(text) {
     .replace(/\n+/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  // Strip markdown in order: bold first (**text**), then italic (*text*), then headings (## ).
-  // Bold is stripped before italic so the surrounding ** are removed before the * pass runs.
-  cleaned = cleaned
-    .replace(/\*\*([^*]*?)\*\*/g, '$1')
-    .replace(/\*([^*]*?)\*/g, '$1')
-    .replace(/#{1,6}\s+/g, '');
+  // Strip bold markers (**text**) and heading markers (## …)
+  cleaned = cleaned.replace(/\*\*([^*]*?)\*\*/g, '$1').replace(/#{1,6}\s+/g, '');
   if (cleaned.length <= SNIPPET_MAX_CHARS) return cleaned;
   // Truncate at the last word boundary before the limit
   const truncated = cleaned.slice(0, SNIPPET_MAX_CHARS).replace(/\s+\S*$/, '');
