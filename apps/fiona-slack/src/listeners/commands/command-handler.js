@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { formatSearchResults, searchForSources } from '../../agent/search-caller.js';
+
 export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
@@ -10,7 +12,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 \`\`\`
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
-search <query>          Search Ed-Fi documentation (coming soon)
+search <query>          Search Ed-Fi documentation
 \`\`\`
 
 *How to reach Fiona:*
@@ -24,11 +26,6 @@ export const ASK_NOT_YET_TEXT =
   `*/fiona ask* is not yet available. ` +
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
-
-export const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
-  `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
 
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
@@ -83,11 +80,6 @@ export function parseCommandKeyword(text) {
   return null;
 }
 
-const NOT_YET_TEXT = {
-  ask: ASK_NOT_YET_TEXT,
-  search: SEARCH_NOT_YET_TEXT,
-};
-
 /**
  * Dispatches a parsed command to the appropriate say() response.
  * Centralizes routing so each handler only calls this once.
@@ -99,9 +91,10 @@ const NOT_YET_TEXT = {
 export async function routeCommandViaSay(say, logger, cmd) {
   if (cmd.keyword === 'help') {
     await handleHelpViaSay(say, logger);
+  } else if (cmd.keyword === 'search') {
+    await handleSearchViaSay(say, logger, cmd.rawArgs);
   } else {
-    const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
-    await handleComingSoonViaSay(say, logger, cmd.keyword, text);
+    await handleComingSoonViaSay(say, logger, cmd.keyword, ASK_NOT_YET_TEXT);
   }
 }
 
@@ -121,11 +114,30 @@ export async function handleHelpViaSay(say, logger) {
 }
 
 /**
- * Sends a "coming soon" response via say() for ask/search commands in non-slash contexts.
+ * Performs a source search and sends results via say() — visible to all
+ * thread/channel participants. Used in contexts where slash-command ack()
+ * is not available (threads, agent panel, @-mention).
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
- * @param {string} subCommand - 'ask' or 'search'
+ * @param {string} query - The search query (rawArgs from parseCommandKeyword)
+ */
+export async function handleSearchViaSay(say, logger, query) {
+  const sources = await searchForSources(query, { logger });
+  const text = formatSearchResults(query, sources);
+  try {
+    await say(text);
+  } catch (err) {
+    logger?.error?.(`Failed to send search response: ${err.name}`);
+  }
+}
+
+/**
+ * Sends a "coming soon" response via say() for ask commands in non-slash contexts.
+ *
+ * @param {Function} say
+ * @param {import('@slack/logger').Logger} logger
+ * @param {string} subCommand - 'ask'
  * @param {string} text - The coming-soon message text to send.
  */
 export async function handleComingSoonViaSay(say, logger, subCommand, text) {

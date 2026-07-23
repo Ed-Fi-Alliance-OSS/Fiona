@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
+  searchForSources: jest.fn().mockResolvedValue([]),
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
@@ -386,13 +387,13 @@ describe('appMentionCallback', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when mention text starts with "search "', async () => {
+    it('responds with search results when mention text starts with "search "', async () => {
       mockEvent.text = '<@UFIONA> search Data Standard 6.0';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockSay.mock.calls[0][0]).toMatch(/search results|No sources found/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 

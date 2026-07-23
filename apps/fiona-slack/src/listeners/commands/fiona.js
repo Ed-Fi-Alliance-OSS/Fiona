@@ -6,13 +6,13 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
-  SEARCH_NOT_YET_TEXT,
 } from './command-handler.js';
 
 /**
@@ -32,7 +32,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      await handleSearch({ command, ack, respond, logger });
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
@@ -96,6 +96,57 @@ async function handleComingSoon({ command, ack, logger, subCommand, text }) {
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
+}
+
+async function handleSearch({ command, ack, respond, logger }) {
+  const rawText = (command.text ?? '').trim();
+  // Extract everything after the leading 'search' token as the query.
+  const query = rawText.slice('search'.length).trim();
+
+  if (!query) {
+    // Empty query: fall back to help (same as /fiona with no sub-command)
+    await handleHelp({ command, ack, logger });
+    return;
+  }
+
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona search: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping search');
+    await respond({ response_type: 'ephemeral', text: SEARCH_ERROR_TEXT });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_search'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_search interaction: ${err.name}`));
+    return;
+  }
+
+  logger?.info?.(`/fiona search: querying for "${query}"`);
+  const sources = await searchForSources(query, { logger });
+  const text = formatSearchResults(query, sources);
+
+  try {
+    await respond({ response_type: 'ephemeral', text });
+  } catch (err) {
+    logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
+    return;
+  }
+
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_search' });
 }
 
 async function handleUnknown({ command, ack, logger, subCommand }) {

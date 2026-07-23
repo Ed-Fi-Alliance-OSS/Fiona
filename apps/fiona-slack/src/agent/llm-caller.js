@@ -485,6 +485,59 @@ export async function callLLM(streamer, prompts, logger) {
   return { metadata, botText, systemPromptVersion: SYSTEM_PROMPT_VERSION };
 }
 
+// ─── Source Search ─────────────────────────────────────────────────────────
+const SEARCH_MAX_SOURCES = 5;
+
+/**
+ * Call Perplexity non-streaming to retrieve source documents for a query.
+ * Returns a list of normalized sources (URL, title, optional snippet) with no
+ * synthesized answer. Used by the `/fiona search` command.
+ *
+ * @param {string} query - Search query from the user (unsanitized)
+ * @param {Object} [options]
+ * @param {number} [options.maxSources=5] - Maximum sources to return
+ * @param {import('@slack/logger').Logger} [options.logger]
+ * @returns {Promise<Array<import('./utils/source-normalizer.js').NormalizedSource>>}
+ */
+export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES, logger } = {}) {
+  if (!perplexityClient) return [];
+  if (!query || !query.trim()) return [];
+
+  try {
+    const response = await perplexityClient.chat.completions.create({
+      model: PERPLEXITY_API_MODEL,
+      messages: [{ role: 'user', content: query }],
+      search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
+      stream: false,
+    });
+
+    // Prefer search_results (has title, url, snippet) over citations (URL-only)
+    const rawSearchResults = response?.search_results;
+    if (Array.isArray(rawSearchResults) && rawSearchResults.length > 0) {
+      const { sources } = normalizeSources(
+        rawSearchResults.map((r) => ({ url: r.url, title: r.title, snippet: r.snippet })),
+        { maxSources },
+      );
+      return sources;
+    }
+
+    // Fall back to citations array (URL-only)
+    const citations = response?.citations;
+    if (Array.isArray(citations) && citations.length > 0) {
+      const { sources } = normalizeSources(
+        citations.map((url) => ({ url })),
+        { maxSources },
+      );
+      return sources;
+    }
+
+    return [];
+  } catch (error) {
+    logger?.warn?.(`Search failed: ${error.message}`);
+    return [];
+  }
+}
+
 // ─── Escalation Summary ─────────────────────────────────────────────────────
 const ESCALATION_SUMMARY_SYSTEM_PROMPT =
   'You summarize a Slack conversation between a user and Fiona (an Ed-Fi AI assistant) for a human support team. ' +

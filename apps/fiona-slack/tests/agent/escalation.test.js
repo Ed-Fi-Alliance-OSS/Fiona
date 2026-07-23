@@ -11,7 +11,7 @@ const mockSummarize = jest.fn();
 
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ recordInteraction: mockRecordInteraction }));
 jest.unstable_mockModule('../../src/agent/feedback-store.js', () => ({ recordFeedback: mockRecordFeedback }));
-jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize }));
+jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize, searchForSources: jest.fn().mockResolvedValue([]) }));
 
 const { postEscalation, escalateViaSay } = await import('../../src/agent/escalation.js');
 const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } = await import(
