@@ -9,7 +9,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 *Available commands:*
 \`\`\`
 help                    Show this help message
-ask <question>          Ask a question about Ed-Fi (coming soon)
+ask <question>          Ask a question about Ed-Fi privately
 search <query>          Search Ed-Fi documentation (coming soon)
 \`\`\`
 
