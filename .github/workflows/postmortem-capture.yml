@@ -45,7 +45,13 @@ jobs:
           RECORD="docs/postmortems/PR-${PR_NUMBER}.json"
           cp "${RECORD}" "/tmp/PR-${PR_NUMBER}.json"
           git fetch origin postmortem-data || true
-          git checkout postmortem-data 2>/dev/null || git checkout --orphan postmortem-data
+          if git rev-parse --verify --quiet origin/postmortem-data; then
+            git checkout -B postmortem-data origin/postmortem-data
+          else
+            git checkout --orphan postmortem-data
+            git rm -rf --cached . >/dev/null 2>&1 || true
+            git clean -fd >/dev/null 2>&1 || true
+          fi
           mkdir -p docs/postmortems/processed
           cp "/tmp/PR-${PR_NUMBER}.json" "${RECORD}"
           git add "${RECORD}"
