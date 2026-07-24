@@ -33,7 +33,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          COUNT=$(ls docs/postmortems/PR-*.json 2>/dev/null | wc -l || echo 0)
+          shopt -s nullglob
+          records=(docs/postmortems/PR-*.json)
+          COUNT=${#records[@]}
           if [ "${COUNT}" -eq 0 ]; then
             echo "No un-processed post-mortem records; nothing to synthesize."
             exit 0
