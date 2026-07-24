@@ -3,6 +3,14 @@
 These instructions apply to all GitHub Copilot work in this repository,
 including the Copilot coding agent. Follow them for every task.
 
+## Preferred agent
+
+For implementation tickets assigned from Jira (bug fixes and features), prefer
+the **coding-agent** custom agent (`.github/agents/coding-agent.agent.md`) and
+the skills it carries. The instructions below are the always-on baseline for
+all Copilot work; the coding-agent is the selectable persona for implementation
+work and layers on top of them.
+
 ## Source of truth: the ticket
 
 - Treat the linked issue body (synced from Jira) as the source of truth.
@@ -14,8 +22,7 @@ including the Copilot coding agent. Follow them for every task.
 
 ## Right-size the ceremony first
 
-Before planning, score the change's feasibility (from
-`.github/skills/automate-bug-fix/SKILL.md`):
+Before planning, score the change's feasibility:
 
 1. **Score 1 (Small):** single reviewer, minimal context switching, focused files.
 1. **Score 2 (Medium):** reviewable by one reviewer with moderate context.
@@ -74,8 +81,9 @@ For Small changes, trim the ceremony:
 
 ## Deep playbook
 
-For bug tickets, the full high-discipline workflow (readiness validation,
+The detailed, high-discipline implementation workflow (ticket validation,
 scoped plan, fail-first tests, intent-alignment iterations, scope-drift check,
-verification, PR) is documented in
-`.github/skills/automate-bug-fix/SKILL.md`. This file is the always-on
-summary; that skill is the detailed reference. Keep the two consistent.
+verification, PR) lives in the **coding-agent** custom agent
+(`.github/agents/coding-agent.agent.md`). Lean on that agent and the skills it
+carries for implementation tickets. These instructions remain the always-on
+baseline that applies underneath it.
