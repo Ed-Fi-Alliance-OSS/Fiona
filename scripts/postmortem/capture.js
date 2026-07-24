@@ -93,8 +93,8 @@ export function buildParticipants(prAuthorLogin, reviews) {
 
 export function buildPostmortemRecord(raw, now = new Date()) {
   const { pr, reviews = [], comments = [], commits = [], checkRuns = [] } = raw;
-  const reviewCycles = buildParticipants(pr.author?.login, reviews)
-    .filter((p) => p.role === "human-reviewer").length;
+  const reviewCycles = (reviews || [])
+    .filter((r) => classifyParticipantKind(r.author?.login) === "human").length;
   const commentClasses = { nit: 0, correctness: 0, rework: 0 };
   for (const c of comments) commentClasses[classifyComment(c.body)] += 1;
   const followupCommits = { fix: 0, feature: 0 };
