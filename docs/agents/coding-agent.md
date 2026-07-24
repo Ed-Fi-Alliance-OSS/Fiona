@@ -15,8 +15,8 @@ For reliable context handoff, the synced issue body should contain:
 - **Title / summary** — a concise statement of the change.
 - **Problem statement** — the bug or feature described in plain language.
 - **Acceptance criteria** — a testable definition of done.
-- **Repro / expected behavior** — for bugs: steps to reproduce, plus expected
-  versus actual behavior.
+- **Reproduction steps / expected behavior** — for bugs: the steps to
+  reproduce, plus expected versus actual behavior.
 - **Affected area** — a component or app hint (for example
   `apps/fiona-slack`).
 - **Links** — related tickets, PRs, or docs.

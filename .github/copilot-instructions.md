@@ -6,29 +6,36 @@ including the Copilot coding agent. Follow them for every task.
 ## Source of truth: the ticket
 
 - Treat the linked issue body (synced from Jira) as the source of truth.
-- Parse the bug/feature statement, the acceptance criteria, and the repro /
-  expected behavior.
+- Parse the bug or feature statement, any acceptance criteria, and the
+  reproduction steps and/or the expected behavior.
 - If required information is missing (no clear statement, no acceptance
-  criteria, or no repro for a bug), STOP and comment describing exactly what
-  is missing. Do not guess.
+  criteria, or no reproduction steps for a bug), STOP and comment describing
+  exactly what is missing. Do not guess.
 
 ## Right-size the ceremony first
 
-Before planning, classify the change:
+Before planning, score the change's feasibility (from
+`.github/skills/automate-bug-fix/SKILL.md`):
 
-- **Small** — ALL of: touches about 2 files or fewer and about 50 changed
-  lines or fewer; adds no new module, dependency, or public interface / API
-  surface; feasibility score 1.
-- **Standard** — anything else at feasibility score 2.
-- **Too large** — feasibility score 3 or 4: STOP and propose a decomposition
-  into smaller, independently reviewable issues instead of coding.
+1. **Score 1 (Small):** single reviewer, minimal context switching, focused files.
+1. **Score 2 (Medium):** reviewable by one reviewer with moderate context.
+1. **Score 3 (Large):** likely too broad for one-pass review.
+1. **Score 4 (XL):** cross-cutting / multi-area / high coordination.
 
-Feasibility score rubric (from `.github/skills/automate-bug-fix/SKILL.md`):
+Then classify and act:
 
-1. Small: single reviewer, minimal context switching, focused files.
-1. Medium: reviewable by one reviewer with moderate context.
-1. Large: likely too broad for one-pass review.
-1. XL: cross-cutting / multi-area / high coordination.
+- **Small (Fast path)** — feasibility score 1 AND all of: touches 2 files or
+  fewer and 50 changed lines or fewer; adds no new module, dependency, or
+  public interface / API surface.
+- **Standard path** — feasibility score 2 (or a score-1 change that exceeds
+  the Small size triggers above).
+- **Large (score 3)** — attempt a decomposition: split the work into
+  independently-reviewable slices. If a clean split exists, proceed on the
+  first slice as a Standard-path change and list the remaining slices (in the
+  PR body or as follow-up issues). If you cannot split it cleanly, STOP and
+  propose the decomposition instead of coding.
+- **Too large (score 4)** — STOP and propose a decomposition into smaller,
+  independently reviewable issues instead of coding.
 
 ## Always required (every path, never skipped)
 
