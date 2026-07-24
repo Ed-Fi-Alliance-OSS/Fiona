@@ -5,11 +5,21 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, rmSync, existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   classifyComment,
   classifyFollowupCommit,
   parseJiraKey,
   classifyParticipantKind,
+  deriveCiFailures,
+  deriveMinutesBetween,
+  deriveTimeToFirstGreen,
+  buildParticipants,
+  buildPostmortemRecord,
+  writeRecord,
+  fetchPrData,
 } from "./capture.js";
 
 test("classifyComment: rework beats correctness beats nit", () => {
@@ -39,13 +49,6 @@ test("classifyParticipantKind: detects Copilot bot vs human", () => {
   assert.equal(classifyParticipantKind("some-bot[bot]"), "copilot-bot");
   assert.equal(classifyParticipantKind("roberthunterjr"), "human");
 });
-
-import {
-  deriveCiFailures,
-  deriveMinutesBetween,
-  deriveTimeToFirstGreen,
-  buildParticipants,
-} from "./capture.js";
 
 test("deriveCiFailures: buckets failed check runs by name", () => {
   const runs = [
@@ -85,4 +88,76 @@ test("buildParticipants: roles only, never emits human logins", () => {
   const human = participants.find((p) => p.role === "human-reviewer");
   assert.deepEqual(human, { role: "human-reviewer", kind: "human", association: "MEMBER" });
   assert.ok(!JSON.stringify(participants).includes("roberthunterjr"), "no human login in output");
+});
+
+const RAW = {
+  pr: {
+    number: 81, title: "feat(AI-179): implement search", state: "MERGED",
+    headRefName: "copilot/ai-179", additions: 1196, deletions: 99, changedFiles: 25,
+    createdAt: "2026-07-23T16:00:00Z", mergedAt: "2026-07-24T16:00:00Z",
+    author: { login: "copilot-swe-agent" },
+  },
+  reviews: [
+    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED" },
+    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED" },
+  ],
+  comments: [
+    { body: "Let's use the SDK instead" }, { body: "nit: spacing" },
+    { body: "this is wrong on empty input" },
+  ],
+  commits: [
+    { messageHeadline: "feat: add search" }, { messageHeadline: "fix: lint errors" },
+  ],
+  checkRuns: [
+    { name: "Biome lint", conclusion: "failure", completedAt: "2026-07-23T16:20:00Z" },
+    { name: "Unit tests", conclusion: "success", completedAt: "2026-07-23T16:40:00Z" },
+  ],
+};
+
+test("buildPostmortemRecord: assembles spec-shaped record, no human login", () => {
+  const rec = buildPostmortemRecord(RAW, new Date("2026-07-24T17:00:00Z"));
+  assert.equal(rec.prNumber, 81);
+  assert.equal(rec.state, "merged");
+  assert.equal(rec.jiraKey, "AI-179");
+  assert.equal(rec.stats.additions, 1196);
+  assert.equal(rec.stats.commits, 2);
+  assert.equal(rec.stats.reviewCycles, 1); // deduped human reviewer
+  assert.equal(rec.stats.reviewComments, 3);
+  assert.equal(rec.stats.timeToMergeMinutes, 1440);
+  assert.equal(rec.stats.timeToFirstGreenCiMinutes, 40);
+  assert.deepEqual(rec.stats.ciFailures, { lint: 1, test: 0, build: 0 });
+  assert.deepEqual(rec.signal.commentClasses, { nit: 1, correctness: 1, rework: 1 });
+  assert.deepEqual(rec.signal.followupCommits, { fix: 1, feature: 1 });
+  assert.deepEqual(rec.signal.changeRequestThemes, []);
+  assert.equal(rec.capturedAt, "2026-07-24T17:00:00.000Z");
+  assert.ok(!JSON.stringify(rec).includes("roberthunterjr"), "no human login in record");
+});
+
+test("writeRecord: writes PR-<n>.json and returns its path", () => {
+  const dir = path.join(os.tmpdir(), `pm-test-${Date.now()}`);
+  try {
+    const file = writeRecord({ prNumber: 7, stats: {} }, dir);
+    assert.equal(file, path.join(dir, "PR-7.json"));
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(parsed.prNumber, 7);
+  } finally {
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fetchPrData: shells through injected run and returns raw bundle", () => {
+  const calls = [];
+  const fakeRun = (args) => {
+    calls.push(args);
+    return JSON.stringify({
+      number: 81, title: "feat(AI-179): x", headRefName: "b",
+      additions: 1, deletions: 0, changedFiles: 1, createdAt: "2026-07-23T16:00:00Z",
+      mergedAt: null, author: { login: "copilot-swe-agent" },
+      reviews: [], comments: [], commits: [],
+    });
+  };
+  const raw = fetchPrData(81, { run: fakeRun, runChecks: () => [] });
+  assert.equal(raw.pr.number, 81);
+  assert.ok(Array.isArray(raw.reviews));
+  assert.ok(calls[0].includes("81"));
 });

@@ -3,6 +3,11 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
 const REWORK_PATTERNS = [/\brework\b/i, /refactor/i, /\bredo\b/i, /\binstead\b/i, /\bapproach\b/i, /rewrite/i];
 const CORRECTNESS_PATTERNS = [/\bbug\b/i, /incorrect/i, /\bwrong\b/i, /\bfix\b/i, /\bfails?\b/i, /\berror\b/i, /should (be|not)/i];
 const NIT_PATTERNS = [/\bnit\b/i, /typo/i, /formatting/i, /\bstyle\b/i, /whitespace/i];
@@ -84,4 +89,100 @@ export function buildParticipants(prAuthorLogin, reviews) {
     });
   }
   return participants;
+}
+
+export function buildPostmortemRecord(raw, now = new Date()) {
+  const { pr, reviews = [], comments = [], commits = [], checkRuns = [] } = raw;
+  const reviewCycles = buildParticipants(pr.author?.login, reviews)
+    .filter((p) => p.role === "human-reviewer").length;
+  const commentClasses = { nit: 0, correctness: 0, rework: 0 };
+  for (const c of comments) commentClasses[classifyComment(c.body)] += 1;
+  const followupCommits = { fix: 0, feature: 0 };
+  for (const c of commits) {
+    const kind = classifyFollowupCommit(c.messageHeadline || c.message);
+    if (kind) followupCommits[kind] += 1;
+  }
+  return {
+    prNumber: pr.number,
+    title: pr.title,
+    state: pr.mergedAt ? "merged" : "closed",
+    jiraKey: parseJiraKey(pr.title, pr.headRefName),
+    stats: {
+      additions: pr.additions ?? 0,
+      deletions: pr.deletions ?? 0,
+      changedFiles: pr.changedFiles ?? 0,
+      commits: commits.length,
+      reviewCycles,
+      reviewComments: comments.length,
+      timeToFirstGreenCiMinutes: deriveTimeToFirstGreen(checkRuns, pr.createdAt),
+      timeToMergeMinutes: deriveMinutesBetween(pr.createdAt, pr.mergedAt),
+      ciFailures: deriveCiFailures(checkRuns),
+    },
+    signal: {
+      commentClasses,
+      followupCommits,
+      changeRequestThemes: [],
+    },
+    participants: buildParticipants(pr.author?.login, reviews),
+    capturedAt: now.toISOString(),
+  };
+}
+
+export function writeRecord(record, dir = "docs/postmortems") {
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `PR-${record.prNumber}.json`);
+  writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+  return file;
+}
+
+export function fetchPrData(prNumber, deps = {}) {
+  const run = deps.run || ((args) => execFileSync("gh", args, { encoding: "utf8" }));
+  const runChecks = deps.runChecks || (() => fetchCheckRuns(prNumber, run));
+  const bundle = JSON.parse(
+    run([
+      "pr", "view", String(prNumber),
+      "--json",
+      "number,title,state,headRefName,additions,deletions,changedFiles,createdAt,mergedAt,closedAt,author,reviews,comments,commits",
+    ]),
+  );
+  return {
+    pr: bundle,
+    reviews: bundle.reviews || [],
+    comments: bundle.comments || [],
+    commits: bundle.commits || [],
+    checkRuns: runChecks(),
+  };
+}
+
+function fetchCheckRuns(prNumber, run) {
+  try {
+    const rows = JSON.parse(
+      run(["pr", "checks", String(prNumber), "--json", "name,state,completedAt"]),
+    );
+    return rows.map((r) => ({
+      name: r.name,
+      conclusion: r.state === "SUCCESS" ? "success" : r.state === "FAILURE" ? "failure" : "other",
+      completedAt: r.completedAt || null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function main() {
+  const prNumber = process.argv[2];
+  if (!prNumber) {
+    console.error("usage: node capture.js <prNumber>");
+    process.exit(1);
+  }
+  const raw = fetchPrData(prNumber);
+  const record = buildPostmortemRecord(raw);
+  const file = writeRecord(record);
+  console.log(`wrote ${file}`);
+}
+
+const invokedDirectly =
+  process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (invokedDirectly) {
+  main();
 }
