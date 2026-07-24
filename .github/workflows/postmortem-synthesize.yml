@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Post-Mortem Synthesis
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  synthesize:
+    name: Open synthesis issue for Copilot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout postmortem-data
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: postmortem-data
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Open synthesis issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_ASSIGNEE: ${{ vars.COPILOT_ASSIGNEE }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          COUNT=$(ls docs/postmortems/PR-*.json 2>/dev/null | wc -l || echo 0)
+          if [ "${COUNT}" -eq 0 ]; then
+            echo "No un-processed post-mortem records; nothing to synthesize."
+            exit 0
+          fi
+          BODY=$(cat <<EOF
+          Consolidate the ${COUNT} un-processed post-mortem record(s) on the
+          \`postmortem-data\` branch (\`docs/postmortems/PR-*.json\`) into one
+          improvement PR.
+
+          Follow \`.github/instructions/postmortem.instructions.md\`. Open a
+          single human-gated PR editing the coding-agent steering files; put
+          ticket-description suggestions in the PR body as prose; include an
+          AI-use disclosure; move consumed records to
+          \`docs/postmortems/processed/\`.
+          EOF
+          )
+          ASSIGNEE_FLAG=""
+          if [ -n "${COPILOT_ASSIGNEE}" ]; then
+            ASSIGNEE_FLAG="--assignee ${COPILOT_ASSIGNEE}"
+          fi
+          gh issue create --repo "${REPO}" \
+            --title "Post-mortem synthesis $(date +%F)" \
+            --body "${BODY}" ${ASSIGNEE_FLAG}
