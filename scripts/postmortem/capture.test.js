@@ -121,7 +121,7 @@ test("buildPostmortemRecord: assembles spec-shaped record, no human login", () =
   assert.equal(rec.jiraKey, "AI-179");
   assert.equal(rec.stats.additions, 1196);
   assert.equal(rec.stats.commits, 2);
-  assert.equal(rec.stats.reviewCycles, 1); // deduped human reviewer
+  assert.equal(rec.stats.reviewCycles, 2); // 2 human review submissions
   assert.equal(rec.stats.reviewComments, 3);
   assert.equal(rec.stats.timeToMergeMinutes, 1440);
   assert.equal(rec.stats.timeToFirstGreenCiMinutes, 40);

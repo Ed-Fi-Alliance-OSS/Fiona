@@ -52,7 +52,6 @@ jobs:
             git rm -rf --cached . >/dev/null 2>&1 || true
             git clean -fd >/dev/null 2>&1 || true
           fi
-          mkdir -p docs/postmortems/processed
           cp "/tmp/PR-${PR_NUMBER}.json" "${RECORD}"
           git add "${RECORD}"
           if git diff --cached --quiet; then
