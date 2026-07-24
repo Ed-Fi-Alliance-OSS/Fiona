@@ -35,3 +35,53 @@ export function classifyParticipantKind(login) {
   }
   return "human";
 }
+
+export function deriveCiFailures(checkRuns) {
+  const failures = { lint: 0, test: 0, build: 0 };
+  for (const run of checkRuns || []) {
+    if (run.conclusion !== "failure") continue;
+    const name = String(run.name || "").toLowerCase();
+    if (name.includes("lint")) failures.lint += 1;
+    else if (name.includes("test")) failures.test += 1;
+    else if (name.includes("build")) failures.build += 1;
+  }
+  return failures;
+}
+
+export function deriveMinutesBetween(startISO, endISO) {
+  if (!startISO || !endISO) return null;
+  const start = new Date(startISO).getTime();
+  const end = new Date(endISO).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.round((end - start) / 60000);
+}
+
+export function deriveTimeToFirstGreen(checkRuns, prCreatedAt) {
+  const greens = (checkRuns || [])
+    .filter((r) => r.conclusion === "success" && r.completedAt)
+    .map((r) => new Date(r.completedAt).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (!greens.length || !prCreatedAt) return null;
+  const firstGreenISO = new Date(Math.min(...greens)).toISOString();
+  return deriveMinutesBetween(prCreatedAt, firstGreenISO);
+}
+
+export function buildParticipants(prAuthorLogin, reviews) {
+  const participants = [
+    { role: "author", kind: classifyParticipantKind(prAuthorLogin), association: "AUTHOR" },
+  ];
+  const seen = new Set();
+  for (const review of reviews || []) {
+    const kind = classifyParticipantKind(review.author?.login);
+    const association = review.authorAssociation || "NONE";
+    const key = `${kind}:${association}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    participants.push({
+      role: kind === "copilot-bot" ? "copilot-bot" : "human-reviewer",
+      kind,
+      association,
+    });
+  }
+  return participants;
+}
