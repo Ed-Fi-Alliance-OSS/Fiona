@@ -15,7 +15,9 @@ export { FEEDBACK_RESPONSE_TYPES };
 const FEEDBACK_BLOCK_PREFIX = 'feedback';
 
 export function buildFeedbackBlockId(responseType = FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType = null) {
-  return interactionType ? `${FEEDBACK_BLOCK_PREFIX}|${responseType}|${interactionType}` : `${FEEDBACK_BLOCK_PREFIX}|${responseType}`;
+  return interactionType
+    ? `${FEEDBACK_BLOCK_PREFIX}|${responseType}|${interactionType}`
+    : `${FEEDBACK_BLOCK_PREFIX}|${responseType}`;
 }
 
 export function parseFeedbackBlockId(blockId) {
@@ -37,10 +39,7 @@ export function parseFeedbackBlockId(blockId) {
   };
 }
 
-export function createFeedbackBlock({
-  responseType = FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
-  interactionType = null,
-} = {}) {
+export function createFeedbackBlock({ responseType = FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType = null } = {}) {
   return {
     type: 'context_actions',
     block_id: buildFeedbackBlockId(responseType, interactionType),
@@ -61,6 +60,6 @@ export function createFeedbackBlock({
       },
     ],
   };
-};
+}
 
 export const feedbackBlock = createFeedbackBlock();

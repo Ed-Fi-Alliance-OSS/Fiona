@@ -81,7 +81,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     await ack();
-    let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? searchQuery ?? null : null;
+    let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null;
     let botResponse = null;
     try {
       if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {

@@ -96,7 +96,9 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
           thread_ts,
           responseType,
           interactionType,
-          ...(responseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? { searchQuery: extractSearchQuery(body.message?.text) } : {}),
+          ...(responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
+            ? { searchQuery: extractSearchQuery(body.message?.text) }
+            : {}),
         }),
         blocks: [
           {
