@@ -104,6 +104,36 @@ actually reads it.**
    intent-alignment outcome, verification results, any justified scope
    exceptions.
 
+### 3.2a Proportional discipline (right-sized ceremony)
+
+The full ceremony above is calibrated for a **Standard (Medium)** change. To
+avoid burdening trivial work, `copilot-instructions.md` defines two paths keyed
+to objective triggers the agent evaluates first, before planning.
+
+**Fast path — a change qualifies as "Small" when ALL of these hold:**
+
+- touches ≲ 2 files and ≲ ~50 changed lines, and
+- adds no new module, dependency, or public interface / API surface, and
+- feasibility score is **1**.
+
+**Fast path trims (steps 2, 4, 7) to a lightweight form:**
+
+- **Plan:** replace the formal posted plan with a **1–2 sentence intent note**
+  in the PR body (what + why + which test proves it). No feasibility writeup.
+- **Scope-drift check:** implicit — the small-change triggers already bound
+  scope; only call out drift if the change outgrows the Small thresholds
+  (in which case escalate to the Standard path).
+- **PR body:** short form — summary + the intent note + verification result.
+
+**Non-negotiable on every path (never trimmed):**
+
+- **Fail-first TDD** (step 3) — this is the core purpose of the agent.
+- **Local lint + test green before PR** (step 5) — this is the PR #81 lesson.
+- **License headers** (step 6).
+
+**Standard path** applies to anything not meeting all Small triggers (score 2).
+**Score 3–4** still stops and decomposes regardless of path.
+
 ### 3.3 Trigger contract (documented, not built)
 
 Documented in `copilot-instructions.md` and/or a short
@@ -250,8 +280,17 @@ Two plans (approved):
 
 ## 10. Open assumptions to confirm during implementation
 
-1. Copilot coding agent reliably loads `.github/copilot-instructions.md` in this
-   org's configuration.
+1. **Copilot coding agent loads `.github/copilot-instructions.md`** —
+   ✅ *confirmed at the docs level*: GitHub Docs state the file is committed to
+   the repo, requires no opt-in, is auto-added to every request, and explicitly
+   applies to "the cloud agent" (the coding agent). Path-specific
+   `.github/instructions/*.instructions.md` with `applyTo` frontmatter is a
+   supported companion mechanism (used for §4.2 synthesis steering). **Remaining
+   validation (Plan 1 step):** empirically confirm *this org's* Copilot config
+   honors it by assigning a trivial task after adding a small, observable
+   directive, then checking the PR's References list / behavior.
+   Sources: [GitHub Docs — repository custom instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot),
+   [Adding repository custom instructions in your IDE](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions-in-your-ide/add-repository-instructions-in-your-ide).
 2. `GITHUB_TOKEN` in Actions has sufficient scope to read reviews/comments/check
    runs for capture.
 3. A weekly cadence is the right default for synthesis (adjustable).
