@@ -1,6 +1,6 @@
 ---
 name: automate-bug-fix
-description: Use when triaging and fixing Jira bugs that are marked ready for work; performs validation, feasibility scoring, scoped planning, fail-first tests, intent alignment checks, constrained refactor, lint/test verification, and PR creation.
+description: Use when triaging and fixing Jira bugs that are marked ready for work; reads the live Jira ticket read-only as the source of truth, performs validation, feasibility scoring, scoped planning, fail-first tests, intent alignment checks, constrained refactor, lint/test verification, and draft-then-ready-for-review PR creation.
 ---
 
 # Automate Bug Fix (Jira-Ready Workflow)
@@ -10,9 +10,12 @@ Goal: enforce a high-discipline flow from ticket validation to PR creation with 
 
 ## Inputs
 
-- Jira issue link or ticket details
-- Target repository and branch context
-- Any acceptance criteria or reproduction details from the bug report
+- A Jira issue key (from a Jira→Copilot assignment, an explicit key, or manual
+  invocation). Read the live ticket read-only via the Atlassian MCP server — it
+  is the source of truth. There is no GitHub issue in the flow.
+- Target repository and branch context.
+- Acceptance criteria or reproduction details are read from the live ticket, not
+  from a pasted snapshot.
 
 ## Guardrails
 
@@ -33,7 +36,7 @@ Perform basic checks before coding:
 - acceptance criteria / definition of done
 - environmental/context details needed to reproduce (if applicable)
 
-If required information is missing, stop and leave a comment detailing what is missing.
+If required information is missing, STOP and notify the requester with a message detailing what is missing. Jira is read-only — do not comment on the ticket, and there is no GitHub issue to comment on. Do not open a pull request for an unworkable ticket.
 
 If sufficient, create a commit that captures triage/readiness artifacts (if any files were updated) and leave a validation comment summarizing:
 
