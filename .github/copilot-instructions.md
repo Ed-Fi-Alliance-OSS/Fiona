@@ -6,10 +6,10 @@ including the Copilot coding agent. Follow them for every task.
 ## Preferred agent
 
 For implementation tickets assigned from Jira (bug fixes and features), prefer
-the **coding-agent** custom agent (`.github/agents/coding-agent.agent.md`) and
-the skills it carries. The instructions below are the always-on baseline for
-all Copilot work; the coding-agent is the selectable persona for implementation
-work and layers on top of them.
+the **coding-agent** custom agent (`.github/agents/coding-agent.agent.md`). The
+instructions below are the always-on baseline for all Copilot work; the
+coding-agent is the selectable persona for implementation work and layers on
+top of them.
 
 ## Source of truth: the Jira ticket
 
@@ -89,6 +89,6 @@ For Small changes, trim the ceremony:
 The detailed, high-discipline implementation workflow (ticket validation,
 scoped plan, fail-first tests, intent-alignment iterations, scope-drift check,
 verification, PR) lives in the **coding-agent** custom agent
-(`.github/agents/coding-agent.agent.md`). Lean on that agent and the skills it
-carries for implementation tickets. These instructions remain the always-on
-baseline that applies underneath it.
+(`.github/agents/coding-agent.agent.md`). Lean on that agent for implementation
+tickets. These instructions remain the always-on baseline that applies
+underneath it.
