@@ -76,24 +76,26 @@ jobs:
             --overwrite
 
       - name: Generate SAS URL and write latest-link.json pointer
+        env:
+          AZURE_STORAGE_ACCOUNT_KEY: ${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }}
         run: |
           PDF_FILE_NAME=$(jq -r .pdfFileName reports/report-meta.json)
           WEEK_START=$(jq -r .weekStart reports/report-meta.json)
           WEEK_END=$(jq -r .weekEnd reports/report-meta.json)
           DEPLOYMENT_TYPE_VALUE=$(jq -r .deploymentType reports/report-meta.json)
 
-          # Azure AD user delegation SAS (--as-user, no shared account key)
-          # has a hard 7-day maximum lifetime -- 6 days here to leave margin
-          # for clock skew/propagation delay.
-          EXPIRY=$(date -u -d '+6 days' '+%Y-%m-%dT%H:%MZ')
+          # Account-key-signed service SAS (7 days, matching the weekly report
+          # cycle). User delegation SAS (--as-user) was replaced because it
+          # requires the Storage Blob Delegator role; using the account key
+          # avoids that RBAC dependency.
+          EXPIRY=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%MZ')
           SAS_TOKEN=$(az storage blob generate-sas \
             --account-name "$AZURE_STORAGE_ACCOUNT" \
             --container-name "$AZURE_STORAGE_CONTAINER" \
             --name "$PDF_FILE_NAME" \
             --permissions r \
             --expiry "$EXPIRY" \
-            --auth-mode login \
-            --as-user \
+            --account-key "$AZURE_STORAGE_ACCOUNT_KEY" \
             --output tsv)
           BLOB_URL="https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_STORAGE_CONTAINER}/${PDF_FILE_NAME}?${SAS_TOKEN}"
 

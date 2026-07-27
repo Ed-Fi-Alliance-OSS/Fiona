@@ -123,15 +123,23 @@ design, including this pipeline.
 2. Create a dedicated service principal for the workflow, scoped to:
    - `Cosmos DB Data Reader` (data-plane role, via
      `az cosmosdb sql role assignment create`) on the `chatbot` database
-   - `Storage Blob Data Contributor` **and** `Storage Blob Delegator` (the
-     latter is required for `az storage blob generate-sas --as-user`) on the
-     `usage-reports` container
+   - `Storage Blob Data Contributor` on the `usage-reports` container
 3. Store its credentials JSON (`az ad sp create-for-rbac --sdk-auth`-style
    output) as the GitHub secret `USAGE_REPORT_PDF_CREDENTIALS`.
-4. Grant the deployed Function's managed identity `Storage Blob Data
+4. Retrieve the storage account key and store it as the GitHub secret
+   `AZURE_STORAGE_ACCOUNT_KEY`. The workflow uses it to sign the SAS token for
+   the PDF download link (account-key SAS avoids the `Storage Blob Delegator`
+   role requirement that user delegation SAS imposes):
+   ```shell
+   az storage account keys list \
+     --account-name fionausagereportsa \
+     --resource-group edfi-fiona-rg \
+     --query '[0].value' -o tsv
+   ```
+5. Grant the deployed Function's managed identity `Storage Blob Data
    Reader` on the same container (see step 2 of Manual Setup Steps above),
    so it can read `latest-link.json`.
-5. Set the Function app setting `USAGE_REPORTS_STORAGE_ACCOUNT_URL` (see
+6. Set the Function app setting `USAGE_REPORTS_STORAGE_ACCOUNT_URL` (see
    step 4 above).
 
 ### How it fits together
@@ -141,9 +149,8 @@ design, including this pipeline.
   same week), generates the PDF via
   `scripts/generate-executive-report-artifact.js`, uploads it to
   `usage-reports/executive-report-<deploymentType>-<start>-to-<end>.pdf`,
-  generates a 6-day SAS URL for it (the Azure AD user delegation SAS this
-  uses has a hard 7-day maximum lifetime, so each week's link stays valid
-  through roughly the next week's message before expiring) and overwrites
+  generates a 7-day account-key SAS URL for it (so each week's link stays
+  valid through the next week's message) and overwrites
   `usage-reports/latest-link.json` with `{ url, weekStart, weekEnd,
   deploymentType }`.
 - `WeeklyReportTrigger` reads that pointer before posting; if it's missing
