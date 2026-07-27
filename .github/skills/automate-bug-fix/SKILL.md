@@ -38,7 +38,7 @@ Perform basic checks before coding:
 
 If required information is missing, STOP and notify the requester with a message detailing what is missing. Jira is read-only — do not comment on the ticket, and there is no GitHub issue to comment on. Do not open a pull request for an unworkable ticket.
 
-If sufficient, create a commit that captures triage/readiness artifacts (if any files were updated) and leave a validation comment summarizing:
+If sufficient, create a commit that captures triage/readiness artifacts (if any files were updated) and record a validation note in the commit message and PR body summarizing:
 
 - what was validated
 - assumptions made
@@ -74,7 +74,7 @@ Score feasibility using this rubric:
 Decision:
 
 - If score is **1-2**, commit the plan and continue.
-- If score is **3-4**, abort implementation and provide a breakdown into smaller, independently reviewable issues.
+- If score is **3-4**, abort implementation and provide a breakdown into smaller, independently reviewable tickets.
 
 ### 4) Define Tests First (Failing)
 
