@@ -40,6 +40,16 @@ CAPTURE_ALL_CONVERSATIONS=true
 DEPLOYMENT_TYPE=local
 ```
 
+`CAPTURE_ALL_CONVERSATIONS=true` still enables capture transitionally — it seeds
+the `conversationCapture` feature-flag default. Alternatively (or to control
+`escalate` as well), seed a `local:global` feature-flag document, which takes
+precedence over the env-var default:
+
+```pwsh
+cd apps/fiona-slack
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run seed:feature-flags -- --environment=local --global --flag conversationCapture=true --flag escalate=true
+```
+
 ### 2. Create containers
 
 ```pwsh

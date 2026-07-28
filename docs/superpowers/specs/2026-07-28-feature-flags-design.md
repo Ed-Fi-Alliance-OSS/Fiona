@@ -154,6 +154,9 @@ To prove the interface end-to-end, migrate the two existing informal toggles:
 2. **`escalate`** — gate `/fiona escalate` behind
    `isFeatureEnabled('escalate', { userId })`, enabling per-user beta control of
    the command.
+   - Note: `escalate` is gated at BOTH the slash-command handler and the
+     keyword/@-mention path (`escalateViaSay`), so per-user beta targeting cannot
+     be bypassed via @-mention.
 
 New features gate themselves by calling the same function.
 
