@@ -3,7 +3,13 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } from '../listeners/commands/command-handler.js';
+import {
+  ESCALATE_CONFIRM_TEXT,
+  ESCALATE_DM_TEXT,
+  ESCALATE_ERROR_TEXT,
+  ESCALATE_UNAVAILABLE_TEXT,
+} from '../listeners/commands/command-handler.js';
+import { isFeatureEnabled } from './feature-flags.js';
 import { recordFeedback } from './feedback-store.js';
 import { recordInteraction } from './interaction-store.js';
 import { summarizeForEscalation } from './llm-caller.js';
@@ -246,6 +252,13 @@ export async function escalateViaSay({
   say,
   logger,
 }) {
+  if (!(await isFeatureEnabled('escalate', { userId }, logger))) {
+    await say({ text: ESCALATE_UNAVAILABLE_TEXT, thread_ts: threadTs }).catch((err) =>
+      logger?.warn?.(`Failed to send escalation-unavailable notice: ${err.message}`),
+    );
+    return;
+  }
+
   const result = await postEscalation({
     client,
     userId,

@@ -13,8 +13,15 @@ jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ record
 jest.unstable_mockModule('../../src/agent/feedback-store.js', () => ({ recordFeedback: mockRecordFeedback }));
 jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize }));
 
+// Default to enabled so pre-existing (non-gating) escalateViaSay tests below don't
+// need to know about the flag; gating tests override with mockResolvedValueOnce.
+const mockIsFeatureEnabled = jest.fn().mockResolvedValue(true);
+jest.unstable_mockModule('../../src/agent/feature-flags.js', () => ({
+  isFeatureEnabled: mockIsFeatureEnabled,
+}));
+
 const { postEscalation, escalateViaSay } = await import('../../src/agent/escalation.js');
-const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } = await import(
+const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT, ESCALATE_UNAVAILABLE_TEXT } = await import(
   '../../src/listeners/commands/command-handler.js'
 );
 
@@ -195,6 +202,33 @@ describe('escalateViaSay', () => {
         errorType: 'channel_not_configured',
       }),
     );
+  });
+
+  describe('feature-flag gating', () => {
+    it('checks isFeatureEnabled with the escalate flag and the user id', async () => {
+      const args = sayArgs();
+      await escalateViaSay(args);
+      expect(mockIsFeatureEnabled).toHaveBeenCalledWith('escalate', { userId: 'U1' }, args.logger);
+    });
+
+    it('says the unavailable message in-thread and skips postEscalation when disabled', async () => {
+      mockIsFeatureEnabled.mockResolvedValueOnce(false);
+      const args = sayArgs();
+      await escalateViaSay(args);
+      expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_UNAVAILABLE_TEXT, thread_ts: '999.000' });
+      // postEscalation posts to the escalation channel and records the interaction;
+      // neither should happen when the flag short-circuits first.
+      expect(args.client.chat.postMessage).not.toHaveBeenCalled();
+      expect(mockRecordInteraction).not.toHaveBeenCalled();
+    });
+
+    it('proceeds to postEscalation when enabled', async () => {
+      mockIsFeatureEnabled.mockResolvedValueOnce(true);
+      const args = sayArgs();
+      await escalateViaSay(args);
+      expect(args.client.chat.postMessage).toHaveBeenCalled();
+      expect(mockSay).toHaveBeenCalledWith({ text: ESCALATE_CONFIRM_TEXT, thread_ts: '999.000' });
+    });
   });
 });
 
