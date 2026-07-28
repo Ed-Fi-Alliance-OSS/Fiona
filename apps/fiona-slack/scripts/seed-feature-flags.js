@@ -27,7 +27,8 @@ import { config as loadDotenvConfig } from 'dotenv';
 
 export function loadDotenv() {
   loadDotenvConfig();
-  loadDotenvConfig({ path: path.resolve(import.meta.dirname, '..', '.env') });
+  // Fallback to cwd when import.meta.dirname isn't populated (e.g. under Jest's VM module loader).
+  loadDotenvConfig({ path: path.resolve(import.meta.dirname ?? process.cwd(), '..', '.env') });
 }
 
 /**
@@ -167,17 +168,105 @@ export async function upsertFlags(id, flags) {
   return true;
 }
 
+/**
+ * Resolve the required ticket key for --delivery mode.
+ * @param {string[]} argv
+ * @returns {string}
+ */
+export function resolveTicket(argv) {
+  const ticket = getArg(argv, 'ticket');
+  if (!ticket || ticket === true) throw new Error('--ticket <TICKET> is required for --delivery mode');
+  return String(ticket);
+}
+
+/**
+ * Parse a comma-separated --target list into an array of user ids.
+ * @param {string[]} argv
+ * @returns {string[]}
+ */
+export function parseTargetUsers(argv) {
+  const raw = getArg(argv, 'target');
+  if (!raw || raw === true) return [];
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Upsert a delivery-flag document, preserving `createdAt` across updates.
+ * @param {string} id
+ * @param {{ticket: string, capability?: string, owner?: string, enabled?: boolean, targetUsers?: string[]}} fields
+ * @returns {Promise<boolean>} true when written, false when Cosmos is unconfigured
+ */
+export async function upsertDelivery(id, fields) {
+  const container = getContainer();
+  if (!container) {
+    console.log('CosmosDB not configured — nothing written. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.');
+    return false;
+  }
+
+  let createdAt;
+  try {
+    const { resource } = await container.item(id, id).read();
+    if (resource?.createdAt) createdAt = resource.createdAt;
+  } catch (error) {
+    const code = Number(error?.code ?? error?.statusCode);
+    if (code !== 404) throw error;
+  }
+
+  const now = new Date().toISOString();
+  const doc = {
+    id,
+    kind: 'delivery',
+    ticket: fields.ticket,
+    capability: fields.capability ?? null,
+    owner: fields.owner ?? null,
+    enabled: fields.enabled ?? false,
+    targetUsers: fields.targetUsers ?? [],
+    createdAt: createdAt ?? now,
+    updatedAt: now,
+  };
+  await container.items.upsert(doc, { partitionKey: id });
+  return true;
+}
+
+/**
+ * Delete a delivery-flag document.
+ * @param {string} id
+ * @returns {Promise<boolean>} true when removed, false when Cosmos is unconfigured
+ */
+export async function removeDelivery(id) {
+  const container = getContainer();
+  if (!container) {
+    console.log('CosmosDB not configured — nothing to remove. Set COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT.');
+    return false;
+  }
+  await container.item(id, id).delete();
+  return true;
+}
+
 export function printUsage() {
   console.log(`
 Usage: node seed-feature-flags.js --global|--user=<userId> --flag <name>=<true|false> [...]
+   or: node seed-feature-flags.js --delivery --ticket <TICKET> [options]
 
-Scope (one required):
+Capability mode — scope (one required):
   --global                 Write the <environment>:global document
   --user=<userId>          Write the <environment>:<userId> document
 
-Flags (one or more):
+Capability mode — flags (one or more):
   --flag <name>=<bool>     Set a flag; repeat for multiple flags
                            (e.g. --flag conversationCapture=true --flag escalate=false)
+
+Delivery mode:
+  --delivery               Operate on a delivery-flag document (id <environment>:delivery:<TICKET>)
+  --ticket=<TICKET>        Ticket key, e.g. AI-12345 (required with --delivery)
+  --capability=<name>      Capability this delivery is staged for (optional)
+  --owner=<owner>          Owner for early access, e.g. agent:x (optional)
+  --enabled=<bool>         Enable the delivery flag globally (default: false)
+  --target=<U1,U2>         Comma-separated user ids granted early access (default: none)
+  --remove                 Delete the delivery-flag document instead of upserting it
 
 Environment:
   --environment=<env>      insiders | production | local
@@ -192,6 +281,34 @@ Cosmos DB (via environment variables):
 `.trim());
 }
 
+async function runDelivery(argv, environment) {
+  const ticket = resolveTicket(argv);
+  const id = `${environment}:delivery:${ticket}`;
+
+  if (getArg(argv, 'remove') === true) {
+    console.log(`Removing delivery-flag document "${id}"`);
+    const removed = await removeDelivery(id);
+    if (removed) console.log('✅ Done.');
+    return;
+  }
+
+  const capability = getArg(argv, 'capability');
+  const owner = getArg(argv, 'owner');
+  const enabledArg = getArg(argv, 'enabled');
+  const enabled = enabledArg === undefined ? false : parseBool(enabledArg);
+  const targetUsers = parseTargetUsers(argv);
+
+  console.log(`Seeding delivery-flag document "${id}"`);
+  const written = await upsertDelivery(id, {
+    ticket,
+    capability: capability === true ? undefined : capability,
+    owner: owner === true ? undefined : owner,
+    enabled,
+    targetUsers,
+  });
+  if (written) console.log('✅ Done.');
+}
+
 export async function main(argv = process.argv) {
   loadDotenv();
 
@@ -201,6 +318,12 @@ export async function main(argv = process.argv) {
   }
 
   const environment = resolveEnvironment(argv);
+
+  if (getArg(argv, 'delivery') === true) {
+    await runDelivery(argv, environment);
+    return;
+  }
+
   const id = resolveDocId(argv, environment);
   const flags = parseFlagPairs(argv);
   if (Object.keys(flags).length === 0) {

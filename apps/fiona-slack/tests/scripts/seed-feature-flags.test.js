@@ -10,7 +10,8 @@ jest.unstable_mockModule('dotenv', () => ({ config: jest.fn() }));
 
 const mockRead = jest.fn();
 const mockUpsert = jest.fn().mockResolvedValue({});
-const mockItem = jest.fn(() => ({ read: mockRead }));
+const mockDelete = jest.fn().mockResolvedValue({});
+const mockItem = jest.fn(() => ({ read: mockRead, delete: mockDelete }));
 const mockContainerObj = { item: mockItem, items: { upsert: mockUpsert } };
 const mockDatabase = { container: jest.fn().mockReturnValue(mockContainerObj) };
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
@@ -20,10 +21,10 @@ const MockCosmosClient = jest.fn().mockImplementation(() => ({
 jest.unstable_mockModule('@azure/cosmos', () => ({ CosmosClient: MockCosmosClient }));
 jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 
-let resolveEnvironment, resolveDocId, parseFlagPairs, parseBool, upsertFlags;
+let resolveEnvironment, resolveDocId, parseFlagPairs, parseBool, upsertFlags, main;
 
 beforeAll(async () => {
-  ({ resolveEnvironment, resolveDocId, parseFlagPairs, parseBool, upsertFlags } = await import(
+  ({ resolveEnvironment, resolveDocId, parseFlagPairs, parseBool, upsertFlags, main } = await import(
     '../../scripts/seed-feature-flags.js'
   ));
 });
@@ -31,6 +32,7 @@ beforeAll(async () => {
 beforeEach(() => {
   mockRead.mockReset().mockResolvedValue({ resource: undefined });
   mockUpsert.mockClear().mockResolvedValue({});
+  mockDelete.mockClear().mockResolvedValue({});
   mockItem.mockClear();
   MockCosmosClient.mockClear();
   process.env.COSMOS_ENDPOINT = 'https://acct.documents.azure.com:443/';
@@ -150,6 +152,87 @@ describe('upsertFlags', () => {
     delete process.env.COSMOS_KEY;
     const written = await upsertFlags('local:global', { escalate: true });
     expect(written).toBe(false);
+    expect(MockCosmosClient).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+});
+
+// ── delivery mode (main) ────────────────────────────────────────────────────
+
+describe('delivery mode', () => {
+  it('creates a delivery doc with the DEPLOYMENT_TYPE-scoped id and metadata, disabled by default', async () => {
+    mockRead.mockRejectedValueOnce({ code: 404 });
+    await main([
+      'node',
+      'seed-feature-flags.js',
+      '--delivery',
+      '--ticket',
+      'AI-12345',
+      '--capability',
+      'escalate',
+      '--owner',
+      'agent:x',
+      '--environment',
+      'insiders',
+    ]);
+    expect(mockItem).toHaveBeenCalledWith('insiders:delivery:AI-12345', 'insiders:delivery:AI-12345');
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    const [doc, options] = mockUpsert.mock.calls[0];
+    expect(doc).toMatchObject({
+      id: 'insiders:delivery:AI-12345',
+      kind: 'delivery',
+      ticket: 'AI-12345',
+      capability: 'escalate',
+      owner: 'agent:x',
+      enabled: false,
+      targetUsers: [],
+    });
+    expect(options).toEqual({ partitionKey: 'insiders:delivery:AI-12345' });
+  });
+
+  it('sets enabled and targetUsers when provided', async () => {
+    mockRead.mockRejectedValueOnce({ code: 404 });
+    await main([
+      'node',
+      'seed-feature-flags.js',
+      '--delivery',
+      '--ticket',
+      'AI-12345',
+      '--enabled',
+      'true',
+      '--target',
+      'U1,U2',
+      '--environment',
+      'production',
+    ]);
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc).toMatchObject({
+      id: 'production:delivery:AI-12345',
+      enabled: true,
+      targetUsers: ['U1', 'U2'],
+    });
+  });
+
+  it('--remove deletes the scoped delivery doc', async () => {
+    await main([
+      'node',
+      'seed-feature-flags.js',
+      '--delivery',
+      '--ticket',
+      'AI-12345',
+      '--remove',
+      '--environment',
+      'insiders',
+    ]);
+    expect(mockItem).toHaveBeenCalledWith('insiders:delivery:AI-12345', 'insiders:delivery:AI-12345');
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when Cosmos is unconfigured', async () => {
+    delete process.env.COSMOS_ENDPOINT;
+    delete process.env.COSMOS_KEY;
+    await main(['node', 'seed-feature-flags.js', '--delivery', '--ticket', 'AI-12345', '--environment', 'insiders']);
     expect(MockCosmosClient).not.toHaveBeenCalled();
     expect(mockUpsert).not.toHaveBeenCalled();
   });
