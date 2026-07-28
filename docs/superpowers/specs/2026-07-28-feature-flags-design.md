@@ -71,16 +71,31 @@ Exposed function:
 One Cosmos container `feature-flags`, `id` used as the partition key (matching
 the `slack-users` convention where `id` is both document id and partition key).
 
+Insiders (staging) and production share the **same Cosmos account and
+database**, distinguished today only by the `DEPLOYMENT_TYPE` label. To prevent
+the environments' flags from colliding, **every document id is scoped by
+`DEPLOYMENT_TYPE`** using the form `<deploymentType>:<scope>`:
+
 ```json
-{ "id": "global", "flags": { "conversationCapture": true, "escalate": false } }
-{ "id": "U123",   "flags": { "newCommand": true } }
+{ "id": "production:global", "flags": { "conversationCapture": true, "escalate": false } }
+{ "id": "insiders:global",   "flags": { "conversationCapture": true, "escalate": true } }
+{ "id": "production:U123",   "flags": { "newCommand": true } }
+{ "id": "insiders:U123",     "flags": { "newCommand": true } }
 ```
 
-- The `global` document holds fleet-wide kill-switch values.
-- A per-user document (`id` = Slack user ID, e.g. `U123`) holds that user's
-  overrides. Only flags the user explicitly overrides need to be present.
+- `<deploymentType>` is `process.env.DEPLOYMENT_TYPE`, defaulting to `local`
+  when unset (local development).
+- The `<deploymentType>:global` document holds that environment's fleet-wide
+  kill-switch values.
+- A per-user document (`<deploymentType>:<Slack user ID>`) holds that user's
+  overrides in that environment. Only flags the user explicitly overrides need
+  to be present.
 - A missing document or missing flag key means "no opinion at this layer" —
   resolution falls through to the next layer.
+
+Callers never construct these ids. They pass the logical `userId` (e.g.
+`U123`); the store prefixes `DEPLOYMENT_TYPE` internally. See
+[Environment Separation](#environment-separation).
 
 ## Flag Registry
 
@@ -202,12 +217,16 @@ const result = await postEscalation({ client, userId, /* … */ logger });
 
 ### Resolution trace
 
-Given this flag state:
+Given this flag state (production environment; ids are `DEPLOYMENT_TYPE`-scoped):
 
 ```json
-{ "id": "global", "flags": { "escalate": false } }
-{ "id": "U123",   "flags": { "escalate": true } }
+{ "id": "production:global", "flags": { "escalate": false } }
+{ "id": "production:U123",   "flags": { "escalate": true } }
 ```
+
+The callers below pass only the logical `userId`; the store resolves against the
+`production:`-prefixed ids because `DEPLOYMENT_TYPE=production` on this
+deployment. The identical `insiders:*` documents are never read here.
 
 | Caller                                   | Layer that decides         | Result  |
 | ---------------------------------------- | -------------------------- | ------- |
@@ -220,6 +239,39 @@ This is beta-gating and the kill-switch working together: `U123` (the beta user)
 has escalate while everyone else is blocked by the global `false`. Flipping
 `global.escalate` to `true` performs the GA rollout — no code change, effective
 within the cache TTL.
+
+## Environment Separation
+
+Insiders (staging) and production run as separate GitHub Environments / Container
+App deployments, but their `COSMOS_ENDPOINT` and `COSMOS_DATABASE` resolve to the
+**same Cosmos account and database**. Environments are distinguished only by the
+`DEPLOYMENT_TYPE` label (`insiders`, `production`, or `local` for dev). Feedback
+and other data already follow this convention — the environment is a tag on the
+records, not a separate store.
+
+Feature flags must therefore isolate environments in the **data model**, not by
+relying on separate stores:
+
+- The store computes `const scope = process.env.DEPLOYMENT_TYPE || 'local'` and
+  reads/writes documents with ids `${scope}:global` and `${scope}:${userId}`.
+- `getGlobalFlags` reads `${scope}:global`; `getUserFlags(userId)` reads
+  `${scope}:${userId}`.
+- Because the id is also the partition key, each environment's flags occupy a
+  distinct partition — no cross-environment reads or write contention.
+
+Consequences and guardrails:
+
+- **A production deploy cannot read or overwrite insiders' flags** (and vice
+  versa), even though they share a database.
+- Any admin script that seeds or edits flags MUST take an explicit
+  `--environment` (or read `DEPLOYMENT_TYPE`) and write the scoped id, so an
+  operator cannot accidentally edit production while targeting staging.
+- The **flag registry and its defaults live in code**, so they are identical
+  across environments and ship with the deploy — only the Cosmos *override*
+  documents differ per environment. This is intentional: defaults are a
+  code-review-gated safety net; per-environment divergence is data.
+- If the topology later changes to separate Cosmos accounts/databases per
+  environment, the scoping becomes harmless redundancy and needs no code change.
 
 ## Configuration
 
@@ -241,6 +293,9 @@ Unit tests mirroring the `slack-users-store` test style (Cosmos mocked):
   registry default + warning logged.
 - **Unknown flag**: returns `false`, logs warning, does not query Cosmos.
 - **Missing document / missing key**: falls through to the next layer.
+- **Environment scoping**: with `DEPLOYMENT_TYPE=production`, lookups target
+  `production:*` ids and never read `insiders:*`; unset `DEPLOYMENT_TYPE`
+  defaults to the `local:*` scope.
 - Store-level tests: retry on retryable codes, no-op when unconfigured.
 
 ## Future Extension: Azure App Configuration
