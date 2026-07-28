@@ -5,8 +5,8 @@
 
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
+import { isFeatureEnabled } from './feature-flags.js';
 
-const CAPTURE_ALL_CONVERSATIONS = process.env.CAPTURE_ALL_CONVERSATIONS === 'true';
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_KEY = process.env.COSMOS_KEY;
 const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
@@ -127,7 +127,7 @@ async function getContainer(logger) {
 
 /**
  * Capture a full conversation to Cosmos DB for human evaluation.
- * No-ops silently when CAPTURE_ALL_CONVERSATIONS is false or Cosmos is unconfigured.
+ * No-ops silently when the conversationCapture feature flag is off or Cosmos is unconfigured.
  *
  * @param {Object} capture
  * @param {string} capture.userId - Slack user ID
@@ -161,7 +161,7 @@ export async function captureConversation({
   sources,
   logger,
 }) {
-  if (!CAPTURE_ALL_CONVERSATIONS) return;
+  if (!(await isFeatureEnabled('conversationCapture', {}, logger))) return;
 
   try {
     const c = await getContainer(logger);
