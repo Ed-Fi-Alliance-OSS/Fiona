@@ -76,6 +76,9 @@ param usersContainerName string = 'slack-users'
 @description('Cosmos DB container name for full conversation capture')
 param conversationsContainerName string = 'conversations'
 
+@description('Cosmos DB container name for feature-flag documents')
+param featureFlagsContainerName string = 'feature-flags'
+
 @description('Enable capturing all conversations for human evaluation (default: false)')
 param captureAllConversations bool = false
 
@@ -288,6 +291,33 @@ resource conversationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
   }
 }
 
+// Feature Flags Container — holds `<deploymentType>:global` and `<deploymentType>:<userId>` flag documents
+resource featureFlagsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  name: featureFlagsContainerName
+  parent: sqlDatabase
+  properties: {
+    resource: {
+      id: featureFlagsContainerName
+      partitionKey: {
+        paths: [ '/id' ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/"_etag"/?' }
+        ]
+      }
+      // No TTL — feature-flag documents are configuration and must not expire
+    }
+    options: {}
+  }
+}
+
 // --- Container App (Socket Mode -- no ingress, fixed 1 replica) ---
 
 resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
@@ -385,6 +415,10 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
               value: conversationsContainerName
             }
             {
+              name: 'COSMOS_FEATURE_FLAGS_CONTAINER'
+              value: featureFlagsContainerName
+            }
+            {
               name: 'CAPTURE_ALL_CONVERSATIONS'
               value: captureAllConversations ? 'true' : 'false'
             }
@@ -418,6 +452,7 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
     interactionsContainer
     feedbackContainer
     conversationsContainer
+    featureFlagsContainer
   ]
 }
 
