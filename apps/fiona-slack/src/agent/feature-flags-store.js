@@ -90,13 +90,13 @@ function getDelayMs(policy, attempt) {
 }
 
 /**
- * Read a flags document by id with retry. Returns the document's `flags` object,
+ * Read a document by id with retry. Returns the raw Cosmos resource,
  * or null when Cosmos is unconfigured, the document is absent, or reads fail.
  * @param {string} id
  * @param {{ warn?: (msg: string) => void }} [logger]
- * @returns {Promise<Record<string, boolean> | null>}
+ * @returns {Promise<Record<string, any> | null>}
  */
-async function readFlagsDoc(id, logger) {
+async function readItem(id, logger) {
   const policy = getRetryPolicy();
   let forceRefresh = false;
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
@@ -104,7 +104,7 @@ async function readFlagsDoc(id, logger) {
       const c = await getContainer(logger, { forceRefresh });
       if (!c) return null;
       const { resource } = await c.item(id, id).read();
-      return resource?.flags ?? null;
+      return resource ?? null;
     } catch (error) {
       const code = toNumericCode(error);
       if (code === 404) return null;
@@ -124,8 +124,8 @@ async function readFlagsDoc(id, logger) {
  * @param {{ warn?: (msg: string) => void }} [logger]
  * @returns {Promise<Record<string, boolean> | null>}
  */
-export function getGlobalFlags(logger) {
-  return readFlagsDoc(`${scopePrefix()}:global`, logger);
+export async function getGlobalFlags(logger) {
+  return (await readItem(`${scopePrefix()}:global`, logger))?.flags ?? null;
 }
 
 /**
@@ -133,6 +133,17 @@ export function getGlobalFlags(logger) {
  * @param {{ warn?: (msg: string) => void }} [logger]
  * @returns {Promise<Record<string, boolean> | null>}
  */
-export function getUserFlags(userId, logger) {
-  return readFlagsDoc(`${scopePrefix()}:${userId}`, logger);
+export async function getUserFlags(userId, logger) {
+  return (await readItem(`${scopePrefix()}:${userId}`, logger))?.flags ?? null;
+}
+
+/**
+ * Read a delivery flag document (id `<scope>:delivery:<ticket>`).
+ * Returns the whole document, or null when unconfigured / absent / unreachable.
+ * @param {string} ticket
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<{ enabled?: boolean, targetUsers?: string[], [k: string]: any } | null>}
+ */
+export function getDeliveryFlag(ticket, logger) {
+  return readItem(`${scopePrefix()}:delivery:${ticket}`, logger);
 }

@@ -7,10 +7,12 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 
 const mockGetGlobalFlags = jest.fn();
 const mockGetUserFlags = jest.fn();
+const mockGetDeliveryFlag = jest.fn();
 
 jest.unstable_mockModule('../../src/agent/feature-flags-store.js', () => ({
   getGlobalFlags: mockGetGlobalFlags,
   getUserFlags: mockGetUserFlags,
+  getDeliveryFlag: mockGetDeliveryFlag,
 }));
 
 let isFeatureEnabled, __clearFeatureFlagCache;
@@ -19,6 +21,7 @@ beforeEach(async () => {
   jest.resetModules();
   mockGetGlobalFlags.mockReset().mockResolvedValue(null);
   mockGetUserFlags.mockReset().mockResolvedValue(null);
+  mockGetDeliveryFlag.mockReset().mockResolvedValue(null);
   delete process.env.FEATURE_FLAGS_CACHE_TTL_MS;
   ({ isFeatureEnabled, __clearFeatureFlagCache } = await import('../../src/agent/feature-flags.js'));
   __clearFeatureFlagCache();
@@ -111,5 +114,33 @@ describe('transitional conversationCapture default from CAPTURE_ALL_CONVERSATION
     const mod = await import('../../src/agent/feature-flags.js');
     mod.__clearFeatureFlagCache();
     expect(await mod.isFeatureEnabled('conversationCapture')).toBe(false);
+  });
+});
+
+describe('delivery flags', () => {
+  it('unknown non-delivery name warns and returns false (capability typo protection)', async () => {
+    const logger = { warn: jest.fn() };
+    expect(await isFeatureEnabled('escalte', { userId: 'U1' }, logger)).toBe(false);
+    expect(logger.warn).toHaveBeenCalled();
+    expect(mockGetDeliveryFlag).not.toHaveBeenCalled();
+  });
+
+  it('delivery-pattern name is not "unknown": no warn, absent doc → false (dark)', async () => {
+    const logger = { warn: jest.fn() };
+    mockGetDeliveryFlag.mockResolvedValue(null);
+    expect(await isFeatureEnabled('AI-12345', { userId: 'U1' }, logger)).toBe(false);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(mockGetDeliveryFlag).toHaveBeenCalledWith('AI-12345', logger);
+  });
+
+  it('returns enabled value when set', async () => {
+    mockGetDeliveryFlag.mockResolvedValue({ enabled: true, targetUsers: [] });
+    expect(await isFeatureEnabled('AI-12345', {})).toBe(true);
+  });
+
+  it('grants early access to a targetUser even while enabled is false', async () => {
+    mockGetDeliveryFlag.mockResolvedValue({ enabled: false, targetUsers: ['U1'] });
+    expect(await isFeatureEnabled('AI-12345', { userId: 'U1' })).toBe(true);
+    expect(await isFeatureEnabled('AI-12345', { userId: 'U2' })).toBe(false);
   });
 });

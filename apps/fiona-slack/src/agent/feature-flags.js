@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { getGlobalFlags, getUserFlags } from './feature-flags-store.js';
+import { getDeliveryFlag, getGlobalFlags, getUserFlags } from './feature-flags-store.js';
 
 /**
  * Known flags and their safe defaults. A flag not listed here is unknown:
@@ -21,6 +21,9 @@ export const FLAG_REGISTRY = {
 };
 
 const GLOBAL_CACHE_KEY = '__global__';
+
+/** Delivery-flag key pattern: name = work-item ticket key, e.g. AI-12345. */
+const DELIVERY_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;
 
 /** @type {Map<string, { value: Record<string, boolean> | null, expiresAt: number }>} */
 const cache = new Map();
@@ -50,7 +53,25 @@ export function __clearFeatureFlagCache() {
 }
 
 /**
+ * Resolve a delivery flag (name = ticket key): default dark, with targetUsers
+ * early access. Never throws; degrades to false (dark) on any store failure.
+ *
+ * @param {string} name
+ * @param {string | undefined} userId
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<boolean>}
+ */
+async function resolveDelivery(name, userId, logger) {
+  const doc = await cached(`delivery:${name}`, () => getDeliveryFlag(name, logger));
+  if (!doc) return false; // dark by default
+  if (userId && Array.isArray(doc.targetUsers) && doc.targetUsers.includes(userId)) return true;
+  return Boolean(doc.enabled);
+}
+
+/**
  * Resolve a feature flag: per-user override → global → registry default.
+ * A delivery-pattern name (ticket key, e.g. AI-12345) is resolved via its own
+ * delivery document instead of the capability registry.
  * Never throws; degrades to the registry default on any Cosmos failure.
  *
  * @param {string} flagName
@@ -59,13 +80,17 @@ export function __clearFeatureFlagCache() {
  * @returns {Promise<boolean>}
  */
 export async function isFeatureEnabled(flagName, opts = {}, logger) {
+  const { userId } = opts;
+
+  if (DELIVERY_KEY_PATTERN.test(flagName)) {
+    return resolveDelivery(flagName, userId, logger);
+  }
+
   const entry = FLAG_REGISTRY[flagName];
   if (!entry) {
     logger?.warn?.(`Unknown feature flag "${flagName}"; returning false.`);
     return false;
   }
-
-  const { userId } = opts;
   if (userId) {
     const userFlags = await cached(userId, () => getUserFlags(userId, logger));
     if (userFlags && flagName in userFlags) return Boolean(userFlags[flagName]);

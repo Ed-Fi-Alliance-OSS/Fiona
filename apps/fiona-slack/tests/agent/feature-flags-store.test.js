@@ -101,4 +101,21 @@ describe('reads with Cosmos configured', () => {
     expect(flags).toEqual({ escalate: true });
     expect(mockRead).toHaveBeenCalledTimes(2);
   });
+
+  it('getDeliveryFlag reads the scoped delivery id and returns the whole doc', async () => {
+    process.env.DEPLOYMENT_TYPE = 'insiders';
+    mockRead.mockResolvedValue({
+      resource: { id: 'insiders:delivery:AI-12345', kind: 'delivery', enabled: false, targetUsers: ['U1'] },
+    });
+    const store = await loadFresh();
+    const doc = await store.getDeliveryFlag('AI-12345', null);
+    expect(mockItem).toHaveBeenCalledWith('insiders:delivery:AI-12345', 'insiders:delivery:AI-12345');
+    expect(doc).toMatchObject({ kind: 'delivery', enabled: false, targetUsers: ['U1'] });
+  });
+
+  it('getDeliveryFlag returns null on 404', async () => {
+    mockRead.mockRejectedValue({ code: 404 });
+    const store = await loadFresh();
+    expect(await store.getDeliveryFlag('AI-99999', null)).toBeNull();
+  });
 });
