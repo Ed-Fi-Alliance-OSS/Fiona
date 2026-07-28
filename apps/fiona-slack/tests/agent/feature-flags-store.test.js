@@ -90,4 +90,15 @@ describe('reads with Cosmos configured', () => {
     expect(await store.getUserFlags('U123', logger)).toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to read feature-flags doc'));
   });
+
+  it('retries on a retryable error and returns the flags after a successful retry', async () => {
+    process.env.DEPLOYMENT_TYPE = 'production';
+    mockRead
+      .mockRejectedValueOnce({ code: 503, message: 'service unavailable' })
+      .mockResolvedValueOnce({ resource: { id: 'production:global', flags: { escalate: true } } });
+    const store = await loadFresh();
+    const flags = await store.getGlobalFlags(null);
+    expect(flags).toEqual({ escalate: true });
+    expect(mockRead).toHaveBeenCalledTimes(2);
+  });
 });
