@@ -3,19 +3,31 @@
 These instructions apply to all GitHub Copilot work in this repository,
 including the Copilot coding agent. Follow them for every task.
 
-## Source of truth: the ticket
+## Preferred agent
 
-- Treat the linked issue body (synced from Jira) as the source of truth.
+For implementation tickets assigned from Jira (bug fixes and features), prefer
+the **coding-agent** custom agent (`.github/agents/coding-agent.agent.md`). The
+instructions below are the always-on baseline for all Copilot work; the
+coding-agent is the selectable persona for implementation work and layers on
+top of them.
+
+## Source of truth: the Jira ticket
+
+- Treat the **live Jira ticket** (read-only, via the Atlassian MCP server) as
+  the source of truth. There is no GitHub issue in the flow. The ticket key
+  arrives from the Jira→Copilot assignment, an explicit key, or manual
+  invocation (see `docs/agents/coding-agent.md`).
 - Parse the bug or feature statement, any acceptance criteria, and the
-  reproduction steps and/or the expected behavior.
+  reproduction steps and/or the expected behavior directly from the ticket.
+- Jira access is read-only: never transition, comment on, or write to Jira.
 - If required information is missing (no clear statement, no acceptance
-  criteria, or no reproduction steps for a bug), STOP and comment describing
-  exactly what is missing. Do not guess.
+  criteria, or no reproduction steps for a bug), STOP and notify the requester
+  with a message describing exactly what is missing. Do not guess, and do not
+  open a pull request for an unworkable ticket.
 
 ## Right-size the ceremony first
 
-Before planning, score the change's feasibility (from
-`.github/skills/automate-bug-fix/SKILL.md`):
+Before planning, score the change's feasibility:
 
 1. **Score 1 (Small):** single reviewer, minimal context switching, focused files.
 1. **Score 2 (Medium):** reviewable by one reviewer with moderate context.
@@ -31,11 +43,11 @@ Then classify and act:
   the Small size triggers above).
 - **Large (score 3)** — attempt a decomposition: split the work into
   independently-reviewable slices. If a clean split exists, proceed on the
-  first slice as a Standard-path change and list the remaining slices (in the
-  PR body or as follow-up issues). If you cannot split it cleanly, STOP and
-  propose the decomposition instead of coding.
+  first slice as a Standard-path change and list the remaining slices in the PR
+  body (and recommend them to the requester as follow-up tickets). If you cannot
+  split it cleanly, STOP and propose the decomposition instead of coding.
 - **Too large (score 4)** — STOP and propose a decomposition into smaller,
-  independently reviewable issues instead of coding.
+  independently reviewable tickets instead of coding.
 
 ## Always required (every path, never skipped)
 
@@ -74,8 +86,9 @@ For Small changes, trim the ceremony:
 
 ## Deep playbook
 
-For bug tickets, the full high-discipline workflow (readiness validation,
+The detailed, high-discipline implementation workflow (ticket validation,
 scoped plan, fail-first tests, intent-alignment iterations, scope-drift check,
-verification, PR) is documented in
-`.github/skills/automate-bug-fix/SKILL.md`. This file is the always-on
-summary; that skill is the detailed reference. Keep the two consistent.
+verification, PR) lives in the **coding-agent** custom agent
+(`.github/agents/coding-agent.agent.md`). Lean on that agent for implementation
+tickets. These instructions remain the always-on baseline that applies
+underneath it.
