@@ -3,8 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { isFeatureEnabled } from '../../agent/feature-flags.js';
 import { postEscalation } from '../../agent/escalation.js';
+import { isFeatureEnabled } from '../../agent/feature-flags.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import {
