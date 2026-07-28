@@ -127,7 +127,160 @@ Consequence: a global value of `false` disables a feature for everyone *unless*
 a user has an explicit `true` override. This is how kill-switch and beta-gating
 coexist without conflict.
 
-Unknown flag (not in registry): log a warning, return `false`, skip Cosmos.
+Unknown flag (not in registry) **that is not a delivery-flag key** (see
+[Flag Tiers](#flag-tiers-capability-vs-delivery)): log a warning, return
+`false`, skip Cosmos. A name matching the delivery-flag key pattern is *not*
+unknown — it resolves through the delivery path below.
+
+## Flag Tiers: Capability vs Delivery
+
+Flags come in two tiers that share the same `isFeatureEnabled(name, { userId })`
+call but differ in lifetime, how they are registered, and where they are
+stored. This split is what lets the flag system serve both long-lived product
+capabilities and the short-lived, per-work-item gates an autonomous agentic
+workflow creates.
+
+### Capability flags (long-lived)
+
+- Represent a durable product capability: `escalate`, `conversationCapture`.
+- **Declared in code** (`FLAG_REGISTRY`) with a safe default; typo-protected
+  (an unknown non-delivery name warns and returns `false`).
+- Resolved as described in [Resolution Precedence](#resolution-precedence):
+  per-user → global → registry default.
+
+### Delivery flags (short-lived, per work item)
+
+- Represent one dev's or one agent's in-flight delivery of a slice of a
+  capability, tied to a work item. **The flag name *is* the work-item key**,
+  matched by the pattern `^[A-Z][A-Z0-9]+-\d+$` (e.g. `AI-12345`). This gives
+  ticket tracking for free and is a convention an agent can follow mechanically.
+- **Dynamic — no code change to create.** A delivery-pattern name is never
+  "unknown": it is a legitimate flag that **defaults to disabled** when no
+  document exists, which is exactly "merged to `main`, dark by default."
+- Stored as its **own document**, `id = <deploymentType>:delivery:<TICKET>`:
+
+  ```json
+  {
+    "id": "insiders:delivery:AI-12345",
+    "kind": "delivery",
+    "ticket": "AI-12345",
+    "capability": "escalate",
+    "owner": "agent:coding-agent",
+    "enabled": false,
+    "targetUsers": ["U123"],
+    "createdAt": "2026-07-28T00:00:00Z",
+    "updatedAt": "2026-07-28T00:00:00Z"
+  }
+  ```
+
+  - `enabled` — the global switch for this delivery (default `false` / absent =
+    dark). → deployment safety: nothing is live until it flips.
+  - `targetUsers` — the dev or agent who gets **early access while
+    `enabled:false`**. → keeps a parallel developer/agent on-track behind a
+    flag without a long-lived branch.
+  - `capability` — the capability flag this delivery contributes to. → the
+    "mix" of capability + delivery flags; used for tracking and, optionally,
+    composition (see the combined example).
+
+### Delivery-flag resolution
+
+For a delivery-pattern `name`, `isFeatureEnabled(name, { userId })`:
+
+1. Read `<deploymentType>:delivery:<name>`. Absent → `false` (dark by default).
+2. If `userId` is provided and `userId ∈ targetUsers` → `true` (owner early
+   access), regardless of `enabled`.
+3. Otherwise → the document's `enabled` boolean.
+
+Delivery resolution is independent of the capability registry — a delivery flag
+needs no `FLAG_REGISTRY` entry — but shares the same TTL cache and soft-fail
+degradation (absent/unreachable → `false`, i.e. dark, never a thrown error).
+
+## Delivery-Flag Lifecycle & the Autonomous Agent Workflow
+
+A delivery flag exists only for the life of a work item. Managed through the
+`seed-feature-flags` CLI (which already writes `DEPLOYMENT_TYPE`-scoped docs):
+
+1. **Create (on/near merge).** The agent gates its new behavior behind
+   `isFeatureEnabled('AI-12345', { userId })` and seeds the flag disabled:
+   `npm run seed:feature-flags -- --environment insiders --delivery \
+   --ticket AI-12345 --capability escalate --owner agent:coding-agent`
+   → doc with `enabled:false`. The change merges to `main` **dark** — no
+   long-lived branch, no extensive pre-merge gating, minimal blast radius.
+2. **Iterate.** Add the owner to `targetUsers` (early access) or, when ready,
+   flip `enabled:true` in insiders to validate before production.
+3. **Promote.** Flip `enabled:true` in `production` for a segment / everyone
+   once QA passes.
+4. **Remove.** After GA, delete the delivery doc
+   (`--remove`) and remove the code guard — or promote the behavior into a
+   capability flag if it stays a long-term toggle.
+
+This is the flow AI-140 describes (create FF around a ticket → push to `main`
+disabled by default → iterate → release → remove), and it is how the flag
+system rides the autonomous agentic bug-fix workflow (Epic AI-143): the flag
+key *is* the ticket, its metadata records owner and related capability, and its
+default-dark state is the deployment-safety guarantee.
+
+> **Out of scope (deferred):** A/B testing / experimentation. Listed as a
+> possibility in AI-140 but confirmed not required yet; the delivery-flag
+> `targetUsers` + `enabled` model covers the needed early-access and
+> segmented-rollout cases without it.
+
+## Worked Examples: Capability, Delivery, and Both
+
+### Capability flag, on its own
+
+Long-lived toggle for a durable capability (this is the shipped `escalate`
+gate):
+
+```js
+// escalate is a registered capability flag (default true).
+if (!(await isFeatureEnabled('escalate', { userId }, logger))) {
+  await respond({ response_type: 'ephemeral', text: ESCALATE_UNAVAILABLE_TEXT });
+  return;
+}
+await postEscalation({ client, userId, /* … */ logger });
+```
+
+### Delivery flag, on its own
+
+An agent ships new behavior under work item `AI-12345`. No `FLAG_REGISTRY`
+entry, no code edit to "register" it — merged to `main` dark, live only for its
+`targetUsers` until promoted:
+
+```js
+// AI-12345 is a delivery flag: dynamic, default-off, name == ticket key.
+if (await isFeatureEnabled('AI-12345', { userId }, logger)) {
+  return handleWithNewBehavior(); // dark in prod; live for the owning agent/dev
+}
+return handleWithCurrentBehavior();
+```
+
+### Both together — a delivery flag delivering a slice of a capability
+
+The common case: `AI-12345` delivers an enhancement to the already-GA
+`escalate` capability. The capability flag gates the feature as a whole; the
+delivery flag gates *the new slice* so its owner validates it before it reaches
+everyone:
+
+```js
+// Capability gate first: is escalate available to this user at all?
+if (!(await isFeatureEnabled('escalate', { userId }, logger))) {
+  await respond({ response_type: 'ephemeral', text: ESCALATE_UNAVAILABLE_TEXT });
+  return;
+}
+
+// Delivery gate: route to the AI-12345 enhancement only where it's enabled
+// (its targetUsers now, everyone once enabled:true), else the current path.
+if (await isFeatureEnabled('AI-12345', { userId }, logger)) {
+  await postEscalationV2({ client, userId, /* … */ logger }); // new delivery
+} else {
+  await postEscalation({ client, userId, /* … */ logger });   // current capability
+}
+```
+
+When `AI-12345` reaches GA, flip its `enabled:true`, then delete the delivery
+flag and fold `postEscalationV2` into `postEscalation` — the capability flag
+remains as the long-lived toggle.
 
 ## Caching & Degradation
 
