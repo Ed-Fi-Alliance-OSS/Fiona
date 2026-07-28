@@ -87,3 +87,29 @@ describe('degradation', () => {
     expect(await isFeatureEnabled('escalate', { userId: 'U1' })).toBe(true);
   });
 });
+
+describe('transitional conversationCapture default from CAPTURE_ALL_CONVERSATIONS', () => {
+  afterEach(() => {
+    delete process.env.CAPTURE_ALL_CONVERSATIONS;
+  });
+
+  it('defaults conversationCapture to true when CAPTURE_ALL_CONVERSATIONS=true and no documents exist', async () => {
+    process.env.CAPTURE_ALL_CONVERSATIONS = 'true';
+    jest.resetModules();
+    mockGetGlobalFlags.mockReset().mockResolvedValue(null);
+    mockGetUserFlags.mockReset().mockResolvedValue(null);
+    const mod = await import('../../src/agent/feature-flags.js');
+    mod.__clearFeatureFlagCache();
+    expect(await mod.isFeatureEnabled('conversationCapture')).toBe(true);
+  });
+
+  it('defaults conversationCapture to false when CAPTURE_ALL_CONVERSATIONS is unset', async () => {
+    delete process.env.CAPTURE_ALL_CONVERSATIONS;
+    jest.resetModules();
+    mockGetGlobalFlags.mockReset().mockResolvedValue(null);
+    mockGetUserFlags.mockReset().mockResolvedValue(null);
+    const mod = await import('../../src/agent/feature-flags.js');
+    mod.__clearFeatureFlagCache();
+    expect(await mod.isFeatureEnabled('conversationCapture')).toBe(false);
+  });
+});

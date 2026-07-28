@@ -11,7 +11,12 @@ import { getGlobalFlags, getUserFlags } from './feature-flags-store.js';
  * @type {Record<string, { default: boolean }>}
  */
 export const FLAG_REGISTRY = {
-  conversationCapture: { default: false },
+  // TRANSITIONAL: conversationCapture's default is seeded from the legacy
+  // CAPTURE_ALL_CONVERSATIONS env var so environments that had capture enabled
+  // keep capturing after this flag migration. Remove this fallback (set
+  // `default: false`) once every environment seeds a `<deploymentType>:global`
+  // feature-flag document with conversationCapture.
+  conversationCapture: { default: process.env.CAPTURE_ALL_CONVERSATIONS === 'true' },
   escalate: { default: true },
 };
 
