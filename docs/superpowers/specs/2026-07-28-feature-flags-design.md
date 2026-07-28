@@ -142,6 +142,85 @@ To prove the interface end-to-end, migrate the two existing informal toggles:
 
 New features gate themselves by calling the same function.
 
+## Worked Example: Gated Feature Behavior
+
+Two concrete call sites, showing the current code and the gated version. These
+also serve as the acceptance target for the retrofit.
+
+### Example A — global kill-switch (`conversationCapture`)
+
+Today the flag is a module-level constant in `conversation-capture-store.js`,
+evaluated **once at import**. Its value therefore cannot change without
+restarting the container, and it is global-only (no per-user notion):
+
+```js
+// current — conversation-capture-store.js
+const CAPTURE_ALL_CONVERSATIONS = process.env.CAPTURE_ALL_CONVERSATIONS === 'true';
+
+export async function captureConversation({ /* … */ logger }) {
+  if (!CAPTURE_ALL_CONVERSATIONS) return; // evaluated at import; needs restart to change
+  // … write conversation to Cosmos …
+}
+```
+
+Gated version — the guard becomes a runtime call. Toggling the `global`
+document's `conversationCapture` value flips capture on/off within the cache TTL
+(~30s), no redeploy:
+
+```js
+// gated — conversation-capture-store.js
+import { isFeatureEnabled } from './feature-flags.js';
+
+export async function captureConversation({ /* … */ logger }) {
+  if (!(await isFeatureEnabled('conversationCapture', {}, logger))) return;
+  // … write conversation to Cosmos …
+}
+```
+
+Behavior is preserved when nothing is configured: the registry default for
+`conversationCapture` is `false`, so an environment with no `feature-flags`
+container captures nothing — identical to today's default. During migration the
+existing `CAPTURE_ALL_CONVERSATIONS` env value can seed the `global` document.
+
+### Example B — per-user beta gating (`escalate`)
+
+Gate the `/fiona escalate` slash command at its handler, before calling
+`postEscalation`. Because the caller has the `userId`, this layer can target
+individual users:
+
+```js
+// gated — /fiona escalate handler
+import { isFeatureEnabled } from '../../agent/feature-flags.js';
+
+if (!(await isFeatureEnabled('escalate', { userId }, logger))) {
+  await respond({ response_type: 'ephemeral', text: ESCALATE_UNAVAILABLE_TEXT });
+  return; // feature off for this user — never reaches postEscalation
+}
+
+const result = await postEscalation({ client, userId, /* … */ logger });
+```
+
+### Resolution trace
+
+Given this flag state:
+
+```json
+{ "id": "global", "flags": { "escalate": false } }
+{ "id": "U123",   "flags": { "escalate": true } }
+```
+
+| Caller                                   | Layer that decides         | Result  |
+| ---------------------------------------- | -------------------------- | ------- |
+| `isFeatureEnabled('escalate', {userId:'U123'})` | per-user override (`true`) | enabled |
+| `isFeatureEnabled('escalate', {userId:'U999'})` | global (`false`)           | blocked |
+| `isFeatureEnabled('escalate')` (no user) | global (`false`)           | blocked |
+| Cosmos unreachable, any caller           | registry default (`true`)  | enabled |
+
+This is beta-gating and the kill-switch working together: `U123` (the beta user)
+has escalate while everyone else is blocked by the global `false`. Flipping
+`global.escalate` to `true` performs the GA rollout — no code change, effective
+within the cache TTL.
+
 ## Configuration
 
 New env vars (all optional, documented in `.env.sample`):
