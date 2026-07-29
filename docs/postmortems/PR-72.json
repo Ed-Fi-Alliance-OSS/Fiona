@@ -1,0 +1,61 @@
+{
+  "prNumber": 72,
+  "title": "[AI-141] Add new/returning users KPIs to weekly usage report",
+  "state": "merged",
+  "jiraKey": "AI-141",
+  "stats": {
+    "additions": 664,
+    "deletions": 4,
+    "changedFiles": 9,
+    "commits": 13,
+    "reviewCycles": 1,
+    "reviewComments": 1,
+    "timeToFirstGreenCiMinutes": 1311,
+    "timeToMergeMinutes": 1430,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 3,
+      "js": 6
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 1,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 5
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "copilot-bot",
+      "kind": "copilot-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "MEMBER"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:09:53.312Z"
+}

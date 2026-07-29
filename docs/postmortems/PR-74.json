@@ -1,0 +1,60 @@
+{
+  "prNumber": 74,
+  "title": "[AI-175] Add week-over-week longitudinal usage trend series",
+  "state": "merged",
+  "jiraKey": "AI-175",
+  "stats": {
+    "additions": 5501,
+    "deletions": 358,
+    "changedFiles": 40,
+    "commits": 56,
+    "reviewCycles": 3,
+    "reviewComments": 1,
+    "timeToFirstGreenCiMinutes": 14340,
+    "timeToMergeMinutes": 17180,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 7,
+      "yml": 1,
+      "json": 3,
+      "gitignore": 1,
+      "js": 27,
+      "example": 1
+    },
+    "testToSourceRatio": 0.93,
+    "docsTouched": true,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 1,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 6,
+      "feature": 27
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "MEMBER"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:09:50.981Z"
+}
