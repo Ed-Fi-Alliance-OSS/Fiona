@@ -16,6 +16,7 @@ import {
   deriveCiFailures,
   deriveMinutesBetween,
   deriveTimeToFirstGreen,
+  deriveChangeShape,
   buildParticipants,
   buildPostmortemRecord,
   writeRecord,
@@ -92,6 +93,27 @@ test("deriveTimeToFirstGreen: ignores sentinel zero-time green (e.g. license/cla
     ),
     null,
   );
+});
+
+test("deriveChangeShape: languages, test/source ratio, docs & deps flags", () => {
+  const files = [
+    { path: "apps/fiona-slack/src/search.js", additions: 40, deletions: 2 },
+    { path: "apps/fiona-slack/src/search.test.js", additions: 30, deletions: 0 },
+    { path: "apps/fiona-slack/src/index.js", additions: 5, deletions: 0 },
+    { path: "docs/README.md", additions: 5, deletions: 0 },
+    { path: "apps/fiona-slack/package.json", additions: 1, deletions: 1 },
+  ];
+  const shape = deriveChangeShape(files);
+  assert.deepEqual(shape.languages, { js: 3, md: 1, json: 1 });
+  assert.equal(shape.testToSourceRatio, 0.5); // 1 test file / 2 source files
+  assert.equal(shape.docsTouched, true);
+  assert.equal(shape.depsManifestTouched, true);
+  const none = deriveChangeShape([{ path: "docs/only.md", additions: 1, deletions: 0 }]);
+  assert.equal(none.testToSourceRatio, null); // no source files
+  assert.equal(none.docsTouched, true);
+  assert.deepEqual(deriveChangeShape([]), {
+    languages: {}, testToSourceRatio: null, docsTouched: false, depsManifestTouched: false,
+  });
 });
 
 test("buildParticipants: roles only, never emits human logins", () => {

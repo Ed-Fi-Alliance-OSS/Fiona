@@ -73,6 +73,34 @@ export function deriveTimeToFirstGreen(checkRuns, prCreatedAt) {
   return deriveMinutesBetween(prCreatedAt, firstGreenISO);
 }
 
+const TEST_PATH = /(\.test\.|\.spec\.|__tests__\/|\/tests?\/)/i;
+const DOC_PATH = /(\.md$|^docs\/)/i;
+const DEP_PATH = /((^|\/)package\.json$|package-lock\.json$|yarn\.lock$)/i;
+const SOURCE_EXT = /\.(js|mjs|cjs|ts|tsx|jsx|py|cs|go|rb|java|sh)$/i;
+
+export function deriveChangeShape(files) {
+  const list = files || [];
+  const languages = {};
+  let testFiles = 0;
+  let sourceFiles = 0;
+  let docsTouched = false;
+  let depsManifestTouched = false;
+  for (const f of list) {
+    const p = String(f.path || "");
+    if (p.includes(".")) {
+      const ext = p.split(".").pop().toLowerCase();
+      languages[ext] = (languages[ext] || 0) + 1;
+    }
+    if (DOC_PATH.test(p)) docsTouched = true;
+    if (DEP_PATH.test(p)) depsManifestTouched = true;
+    if (TEST_PATH.test(p)) testFiles += 1;
+    else if (SOURCE_EXT.test(p) && !DOC_PATH.test(p)) sourceFiles += 1;
+  }
+  const testToSourceRatio =
+    sourceFiles === 0 ? null : Math.round((testFiles / sourceFiles) * 100) / 100;
+  return { languages, testToSourceRatio, docsTouched, depsManifestTouched };
+}
+
 export function buildParticipants(prAuthorLogin, reviews) {
   const participants = [
     { role: "author", kind: classifyParticipantKind(prAuthorLogin), association: "AUTHOR" },
