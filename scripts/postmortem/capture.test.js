@@ -159,19 +159,24 @@ const RAW = {
     author: { login: "copilot-swe-agent" },
   },
   reviews: [
-    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED" },
-    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED" },
+    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED", submittedAt: "2026-07-24T10:00:00Z" },
+    { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED", submittedAt: "2026-07-24T12:00:00Z" },
   ],
   comments: [
     { body: "Let's use the SDK instead" }, { body: "nit: spacing" },
     { body: "this is wrong on empty input" },
   ],
   commits: [
-    { messageHeadline: "feat: add search" }, { messageHeadline: "fix: lint errors" },
+    { messageHeadline: "feat: add search", committedDate: "2026-07-23T18:00:00Z" },
+    { messageHeadline: "fix: lint errors", committedDate: "2026-07-24T11:00:00Z" },
   ],
   checkRuns: [
     { name: "Biome lint", conclusion: "failure", completedAt: "2026-07-23T16:20:00Z" },
     { name: "Unit tests", conclusion: "success", completedAt: "2026-07-23T16:40:00Z" },
+  ],
+  files: [
+    { path: "src/search.js", additions: 40, deletions: 2 },
+    { path: "src/search.test.js", additions: 30, deletions: 0 },
   ],
 };
 
@@ -192,6 +197,11 @@ test("buildPostmortemRecord: assembles spec-shaped record, no human login", () =
   assert.deepEqual(rec.signal.changeRequestThemes, []);
   assert.equal(rec.capturedAt, "2026-07-24T17:00:00.000Z");
   assert.ok(!JSON.stringify(rec).includes("roberthunterjr"), "no human login in record");
+  assert.deepEqual(rec.changeShape.languages, { js: 2 });
+  assert.equal(rec.changeShape.testToSourceRatio, 1);
+  assert.equal(rec.changeShape.docsTouched, false);
+  assert.equal(rec.changeShape.depsManifestTouched, false);
+  assert.equal(rec.signal.reworkAfterReview, true); // fix at 11:00 after first review 10:00
 });
 
 test("writeRecord: writes PR-<n>.json and returns its path", () => {

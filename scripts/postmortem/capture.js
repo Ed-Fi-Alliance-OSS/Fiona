@@ -137,7 +137,7 @@ export function buildParticipants(prAuthorLogin, reviews) {
 }
 
 export function buildPostmortemRecord(raw, now = new Date()) {
-  const { pr, reviews = [], comments = [], commits = [], checkRuns = [] } = raw;
+  const { pr, reviews = [], comments = [], commits = [], checkRuns = [], files = [] } = raw;
   const reviewCycles = (reviews || [])
     .filter((r) => classifyParticipantKind(r.author?.login) === "human").length;
   const commentClasses = { nit: 0, correctness: 0, rework: 0 };
@@ -163,9 +163,11 @@ export function buildPostmortemRecord(raw, now = new Date()) {
       timeToMergeMinutes: deriveMinutesBetween(pr.createdAt, pr.mergedAt),
       ciFailures: deriveCiFailures(checkRuns),
     },
+    changeShape: deriveChangeShape(files),
     signal: {
       commentClasses,
       followupCommits,
+      reworkAfterReview: deriveReworkAfterReview(commits, reviews),
       changeRequestThemes: [],
     },
     participants: buildParticipants(pr.author?.login, reviews),
@@ -187,7 +189,7 @@ export function fetchPrData(prNumber, deps = {}) {
     run([
       "pr", "view", String(prNumber),
       "--json",
-      "number,title,state,headRefName,additions,deletions,changedFiles,createdAt,mergedAt,closedAt,author,reviews,comments,commits",
+      "number,title,state,headRefName,additions,deletions,changedFiles,createdAt,mergedAt,closedAt,author,reviews,comments,commits,files",
     ]),
   );
   return {
@@ -195,6 +197,7 @@ export function fetchPrData(prNumber, deps = {}) {
     reviews: bundle.reviews || [],
     comments: bundle.comments || [],
     commits: bundle.commits || [],
+    files: bundle.files || [],
     checkRuns: runChecks(),
   };
 }
