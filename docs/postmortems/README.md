@@ -1,8 +1,7 @@
 # Post-mortem data store
 
 This directory holds per-PR post-mortem records that feed the post-mortem
-improvement loop (design spec
-`docs/superpowers/specs/2026-07-24-copilot-coding-and-postmortem-agents-design.md`).
+improvement loop. See `docs/agents/postmortem-agent.md` for the design.
 
 ## Where the data lives
 
@@ -14,14 +13,18 @@ improvement loop (design spec
 - This directory on `main` holds only this README and `.gitkeep` markers so
   the path exists; the JSON records accumulate on `postmortem-data`.
 - `processed/` holds records the synthesis step has already consumed, so they
-  are not re-synthesized.
+  are not re-synthesized (kept forever).
+- `digests/<date>.md` holds the de-identified, cumulative-aware summary each
+  synthesis run writes.
 
 ## Record shape
 
 See `buildPostmortemRecord` in `scripts/postmortem/capture.js` for the
 authoritative schema. Each record carries PR stats (size, review cycles,
-CI timing, CI-failure counts), coarse signal (comment classes, follow-up
-commit kinds), and participants.
+CI timing, CI-failure counts), `changeShape` (languages, test-to-source ratio,
+docs-touched, deps-manifest-touched — derived from the file list, not patch
+content), coarse signal (comment classes, follow-up commit kinds,
+`reworkAfterReview`), and participants.
 
 ## Privacy
 
