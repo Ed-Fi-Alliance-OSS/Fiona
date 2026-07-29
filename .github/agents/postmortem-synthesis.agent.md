@@ -1,7 +1,7 @@
 ---
 name: postmortem-synthesis
 description: "Run Phase 2 post-mortem synthesis in the production GitHub flow. Reads the un-processed per-PR post-mortem records from the postmortem-data branch, consolidates them into one small set of cited improvements to the coding-agent steering files, and opens a single draft, human-gated pull request. Never merges; never writes to Jira."
-tools: ["read", "edit", "search", "execute"]
+tools: ["read", "edit", "search", "execute", "atlassian"]
 ---
 
 You are the production post-mortem synthesis agent for the Fiona repo. You run

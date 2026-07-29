@@ -36,10 +36,13 @@ ticket-suggestions-as-prose rule, the AI-use disclosure, and the PII rule
 
 1. Read every `docs/postmortems/PR-*.json` in the working tree.
 2. Use `changeShape` and `signal.reworkAfterReview` as a prioritization index,
-   then deep-read the prioritized PRs' diff, comments, PR description, and Jira
-   ticket transiently (read-only) per `.github/instructions/postmortem.instructions.md`.
-   Aggregate `signal.commentClasses`, `signal.followupCommits`, and
-   `stats.ciFailures`; note review-cycle and CI-timing outliers. Ignore null fields.
+   then deep-read the prioritized PRs' diff, comments, and PR description
+   transiently (read-only) per `.github/instructions/postmortem.instructions.md`.
+   Also read the originating Jira ticket, but only if an Atlassian/Jira read
+   tool is available to this runtime; otherwise skip it and note the omission
+   in the summary. Aggregate `signal.commentClasses`, `signal.followupCommits`,
+   and `stats.ciFailures`; note review-cycle and CI-timing outliers. Ignore
+   null fields.
 3. Read the current steering files before proposing edits, so each edit fits
    the existing wording and structure.
 4. Make the smallest set of edits that the data supports. For each edit, cite

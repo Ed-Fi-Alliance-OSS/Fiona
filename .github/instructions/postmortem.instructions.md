@@ -46,8 +46,11 @@ never persist them verbatim:
   `depsManifestTouched` change was a real new dependency.
 - Review + issue comment threads — sentiment and the real reason for rework.
 - The PR description — stated intent, plan, scope.
-- The originating Jira ticket description — read-only via the Atlassian MCP;
-  was the concept under-specified going in. Never write to Jira.
+- The originating Jira ticket description — read-only via the Atlassian MCP,
+  best-effort and conditional on the runtime having Atlassian MCP access; was
+  the concept under-specified going in. If the runtime lacks Atlassian access,
+  skip this source and note the omission rather than blocking the analysis.
+  Never write to Jira.
 
 Cap the diff volume ingested per PR (sample large diffs by directory/file
 rather than ingesting everything).
