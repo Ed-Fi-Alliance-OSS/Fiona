@@ -77,6 +77,23 @@ test("deriveTimeToFirstGreen: minutes from PR creation to earliest success", () 
   assert.equal(deriveTimeToFirstGreen([], "2026-07-24T00:00:00Z"), null);
 });
 
+test("deriveTimeToFirstGreen: ignores sentinel zero-time green (e.g. license/cla)", () => {
+  const runs = [
+    { conclusion: "success", completedAt: "0001-01-01T00:00:00Z" },
+    { conclusion: "success", completedAt: "2026-07-24T00:30:00Z" },
+  ];
+  // The sentinel must not be treated as the earliest green.
+  assert.equal(deriveTimeToFirstGreen(runs, "2026-07-24T00:00:00Z"), 30);
+  // A green with only a sentinel timestamp yields no real green => null.
+  assert.equal(
+    deriveTimeToFirstGreen(
+      [{ conclusion: "success", completedAt: "0001-01-01T00:00:00Z" }],
+      "2026-07-24T00:00:00Z",
+    ),
+    null,
+  );
+});
+
 test("buildParticipants: roles only, never emits human logins", () => {
   const reviews = [
     { author: { login: "roberthunterjr" }, authorAssociation: "MEMBER", state: "COMMENTED" },

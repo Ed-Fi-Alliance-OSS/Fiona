@@ -65,7 +65,9 @@ export function deriveTimeToFirstGreen(checkRuns, prCreatedAt) {
   const greens = (checkRuns || [])
     .filter((r) => r.conclusion === "success" && r.completedAt)
     .map((r) => new Date(r.completedAt).getTime())
-    .filter((t) => !Number.isNaN(t));
+    // Drop the epoch-negative sentinel GitHub returns for status contexts
+    // with no real completion time (e.g. "0001-01-01T00:00:00Z" for license/cla).
+    .filter((t) => !Number.isNaN(t) && t > 0);
   if (!greens.length || !prCreatedAt) return null;
   const firstGreenISO = new Date(Math.min(...greens)).toISOString();
   return deriveMinutesBetween(prCreatedAt, firstGreenISO);
