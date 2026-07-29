@@ -26,15 +26,20 @@ ticket-suggestions-as-prose rule, the AI-use disclosure, and the PII rule
 - **Delivery:** apply the consolidated edits as **uncommitted** working-tree
   changes. Then move each consumed `docs/postmortems/PR-*.json` into
   `docs/postmortems/processed/` (use `git mv` so the move is stage-visible).
+- **Digest:** write `docs/postmortems/digests/<YYYY-MM-DD>.md` (de-identified,
+  cumulative-aware) on every run, including runs with no steering edits. It is
+  part of the uncommitted working-tree output for `git diff` review.
 - **Never** run `git commit`, `git push`, `gh pr create`, or `git merge`. The
   human reviews `git diff` and decides. You leave the tree dirty on purpose.
 
 ## Procedure
 
 1. Read every `docs/postmortems/PR-*.json` in the working tree.
-2. Aggregate the signal: `signal.commentClasses`, `signal.followupCommits`,
-   and `stats.ciFailures` across all records; note review-cycle and CI-timing
-   outliers. Ignore any field whose value is `null` (not captured).
+2. Use `changeShape` and `signal.reworkAfterReview` as a prioritization index,
+   then deep-read the prioritized PRs' diff, comments, PR description, and Jira
+   ticket transiently (read-only) per `.github/instructions/postmortem.instructions.md`.
+   Aggregate `signal.commentClasses`, `signal.followupCommits`, and
+   `stats.ciFailures`; note review-cycle and CI-timing outliers. Ignore null fields.
 3. Read the current steering files before proposing edits, so each edit fits
    the existing wording and structure.
 4. Make the smallest set of edits that the data supports. For each edit, cite
