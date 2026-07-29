@@ -101,6 +101,21 @@ export function deriveChangeShape(files) {
   return { languages, testToSourceRatio, docsTouched, depsManifestTouched };
 }
 
+export function deriveReworkAfterReview(commits, reviews) {
+  const humanReviewTimes = (reviews || [])
+    .filter((r) => classifyParticipantKind(r.author?.login) === "human" && r.submittedAt)
+    .map((r) => new Date(r.submittedAt).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (!humanReviewTimes.length) return false;
+  const firstReview = Math.min(...humanReviewTimes);
+  for (const c of commits || []) {
+    if (classifyFollowupCommit(c.messageHeadline || c.message) !== "fix") continue;
+    const t = new Date(c.committedDate || c.authoredDate || 0).getTime();
+    if (!Number.isNaN(t) && t > firstReview) return true;
+  }
+  return false;
+}
+
 export function buildParticipants(prAuthorLogin, reviews) {
   const participants = [
     { role: "author", kind: classifyParticipantKind(prAuthorLogin), association: "AUTHOR" },

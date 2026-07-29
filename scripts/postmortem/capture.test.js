@@ -17,6 +17,7 @@ import {
   deriveMinutesBetween,
   deriveTimeToFirstGreen,
   deriveChangeShape,
+  deriveReworkAfterReview,
   buildParticipants,
   buildPostmortemRecord,
   writeRecord,
@@ -114,6 +115,27 @@ test("deriveChangeShape: languages, test/source ratio, docs & deps flags", () =>
   assert.deepEqual(deriveChangeShape([]), {
     languages: {}, testToSourceRatio: null, docsTouched: false, depsManifestTouched: false,
   });
+});
+
+test("deriveReworkAfterReview: fix commit after first human review => true", () => {
+  const reviews = [
+    { author: { login: "roberthunterjr" }, submittedAt: "2026-07-24T10:00:00Z" },
+  ];
+  const afterFix = [
+    { messageHeadline: "feat: initial", committedDate: "2026-07-24T09:00:00Z" },
+    { messageHeadline: "fix: address review", committedDate: "2026-07-24T11:00:00Z" },
+  ];
+  assert.equal(deriveReworkAfterReview(afterFix, reviews), true);
+  // fix commit BEFORE the review does not count
+  const beforeFix = [
+    { messageHeadline: "fix: pre-review", committedDate: "2026-07-24T08:00:00Z" },
+  ];
+  assert.equal(deriveReworkAfterReview(beforeFix, reviews), false);
+  // no human review => false
+  assert.equal(deriveReworkAfterReview(afterFix, []), false);
+  // bot-only review => false (not a human review)
+  const botReview = [{ author: { login: "copilot-swe-agent" }, submittedAt: "2026-07-24T10:00:00Z" }];
+  assert.equal(deriveReworkAfterReview(afterFix, botReview), false);
 });
 
 test("buildParticipants: roles only, never emits human logins", () => {
