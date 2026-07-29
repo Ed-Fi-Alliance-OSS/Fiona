@@ -1,0 +1,51 @@
+{
+  "prNumber": 90,
+  "title": "fix(AI-191): replace user delegation SAS with account-key SAS in PDF report workflow",
+  "state": "closed",
+  "jiraKey": "AI-191",
+  "stats": {
+    "additions": 23,
+    "deletions": 14,
+    "changedFiles": 2,
+    "commits": 2,
+    "reviewCycles": 0,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": null,
+    "timeToMergeMinutes": null,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "yml": 1,
+      "md": 1
+    },
+    "testToSourceRatio": null,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 1,
+      "feature": 0
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "copilot-bot",
+      "association": "AUTHOR"
+    }
+  ],
+  "capturedAt": "2026-07-29T17:22:13.367Z"
+}

@@ -1,0 +1,50 @@
+{
+  "prNumber": 89,
+  "title": "feat: add selectable coding-agent custom agent (AI-184)",
+  "state": "closed",
+  "jiraKey": "AI-184",
+  "stats": {
+    "additions": 113,
+    "deletions": 6,
+    "changedFiles": 2,
+    "commits": 3,
+    "reviewCycles": 0,
+    "reviewComments": 1,
+    "timeToFirstGreenCiMinutes": 4007,
+    "timeToMergeMinutes": null,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 2
+    },
+    "testToSourceRatio": null,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 1
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 1
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    }
+  ],
+  "capturedAt": "2026-07-29T17:22:15.739Z"
+}

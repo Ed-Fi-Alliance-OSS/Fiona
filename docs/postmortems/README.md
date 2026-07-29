@@ -9,7 +9,8 @@ improvement loop (design spec
 - **Records** (`PR-<number>.json`) are committed to the **`postmortem-data`
   branch**, not `main`. The capture workflow
   (`.github/workflows/postmortem-capture.yml`) writes and commits them
-  automatically when a PR closes.
+  automatically when a PR is **merged**. Closed-but-unmerged PRs are skipped —
+  they are often throwaway work whose signal would mislead synthesis.
 - This directory on `main` holds only this README and `.gitkeep` markers so
   the path exists; the JSON records accumulate on `postmortem-data`.
 - `processed/` holds records the synthesis step has already consumed, so they
