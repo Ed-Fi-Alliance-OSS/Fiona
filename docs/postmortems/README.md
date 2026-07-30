@@ -36,9 +36,14 @@ authoritative schema (`schemaVersion: 2`). Each record carries:
 
 Two definitions are easy to get wrong, so they are spelled out here:
 
-- **CI outcomes come from workflow-run and job-step history**, scoped to the
-  PR by head SHA, restricted to `pull_request` events, and ignoring runs that
-  predate the PR. They are *not* read from `gh pr checks`, which reports only
+- **CI outcomes come from workflow-run and job-step history.** Runs are
+  *retrieved* by head branch (the only way to list them in one call) but
+  *scoped* by head SHA, because a branch can outlive, predate, or be reused by
+  another PR, and also carries deploy (`workflow_dispatch`) and code-review
+  (`dynamic`) runs. Retrieval pages through the run list — one branch already
+  carries 61 runs against a 100-per-page API limit, and a truncated page would
+  silently under-report failures. Runs that predate the PR are ignored, and only
+  `pull_request` events count. They are *not* read from `gh pr checks`, which reports only
   the current state of the head SHA — always green on a merged PR. Step-level
   detail is what distinguishes lint from test, because this repo's check name
   (`Setup - apps/fiona-slack`) contains neither word. Reporting steps

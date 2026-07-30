@@ -277,6 +277,47 @@ test("fetchPrData: a PR with no failed runs fetches no step detail", () => {
   assert.deepEqual(raw.jobsByRunId, {});
 });
 
+test("fetchPrData: pages through workflow runs past the 100-run page size", () => {
+  // Runs are retrieved by branch and then filtered by head SHA. A single page
+  // silently truncates: PR-63 already has 61 runs on its branch, and losing a
+  // page would under-report exactly the CI-failure signal this suite exists to
+  // protect.
+  const view = {
+    number: 1,
+    headRefName: "busy-branch",
+    createdAt: "2026-01-01T00:00:00Z",
+    commits: [{ oid: "sha1" }],
+    author: { login: "some-person" },
+  };
+  const page = (count, start) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: start + i,
+      event: "pull_request",
+      conclusion: "success",
+      head_sha: "sha1",
+      created_at: "2026-01-02T00:00:00Z",
+      updated_at: "2026-01-02T00:10:00Z",
+    }));
+
+  const pagesRequested = [];
+  const run = (args) => {
+    if (args[0] === "pr") return JSON.stringify(view);
+    // Match the standalone `page=N` argument, not the `per_page=N` one.
+    const pageArg = args.find((a) => /^page=\d+$/.test(a));
+    const p = pageArg ? Number(pageArg.slice(5)) : 1;
+    pagesRequested.push(p);
+    if (p === 1) return JSON.stringify({ workflow_runs: page(100, 1000) });
+    if (p === 2) return JSON.stringify({ workflow_runs: page(20, 2000) });
+    return JSON.stringify({ workflow_runs: [] });
+  };
+
+  const raw = fetchPrData(1, { run });
+
+  assert.equal(raw.runs.length, 120, "both pages should be collected");
+  assert.ok(pagesRequested.includes(2), "should request the second page");
+  assert.ok(!pagesRequested.includes(3), "should stop once a page is short");
+});
+
 test("fetchPrData: a jobs fetch failure degrades to empty, not a crash", () => {
   // The capture workflow needs `actions: read` for this call. A missing
   // permission must cost the step detail, not the whole record.

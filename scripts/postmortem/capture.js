@@ -281,22 +281,36 @@ export function fetchPrData(prNumber, deps = {}) {
   };
 }
 
-// Scope runs to this PR by head SHA: a branch can outlive or predate its PR and
-// also carries deploy (workflow_dispatch) and code-review (dynamic) runs.
+const RUNS_PER_PAGE = 100;
+// A branch's run list can exceed one page (PR-63 has 61), and a truncated page
+// would silently under-report CI failures. Bounded so a pathological branch
+// cannot make capture run away.
+const MAX_RUN_PAGES = 10;
+
+// Retrieval is by branch; SCOPING is by head SHA, because a branch can outlive,
+// predate, or be reused by another PR, and also carries deploy
+// (workflow_dispatch) and code-review (dynamic) runs.
 function fetchWorkflowRuns(bundle, run) {
   const oids = new Set((bundle.commits || []).map((c) => c.oid));
+  const collected = [];
   try {
-    const payload = JSON.parse(
-      run([
-        "api", "-X", "GET", "repos/{owner}/{repo}/actions/runs",
-        "-f", `branch=${bundle.headRefName}`,
-        "-f", "per_page=100",
-      ]),
-    );
-    return (payload.workflow_runs || []).filter((r) => oids.has(r.head_sha));
+    for (let page = 1; page <= MAX_RUN_PAGES; page += 1) {
+      const payload = JSON.parse(
+        run([
+          "api", "-X", "GET", "repos/{owner}/{repo}/actions/runs",
+          "-f", `branch=${bundle.headRefName}`,
+          "-f", `per_page=${RUNS_PER_PAGE}`,
+          "-f", `page=${page}`,
+        ]),
+      );
+      const batch = payload.workflow_runs || [];
+      collected.push(...batch);
+      if (batch.length < RUNS_PER_PAGE) break;
+    }
   } catch {
-    return [];
+    // Keep whatever pages already arrived rather than discarding the record.
   }
+  return collected.filter((r) => oids.has(r.head_sha));
 }
 
 // Requires the `actions: read` permission. Degrade per-run rather than aborting
