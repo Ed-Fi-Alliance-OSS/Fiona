@@ -12,7 +12,9 @@ a synthesis issue opened by `.github/workflows/postmortem-synthesize.yml`.
 
 Follow `.github/instructions/postmortem.instructions.md` for the analysis:
 the questions to answer across records, the steering files you may edit
-(`.github/copilot-instructions.md`, `.github/skills/**`, `.github/agents/*.agent.md`),
+(`.github/copilot-instructions.md`, `.github/agents/*.agent.md`, and
+`.github/skills/**` if any are ever added), the cohort rule that only
+`authorKind: agent` records are evidence about the agent,
 the "one consolidated change, each edit justified by cited data" rule, the
 ticket-suggestions-as-prose rule, the AI-use disclosure, and the PII rule
 (never add human reviewer logins to any file).

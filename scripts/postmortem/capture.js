@@ -33,24 +33,95 @@ export function parseJiraKey(title, branch) {
   return match ? match[1] : null;
 }
 
-export function classifyParticipantKind(login) {
-  const l = String(login || "").toLowerCase();
-  if (l.includes("copilot") || l.includes("swe-agent") || l.endsWith("[bot]")) {
-    return "copilot-bot";
-  }
+const DEPENDABOT_LOGIN = /^(app\/)?dependabot(\[bot\])?$/i;
+
+// Cohort of the account that opened the PR. Kept separate from "is it a bot"
+// because the analysis question is "was this the coding agent's work", and
+// Dependabot volume would otherwise swamp the agent signal.
+export function classifyAuthorKind(login) {
+  const l = String(login ?? "").trim();
+  if (!l) return "human";
+  if (DEPENDABOT_LOGIN.test(l)) return "dependabot";
+  if (/^copilot$/i.test(l) || /\bswe-agent\b/i.test(l)) return "agent";
+  if (/\[bot\]$/i.test(l) || /^app\//i.test(l) || /copilot/i.test(l)) return "other-bot";
   return "human";
 }
 
-export function deriveCiFailures(checkRuns) {
-  const failures = { lint: 0, test: 0, build: 0 };
-  for (const run of checkRuns || []) {
-    if (run.conclusion !== "failure") continue;
-    const name = String(run.name || "").toLowerCase();
-    if (name.includes("lint")) failures.lint += 1;
-    else if (name.includes("test")) failures.test += 1;
-    else if (name.includes("build")) failures.build += 1;
+export function classifyParticipantKind(login) {
+  return classifyAuthorKind(login);
+}
+
+// Runner scaffolding and reporting steps carry no signal about the change.
+// "Report test results" in particular fails whenever junit.xml is absent —
+// which happens precisely when tests were skipped — so counting it as a test
+// failure would invent failures that never occurred.
+const IGNORED_STEP = /^(set up job$|complete job$|post\s|report\s|checkout)/i;
+
+export function classifyCiStep(name) {
+  const n = String(name ?? "").trim();
+  if (!n || IGNORED_STEP.test(n)) return null;
+  if (/\blint\b/i.test(n)) return "lint";
+  if (/\btests?\b/i.test(n)) return "test";
+  if (/\bbuild\b/i.test(n)) return "build";
+  return "other";
+}
+
+function inScopeCiRuns(runs, prCreatedAt) {
+  const since = prCreatedAt ? new Date(prCreatedAt).getTime() : null;
+  return (runs || [])
+    .filter((r) => r.event === "pull_request")
+    .filter((r) => {
+      if (since === null) return true;
+      // Branches are reused and pushed to before a PR exists; runs that predate
+      // the PR are not evidence about this PR.
+      const created = new Date(r.created_at).getTime();
+      return !Number.isNaN(created) && created >= since;
+    })
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+}
+
+// CI outcomes come from workflow-run + job-step history, not from `gh pr checks`.
+// `gh pr checks` reports only the current state of the head SHA, which on a
+// merged PR is green by definition, and this repo's check names ("Setup -
+// apps/fiona-slack") carry no lint/test/build granularity anyway.
+export function deriveCiOutcomes(runs, jobsByRunId = {}, prCreatedAt = null) {
+  const ciFailures = { lint: 0, test: 0, build: 0, other: 0 };
+  const ciSkipped = { lint: 0, test: 0, build: 0 };
+  const ciRuns = { total: 0, failed: 0, cancelled: 0 };
+
+  for (const run of inScopeCiRuns(runs, prCreatedAt)) {
+    ciRuns.total += 1;
+    // A run cancelled by the cancel-in-progress concurrency group is superseded
+    // work, not a failure, and its partial steps are not evidence.
+    if (run.conclusion === "cancelled") {
+      ciRuns.cancelled += 1;
+      continue;
+    }
+    if (run.conclusion === "failure") ciRuns.failed += 1;
+
+    for (const job of jobsByRunId[run.id] || jobsByRunId[String(run.id)] || []) {
+      for (const step of job.steps || []) {
+        const kind = classifyCiStep(step.name);
+        if (!kind) continue;
+        if (step.conclusion === "failure") ciFailures[kind] += 1;
+        else if (step.conclusion === "skipped" && kind in ciSkipped) ciSkipped[kind] += 1;
+      }
+    }
   }
-  return failures;
+  return { ciFailures, ciSkipped, ciRuns };
+}
+
+// A review "cycle" is a decision. GitHub emits one review object per inline
+// comment in a batched review, so counting objects overstates cycles several
+// fold (PR-85: 8 objects, 2 decisions).
+const DECISION_STATES = new Set(["CHANGES_REQUESTED", "APPROVED"]);
+
+export function deriveReviewCycles(reviews) {
+  return (reviews || []).filter(
+    (r) =>
+      classifyAuthorKind(r.author?.login) === "human" &&
+      DECISION_STATES.has(String(r.state || "").toUpperCase()),
+  ).length;
 }
 
 export function deriveMinutesBetween(startISO, endISO) {
@@ -61,16 +132,15 @@ export function deriveMinutesBetween(startISO, endISO) {
   return Math.round((end - start) / 60000);
 }
 
-export function deriveTimeToFirstGreen(checkRuns, prCreatedAt) {
-  const greens = (checkRuns || [])
-    .filter((r) => r.conclusion === "success" && r.completedAt)
-    .map((r) => new Date(r.completedAt).getTime())
-    // Drop the epoch-negative sentinel GitHub returns for status contexts
-    // with no real completion time (e.g. "0001-01-01T00:00:00Z" for license/cla).
-    .filter((t) => !Number.isNaN(t) && t > 0);
-  if (!greens.length || !prCreatedAt) return null;
-  const firstGreenISO = new Date(Math.min(...greens)).toISOString();
-  return deriveMinutesBetween(prCreatedAt, firstGreenISO);
+// Time from PR open to the FIRST green CI run. The previous implementation took
+// min(completedAt) over currently-successful checks, which on a merged PR is the
+// final suite — it reported 22863 minutes for PR-62 against a 30316-minute
+// time-to-merge, i.e. a proxy for merge time rather than a CI-speed signal.
+export function deriveTimeToFirstGreen(runs, prCreatedAt) {
+  if (!prCreatedAt) return null;
+  const firstGreen = inScopeCiRuns(runs, prCreatedAt).find((r) => r.conclusion === "success");
+  if (!firstGreen?.updated_at) return null;
+  return deriveMinutesBetween(prCreatedAt, firstGreen.updated_at);
 }
 
 const TEST_PATH = /(\.test\.|\.spec\.|__tests__\/|\/tests?\/)/i;
@@ -128,7 +198,7 @@ export function buildParticipants(prAuthorLogin, reviews) {
     if (seen.has(key)) continue;
     seen.add(key);
     participants.push({
-      role: kind === "copilot-bot" ? "copilot-bot" : "human-reviewer",
+      role: kind === "human" ? "human-reviewer" : "bot-reviewer",
       kind,
       association,
     });
@@ -137,9 +207,9 @@ export function buildParticipants(prAuthorLogin, reviews) {
 }
 
 export function buildPostmortemRecord(raw, now = new Date()) {
-  const { pr, reviews = [], comments = [], commits = [], checkRuns = [], files = [] } = raw;
-  const reviewCycles = (reviews || [])
-    .filter((r) => classifyParticipantKind(r.author?.login) === "human").length;
+  const { pr, reviews = [], comments = [], commits = [], files = [], runs = [], jobsByRunId = {} } = raw;
+  const reviewCycles = deriveReviewCycles(reviews);
+  const { ciFailures, ciSkipped, ciRuns } = deriveCiOutcomes(runs, jobsByRunId, pr.createdAt);
   const commentClasses = { nit: 0, correctness: 0, rework: 0 };
   for (const c of comments) commentClasses[classifyComment(c.body)] += 1;
   const followupCommits = { fix: 0, feature: 0 };
@@ -148,10 +218,12 @@ export function buildPostmortemRecord(raw, now = new Date()) {
     if (kind) followupCommits[kind] += 1;
   }
   return {
+    schemaVersion: 2,
     prNumber: pr.number,
     title: pr.title,
     state: pr.mergedAt ? "merged" : "closed",
     jiraKey: parseJiraKey(pr.title, pr.headRefName),
+    authorKind: classifyAuthorKind(pr.author?.login),
     stats: {
       additions: pr.additions ?? 0,
       deletions: pr.deletions ?? 0,
@@ -159,16 +231,17 @@ export function buildPostmortemRecord(raw, now = new Date()) {
       commits: commits.length,
       reviewCycles,
       reviewComments: comments.length,
-      timeToFirstGreenCiMinutes: deriveTimeToFirstGreen(checkRuns, pr.createdAt),
+      timeToFirstGreenCiMinutes: deriveTimeToFirstGreen(runs, pr.createdAt),
       timeToMergeMinutes: deriveMinutesBetween(pr.createdAt, pr.mergedAt),
-      ciFailures: deriveCiFailures(checkRuns),
+      ciRuns,
+      ciFailures,
+      ciSkipped,
     },
     changeShape: deriveChangeShape(files),
     signal: {
       commentClasses,
       followupCommits,
       reworkAfterReview: deriveReworkAfterReview(commits, reviews),
-      changeRequestThemes: [],
     },
     participants: buildParticipants(pr.author?.login, reviews),
     capturedAt: now.toISOString(),
@@ -184,7 +257,6 @@ export function writeRecord(record, dir = "docs/postmortems") {
 
 export function fetchPrData(prNumber, deps = {}) {
   const run = deps.run || ((args) => execFileSync("gh", args, { encoding: "utf8" }));
-  const runChecks = deps.runChecks || (() => fetchCheckRuns(prNumber, run));
   const bundle = JSON.parse(
     run([
       "pr", "view", String(prNumber),
@@ -192,29 +264,56 @@ export function fetchPrData(prNumber, deps = {}) {
       "number,title,state,headRefName,additions,deletions,changedFiles,createdAt,mergedAt,closedAt,author,reviews,comments,commits,files",
     ]),
   );
+  const runs = fetchWorkflowRuns(bundle, run);
   return {
     pr: bundle,
     reviews: bundle.reviews || [],
     comments: bundle.comments || [],
     commits: bundle.commits || [],
     files: bundle.files || [],
-    checkRuns: runChecks(),
+    runs,
+    // Step detail only explains failures, so only failed runs are worth an API
+    // call. PR-63 has 54 in-scope runs and 9 failures.
+    jobsByRunId: fetchJobs(
+      inScopeCiRuns(runs, bundle.createdAt).filter((r) => r.conclusion === "failure"),
+      run,
+    ),
   };
 }
 
-function fetchCheckRuns(prNumber, run) {
+// Scope runs to this PR by head SHA: a branch can outlive or predate its PR and
+// also carries deploy (workflow_dispatch) and code-review (dynamic) runs.
+function fetchWorkflowRuns(bundle, run) {
+  const oids = new Set((bundle.commits || []).map((c) => c.oid));
   try {
-    const rows = JSON.parse(
-      run(["pr", "checks", String(prNumber), "--json", "name,state,completedAt"]),
+    const payload = JSON.parse(
+      run([
+        "api", "-X", "GET", "repos/{owner}/{repo}/actions/runs",
+        "-f", `branch=${bundle.headRefName}`,
+        "-f", "per_page=100",
+      ]),
     );
-    return rows.map((r) => ({
-      name: r.name,
-      conclusion: r.state === "SUCCESS" ? "success" : r.state === "FAILURE" ? "failure" : "other",
-      completedAt: r.completedAt || null,
-    }));
+    return (payload.workflow_runs || []).filter((r) => oids.has(r.head_sha));
   } catch {
     return [];
   }
+}
+
+// Requires the `actions: read` permission. Degrade per-run rather than aborting
+// the capture, so a permission or retention gap costs one run, not the record.
+function fetchJobs(runs, run) {
+  const jobsByRunId = {};
+  for (const r of runs) {
+    try {
+      const payload = JSON.parse(
+        run(["api", "-X", "GET", `repos/{owner}/{repo}/actions/runs/${r.id}/jobs`, "-f", "per_page=100"]),
+      );
+      jobsByRunId[r.id] = payload.jobs || [];
+    } catch {
+      // No jobs for this run; deriveCiOutcomes treats it as run-level only.
+    }
+  }
+  return jobsByRunId;
 }
 
 async function main() {

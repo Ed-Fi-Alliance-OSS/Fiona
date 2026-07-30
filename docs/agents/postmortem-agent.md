@@ -48,17 +48,31 @@ mislead synthesis. It runs `scripts/postmortem/capture.js <n>` and commits
 `docs/postmortems/PR-<n>.json` to the long-lived `postmortem-data` branch.
 
 Records are **PII-safe by construction** — see `buildPostmortemRecord` in
-`scripts/postmortem/capture.js` for the authoritative schema. Each record holds:
+`scripts/postmortem/capture.js` for the authoritative schema
+(`schemaVersion: 2`). Each record holds:
 
-- **stats** — size, review cycles, CI timing, CI-failure counts.
+- **authorKind** — `agent` | `human` | `dependabot` | `other-bot`. The cohort
+  the record belongs to; only `agent` records are evidence about the agent (see
+  the cohort rule in `.github/instructions/postmortem.instructions.md`).
+- **stats** — size, review cycles, CI timing, and `ciRuns` / `ciFailures` /
+  `ciSkipped`.
 - **changeShape** (from the file list, not patch content) — languages touched,
   test-to-source ratio, docs-touched, deps-manifest-touched.
 - **signal** — comment classes (counts, never text), follow-up commit kinds, and
   `reworkAfterReview` (a fix-class commit dated after the first human review).
-- **participants** — roles (`author`, `human-reviewer`, `copilot-bot`) and
+- **participants** — roles (`author`, `human-reviewer`, `bot-reviewer`) and
   `authorAssociation` only, **never** human reviewer logins.
 
-No LLM runs at capture; it is cheap and runs on every merge.
+CI signal is derived from **workflow-run and job-step history** (requires the
+`actions: read` permission), scoped to the PR by head SHA. It is not read from
+`gh pr checks`, which reports only the current state of the head SHA — green by
+definition on a merged PR, which made CI-failure signal unobservable. See
+`docs/postmortems/README.md` for the derivation rules and one documented
+limitation of `timeToFirstGreenCiMinutes`.
+
+No LLM runs at capture; it is cheap and runs on every merge. Because the data
+branch is a single shared writer, the workflow runs under a `postmortem-capture`
+concurrency group so simultaneous merges cannot race and lose a record.
 
 ## Phase 2 — Synthesis (LLM, human-gated)
 
@@ -78,7 +92,8 @@ originating Jira ticket. Only **de-identified conclusions** are written out.
 
 - **Improvement PR → `main`** — edits the steering files
   (`.github/copilot-instructions.md`, `.github/agents/*.agent.md`,
-  `.github/skills/**`), each edit small and justified by cited data
+  and `.github/skills/**` if any are ever added), each edit small and justified
+  by cited data with its cohort and denominator named
   (e.g. "lint failed in N of M PRs"). Human-gated; **never** merged by the agent.
 - **Bookkeeping commit → `postmortem-data`** — moves consumed records to
   `docs/postmortems/processed/` (kept forever) and writes a de-identified,

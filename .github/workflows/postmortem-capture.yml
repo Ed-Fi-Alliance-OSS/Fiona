@@ -12,7 +12,16 @@ on:
 permissions:
   contents: write
   pull-requests: read
-  checks: read
+  # actions: read is required to read workflow-run and job-step history, which is
+  # where CI failure/skip signal comes from. Without it capture silently records
+  # zero CI failures for every PR.
+  actions: read
+
+# The data branch is a single shared writer. Two PRs merging together would
+# otherwise race on checkout/commit/push and lose a record.
+concurrency:
+  group: postmortem-capture
+  cancel-in-progress: false
 
 jobs:
   capture:

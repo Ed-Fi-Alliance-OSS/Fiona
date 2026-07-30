@@ -20,16 +20,36 @@ Read all un-processed `docs/postmortems/PR-*.json` records and produce ONE
 consolidated, human-gated set of improvements that makes the coding agent
 better.
 
+## Cohorts: which records are evidence about the agent
+
+Every record carries a top-level `authorKind` (`agent`, `human`, `dependabot`,
+`other-bot`). It decides how the record may be used:
+
+- **`agent`** — the coding agent's own work. This is the evidence base for any
+  claim about agent behavior.
+- **`human`** — a control cohort. Usable for repo conventions and for what a
+  normal PR here looks like, but **never** as evidence about how the agent
+  performs.
+- **`dependabot` / `other-bot`** — excluded by default. Dependency bumps carry
+  no steering signal and would dilute the denominator.
+
+**Every cited statistic must name its cohort and its denominator** — for
+example "lint failed in 2 of 6 `agent` PRs", never "lint failed in 2 of 10 PRs".
+If a cohort has too few records to support a claim, say so instead of citing it.
+
 ## Answer these questions across the PRs
 
 - What went well; what needed rework (use `signal.commentClasses` and
   `followupCommits` across records).
 - Generalizable steps worth codifying into `.github/copilot-instructions.md`.
-- Standardization / linting opportunities that would reduce drift (e.g. a
-  recurring `ciFailures.lint` count signals a pre-PR lint gate is being
-  skipped).
+- Standardization / linting opportunities that would reduce drift. A recurring
+  `stats.ciFailures.lint` signals a pre-PR lint gate is being skipped; a
+  `stats.ciSkipped.test` count means the tests never ran at all (lint failed
+  first), which is a stronger version of the same finding. Use
+  `stats.ciRuns.total` as the denominator for CI-rate claims, and ignore
+  `stats.ciRuns.cancelled` — those are superseded runs, not trouble.
 - Concrete, minimal edits to `.github/copilot-instructions.md`, the skills
-  under `.github/skills/`, or the `.agent.md` files.
+  under `.github/skills/` (none exist yet), or the `.agent.md` files.
 
 ## Deep analysis (transient reads)
 
