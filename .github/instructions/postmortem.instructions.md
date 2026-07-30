@@ -81,6 +81,18 @@ rather than ingesting everything).
   justified by cited data (e.g. "lint failed in N of M PRs").
 - Only edit the coding-agent steering files above. Do not touch application
   code, the capture script, or the records' schema.
+- **Mirror edits across duplicated rules.** `.github/copilot-instructions.md`
+  and `.github/agents/coding-agent.agent.md` carry the same rules in near-verbatim
+  duplicate — the feasibility rubric, the Small-path size thresholds, the
+  fail-first TDD rule, the per-app lint/test commands, the license-header rule,
+  and the Standard/Fast path sections. If your edit lands on a rule that appears
+  in both, apply it to **both** and say so in your summary; editing one alone
+  silently forks the policy, and the fork is invisible until an agent follows the
+  stale copy. This is a workaround for the duplication, not an endorsement of it:
+  if you find yourself mirroring the same edit repeatedly, say so in the digest —
+  the durable fix is to extract the shared rules into one runtime-neutral
+  instructions file (as this file already does for post-mortem synthesis) and
+  reduce both files to pointers plus their own deltas.
 - Put **ticket-description improvement suggestions as prose** (in the PR body
   for the production flow, or in the run summary locally) — do NOT write them
   back to Jira.
