@@ -27,7 +27,12 @@ ticket-suggestions-as-prose rule, the AI-use disclosure, and the PII rule
   nothing to synthesize.
 - **Delivery:** apply the consolidated edits as **uncommitted** working-tree
   changes. Then move each consumed `docs/postmortems/PR-*.json` into
-  `docs/postmortems/processed/` (use `git mv` so the move is stage-visible).
+  `docs/postmortems/processed/` with a plain `mv`. Do **not** use `git mv` and
+  do **not** `git add` the records: on this branch the records are *untracked*
+  local data (they live on `postmortem-data` in the production flow), `git mv`
+  fails on them, and committing them here is a known past mistake that had to be
+  reverted. The moved records and the digest show up as untracked paths in
+  `git status`; only your steering-file edits appear in `git diff`.
 - **Digest:** write `docs/postmortems/digests/<YYYY-MM-DD>.md` (de-identified,
   cumulative-aware) on every run, including runs with no steering edits. It is
   part of the uncommitted working-tree output for `git diff` review.
