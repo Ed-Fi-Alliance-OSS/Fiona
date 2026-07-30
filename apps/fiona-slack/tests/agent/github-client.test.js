@@ -9,8 +9,8 @@ const logger = { error: jest.fn(), warn: jest.fn() };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.GITHUB_REPO = 'Ed-Fi-Alliance-OSS/Fiona';
-  process.env.GITHUB_TOKEN = 'ghp-secret-token';
+  process.env.SLACK_GITHUB_ISSUE_REPO = 'Ed-Fi-Alliance-OSS/Fiona';
+  process.env.SLACK_GITHUB_ISSUE_TOKEN = 'ghp-secret-token';
   delete process.env.GITHUB_API_URL;
 });
 
@@ -19,7 +19,7 @@ describe('isGithubConfigured', () => {
     expect(isGithubConfigured()).toBe(true);
   });
   it('is false when the token is missing', () => {
-    delete process.env.GITHUB_TOKEN;
+    delete process.env.SLACK_GITHUB_ISSUE_TOKEN;
     expect(isGithubConfigured()).toBe(false);
   });
 });

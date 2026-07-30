@@ -5,7 +5,7 @@
 
 import axios from 'axios';
 
-const REQUIRED_VARS = ['GITHUB_REPO', 'GITHUB_TOKEN'];
+const REQUIRED_VARS = ['SLACK_GITHUB_ISSUE_REPO', 'SLACK_GITHUB_ISSUE_TOKEN'];
 const REQUEST_TIMEOUT_MS = 15000;
 const API_VERSION = '2022-11-28';
 
@@ -20,7 +20,7 @@ function apiBaseUrl() {
 
 function headers() {
   return {
-    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+    Authorization: `Bearer ${process.env.SLACK_GITHUB_ISSUE_TOKEN}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': API_VERSION,
   };
@@ -38,7 +38,7 @@ export async function createIssue({ title, bodyText, labels = [] }, logger) {
   if (labels.length) payload.labels = labels;
 
   try {
-    const res = await axios.post(`${apiBaseUrl()}/repos/${process.env.GITHUB_REPO}/issues`, payload, {
+    const res = await axios.post(`${apiBaseUrl()}/repos/${process.env.SLACK_GITHUB_ISSUE_REPO}/issues`, payload, {
       headers: headers(),
       timeout: REQUEST_TIMEOUT_MS,
     });

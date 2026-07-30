@@ -98,23 +98,23 @@ treated as disabled and issues are created immediately.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GITHUB_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
-| `GITHUB_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `GITHUB_REPO`. Never logged. |
+| `SLACK_GITHUB_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
+| `SLACK_GITHUB_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `SLACK_GITHUB_ISSUE_REPO`. Never logged. |
 | `GITHUB_API_URL` | `https://api.github.com` | Override for GitHub Enterprise Server. |
 | `GITHUB_BUG_LABEL` | `bug` | Label applied to bug-type issues. **Must already exist in the repo** — GitHub's create-issue API rejects unknown labels, which Fiona surfaces as a friendly "could not create your issue" DM (recorded as `github_create_failed`). |
 | `GITHUB_FEATURE_LABEL` | `enhancement` | Label applied to feature-type issues. Same pre-existence requirement as above. |
 | `TICKET_APPROVAL_REQUIRED` | `false` | When `true` (and `TICKET_TRIAGE_CHANNEL_ID` is set), gates issue creation behind human approval. |
 | `TICKET_TRIAGE_CHANNEL_ID` | (unset) | Channel **ID** (e.g. `C0123456789`) where approval drafts are posted. The bot must be a member of that channel to post. |
 
-Feature is disabled — and the modal never opens — until both `GITHUB_REPO`
-and `GITHUB_TOKEN` are set (`isGithubConfigured()` /
+Feature is disabled — and the modal never opens — until both `SLACK_GITHUB_ISSUE_REPO`
+and `SLACK_GITHUB_ISSUE_TOKEN` are set (`isGithubConfigured()` /
 `isTicketingEnabled()`).
 
 ### Open items to confirm before enabling in production
 
-- **Repo owner/repo**: `GITHUB_REPO` targets exactly one fixed repository —
+- **Repo owner/repo**: `SLACK_GITHUB_ISSUE_REPO` targets exactly one fixed repository —
   confirm it's the intended one before setting it in any environment.
-- **PAT scope**: use a fine-grained PAT restricted to `GITHUB_REPO` with only
+- **PAT scope**: use a fine-grained PAT restricted to `SLACK_GITHUB_ISSUE_REPO` with only
   **Issues: write** permission — do not use a classic PAT with broader repo
   access.
 - **Labels must pre-exist**: `bug` and `enhancement` (or whatever
@@ -130,7 +130,7 @@ and `GITHUB_TOKEN` are set (`isGithubConfigured()` /
 > container, falling back to a live `users.info` Slack API call when the
 > Cosmos lookup misses.
 >
-> **If `GITHUB_REPO` is a public repository, this name and email are
+> **If `SLACK_GITHUB_ISSUE_REPO` is a public repository, this name and email are
 > world-readable** to anyone who can view the issue — including search
 > engines and any tooling that mirrors public GitHub issues. Before pointing
 > this feature at a public repo, confirm that exposing requester contact
@@ -143,7 +143,7 @@ Two Slack bot token scopes are required beyond what Fiona already uses for
 chat: `users:read` and `users:read.email`, needed for the `users.info`
 reporter-contact fallback described above. `commands` is required for the
 `/fiona` slash command itself. No GitHub-specific Slack scope is needed —
-GitHub authentication is the PAT (`GITHUB_TOKEN`), not a Slack OAuth scope.
+GitHub authentication is the PAT (`SLACK_GITHUB_ISSUE_TOKEN`), not a Slack OAuth scope.
 
 ## Deferred
 
