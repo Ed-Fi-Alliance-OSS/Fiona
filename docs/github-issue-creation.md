@@ -9,7 +9,7 @@
 Let a Slack user file a bug report or feature request against a GitHub repo
 without leaving Slack. Fiona opens a short modal, collects the details, and
 creates (or, with the approval gate enabled, drafts for review) a GitHub issue
-via the REST API — then DMs the requester the issue number and link.
+via the GraphQL API — then DMs the requester the issue number and link.
 
 ## Entry points
 
@@ -45,21 +45,35 @@ and conversational paths stay in lockstep.
 
 - **Summary** (core, required) — becomes the GitHub issue title.
 - **Description** (core, required) — becomes the top of the issue body.
-- **Priority** — included in the issue body as `**Priority: <name>**`.
+- **Priority** — written to the org-level **`Priority`** single-select issue field,
+  not the issue body. The modal's `PRIORITY_OPTIONS` (`Urgent`, `High`, `Medium`,
+  `Low`) must match that field's option names **exactly**, because the selected value
+  is resolved to an option node ID by name; any drift fails issue creation outright.
+  Unlike `Slack User`, this field's visibility is `ALL` — it is publicly readable.
 - **Bug-specific fields** (only shown when `ticketType` is `bug`):
   - Steps to reproduce
   - Expected vs. actual behavior
   - Environment / version
-- **Reporter contact** — not a form field. Fiona automatically resolves the
-  requester's name and email (see [Privacy note](#privacy-note) below) and
-  appends it to the issue body; the user does not type or confirm this.
+- **Reporter** — not a form field. Fiona resolves the requester's Slack display
+  name and writes `<name> [<slack user id>]` to the org-level **`Slack User`**
+  issue field (see [Privacy note](#privacy-note) below). Nothing identifying the
+  reporter goes into the issue body; the user does not type or confirm this.
 
-## Type → label mapping
+## Ticket type → GitHub issue type
 
-| Ticket type | GitHub label (default) | Env override |
+Issues carry a **native GitHub issue type**, not a label. Labels are no longer
+applied by Fiona at all — `issueTypeId` replaced `labelIds` on the mutation.
+
+| Ticket type | GitHub issue type (default) | Env override |
 | --- | --- | --- |
-| `bug` | `bug` | `GITHUB_BUG_LABEL` |
-| `feature` | `enhancement` | `GITHUB_FEATURE_LABEL` |
+| `bug` | `Bug` | `SLACK_GITHUB_ISSUE_BUG_TYPE_NAME` |
+| `feature` | `Feature` | `SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME` |
+
+> Issue types are defined at **organization** level and resolved by name from
+> `repository.issueTypes`. The type must already exist — Fiona does not create types.
+> Note that issues filed through the repo's web form (`.github/ISSUE_TEMPLATE/`) may
+> still apply labels; anything filtering on the `bug` / `enhancement` labels will not
+> see Fiona-filed issues.
 
 ## Behavior of `submitTicket`
 
@@ -70,13 +84,27 @@ and conversational paths stay in lockstep.
 2. If the approval gate is enabled (`isApprovalRequired()` — see below), posts
    a draft with **Approve & create** / **Discard** buttons to the triage
    channel instead of creating the issue immediately.
-3. Otherwise, creates the issue directly via the GitHub REST API
+3. Otherwise, creates the issue directly via the GitHub **GraphQL** API
    (`createIssue` in `apps/fiona-slack/src/agent/github-client.js`), using a
-   Bearer PAT, and DMs the requester the resulting issue number and link.
+   Bearer PAT, and DMs the requester the resulting issue number and link. This
+   is two round trips: one query to resolve the repository, issue-type and
+   issue-field **node IDs** (GraphQL takes IDs, not names), then the `createIssue`
+   mutation carrying `issueTypeId` plus the `Slack User` and `Priority` values in
+   `issueFields`.
+
+   The issue field is looked up by name in `repository.issueFields`, which lists
+   only the fields the token can actually read. A field that exists at org level
+   but is invisible to the PAT therefore fails with a message naming the field,
+   rather than GitHub's opaque `Could not resolve to a node with the global id`.
 4. Every attempt is recorded via `recordInteraction`
    (`interactionType: 'ticket_create'`, `status: 'success'` or `'error'`) —
-   the PAT and any auth headers are never logged, only the HTTP status and
-   message.
+   the PAT and any auth headers are never logged, only the status and message.
+
+> **GraphQL failures arrive as HTTP 200 with an `errors` array**, not as a 4xx.
+> `graphql()` inspects `response.data.errors` and maps `FORBIDDEN`,
+> `UNAUTHORIZED` and `INSUFFICIENT_SCOPES` to `github_auth_failed`; everything
+> else becomes `github_create_failed`. Skipping that check would report a failed
+> creation to the user as a success.
 
 ## Approval gate
 
@@ -100,9 +128,11 @@ treated as disabled and issues are created immediately.
 | --- | --- | --- |
 | `SLACK_GITHUB_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
 | `SLACK_GITHUB_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `SLACK_GITHUB_ISSUE_REPO`. Never logged. |
-| `GITHUB_API_URL` | `https://api.github.com` | Override for GitHub Enterprise Server. |
-| `GITHUB_BUG_LABEL` | `bug` | Label applied to bug-type issues. **Must already exist in the repo** — GitHub's create-issue API rejects unknown labels, which Fiona surfaces as a friendly "could not create your issue" DM (recorded as `github_create_failed`). |
-| `GITHUB_FEATURE_LABEL` | `enhancement` | Label applied to feature-type issues. Same pre-existence requirement as above. |
+| `GITHUB_API_URL` | `https://api.github.com` | REST base override for GitHub Enterprise Server. The GraphQL endpoint is derived from it: a base ending in `/api/v3` becomes `/api/graphql`, otherwise `/graphql` is appended. |
+| `SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME` | `Slack User` | **Name** (not node ID) of the org-level text issue field that records the reporter. Resolved to a node ID from the repository lookup on every create, so it survives the field being deleted and recreated. List the available fields with `GET /orgs/{org}/issue-fields`. |
+| `SLACK_GITHUB_ISSUE_BUG_TYPE_NAME` | `Bug` | Native issue type applied to bugs. **Must already exist in the org** — an unknown type fails with a message naming it (recorded as `github_create_failed`). |
+| `SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME` | `Feature` | Native issue type applied to feature requests. Same pre-existence requirement. |
+| `SLACK_GITHUB_ISSUE_PRIORITY_FIELD_NAME` | `Priority` | **Name** of the org-level single-select field receiving the modal's priority. Its option names must match `PRIORITY_OPTIONS` in `ticket_modal.js` exactly. |
 | `TICKET_APPROVAL_REQUIRED` | `false` | When `true` (and `TICKET_TRIAGE_CHANNEL_ID` is set), gates issue creation behind human approval. |
 | `TICKET_TRIAGE_CHANNEL_ID` | (unset) | Channel **ID** (e.g. `C0123456789`) where approval drafts are posted. The bot must be a member of that channel to post. |
 
@@ -117,33 +147,78 @@ and `SLACK_GITHUB_ISSUE_TOKEN` are set (`isGithubConfigured()` /
 - **PAT scope**: use a fine-grained PAT restricted to `SLACK_GITHUB_ISSUE_REPO` with only
   **Issues: write** permission — do not use a classic PAT with broader repo
   access.
-- **Labels must pre-exist**: `bug` and `enhancement` (or whatever
-  `GITHUB_BUG_LABEL` / `GITHUB_FEATURE_LABEL` are overridden to) must already
-  exist as labels in the target repo. Fiona does not create labels.
+- **PAT writing the `Slack User` field** — ✅ **verified working** against
+  `Ed-Fi-Alliance-OSS/Automation-Testing` on 2026-07-31: a fine-grained PAT with
+  **Issues: write** on the single target repo successfully set the org-level,
+  `organization_members_only` field. No additional organization permission was
+  needed. Note that the field value is set *inside* the `createIssue` mutation, so
+  if a future org policy does reject the field write, the whole mutation fails and
+  **no issue is created at all**; the fallback would be to create the issue first
+  and set the field in a second `updateIssue`/`createIssueFieldValue` call.
+- **Configure the field by NAME**, e.g. `Slack User` — not its node ID. Putting a
+  node ID in `SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME` will fail the name lookup.
+- **Issue types and fields must pre-exist**: the `Bug` and `Feature` issue types,
+  and the `Slack User` and `Priority` issue fields, must already exist at
+  organization level. Fiona creates none of them, and each is resolved by name —
+  a rename in GitHub org settings breaks issue creation until the corresponding
+  env var is updated.
+- **Priority options must match the modal**: `PRIORITY_OPTIONS` in
+  `ticket_modal.js` and the GitHub `Priority` field's options are two lists that
+  must be kept in sync by hand. `tests/listeners/views/ticket-modal.test.js`
+  pins the Slack side; nothing can pin the GitHub side.
 
 ## Privacy note
 
-> **The requester's Slack display name and email address are written directly
-> into the GitHub issue body** (`buildBody` in
-> `apps/fiona-slack/src/agent/ticket-service.js`, `**Reported by:** <name>
-> <email> (via Slack)`). Fiona resolves this from the `slack-users` Cosmos DB
-> container, falling back to a live `users.info` Slack API call when the
-> Cosmos lookup misses.
+> **No reporter identity is written into the issue body.** `buildBody`
+> (`apps/fiona-slack/src/agent/ticket-service.js`) emits only the description,
+> priority, bug sections and a provenance line — the issue body is world-readable
+> when the target repo is public, so it deliberately carries nothing about who
+> filed the ticket.
 >
-> **If `SLACK_GITHUB_ISSUE_REPO` is a public repository, this name and email are
-> world-readable** to anyone who can view the issue — including search
-> engines and any tooling that mirrors public GitHub issues. Before pointing
-> this feature at a public repo, confirm that exposing requester contact
-> information in issue bodies is acceptable, or route ticket creation to a
-> private repo instead.
+> The reporter goes to the org-level **`Slack User`** issue field instead, as
+> `<display name> [<slack user id>]` (`formatSlackUser`). That field's visibility
+> is `organization_members_only`, so **the reporter is not exposed publicly even
+> on a public repo** — only Ed-Fi organization members can read it.
+>
+> Fiona resolves the display name from the `slack-users` Cosmos DB container,
+> falling back to a live `users.info` Slack call. When both fail the field records
+> `Unknown [<slack user id>]` — the ID is still written, so an org member can
+> always identify the reporter.
+>
+> **The requester's email address is no longer collected or stored anywhere.**
 
 ## Slack scopes
 
-Two Slack bot token scopes are required beyond what Fiona already uses for
-chat: `users:read` and `users:read.email`, needed for the `users.info`
-reporter-contact fallback described above. `commands` is required for the
-`/fiona` slash command itself. No GitHub-specific Slack scope is needed —
-GitHub authentication is the PAT (`SLACK_GITHUB_ISSUE_TOKEN`), not a Slack OAuth scope.
+Beyond what Fiona already uses for chat, `users:read` is required for the
+`users.info` display-name fallback described above, and `commands` for the
+`/fiona` slash command itself.
+
+`users:read.email` is **not** used by this feature any more (nothing here reads
+email addresses), but it stays in `manifest.json` because
+`scripts/load-slack-users.js` needs it to populate the `email` field in the
+`slack-users` Cosmos container from `users.list` — see
+[slack-users-cosmosdb.md](./slack-users-cosmosdb.md). Do not remove it.
+
+> ⚠️ **Editing `manifest.json` does not grant scopes.** This file is not connected
+> to the installed app — the scope must be present in the app's own configuration at
+> api.slack.com and the app then **reinstalled** to the workspace.
+>
+> If `users:read` is declared here but not installed, `users.info` fails with
+> `An API error occurred: missing_scope (needs scope: users:read)`,
+> `resolveReporter` falls back to the raw ID, and the `Slack User` field records
+> `Unknown [U…]`. **This is a Slack error, not a GitHub PAT problem** — `users:read`
+> is a Slack scope name and has no GitHub equivalent. GitHub issue creation
+> succeeding while the name is missing is the signature of exactly this failure.
+>
+> Workaround if a reinstall needs admin approval: populate the `slack-users` Cosmos
+> container from an admin CSV export
+> (`node scripts/load-slack-users.js --source=csv members.csv`), which needs no
+> Slack scopes at all. `resolveReporter` checks Cosmos first, so `users.info` is
+> never called for users already in the container. Note `--source=api` does **not**
+> work around it — `users.list` needs `users:read` too.
+
+No GitHub-specific Slack scope is needed — GitHub authentication is the PAT
+(`SLACK_GITHUB_ISSUE_TOKEN`), not a Slack OAuth scope.
 
 ## Deferred
 

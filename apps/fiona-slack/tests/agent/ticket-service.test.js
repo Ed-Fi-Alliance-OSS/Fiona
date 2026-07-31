@@ -12,9 +12,8 @@ jest.unstable_mockModule('../../src/agent/github-client.js', () => ({
 jest.unstable_mockModule('../../src/agent/slack-users-store.js', () => ({ getUser: mockGetUser }));
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ recordInteraction: mockRecordInteraction }));
 
-const { isTicketingEnabled, resolveLabel, buildBody, createTicketNow, submitTicket } = await import(
-  '../../src/agent/ticket-service.js'
-);
+const { isTicketingEnabled, resolveIssueTypeName, buildBody, formatSlackUser, createTicketNow, submitTicket } =
+  await import('../../src/agent/ticket-service.js');
 
 const logger = { warn: jest.fn(), error: jest.fn() };
 const makeClient = () => ({ users: { info: jest.fn() } });
@@ -30,58 +29,82 @@ const context = () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  delete process.env.GITHUB_BUG_LABEL;
-  delete process.env.GITHUB_FEATURE_LABEL;
+  delete process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME;
+  delete process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME;
   mockIsGithubConfigured.mockReturnValue(true);
   mockGetUser.mockResolvedValue({ realName: 'Ada Lovelace', email: 'ada@ed-fi.org' });
   mockCreateIssue.mockResolvedValue({ number: 300, url: 'https://github.com/o/r/issues/300' });
 });
 
-describe('resolveLabel', () => {
-  it('defaults bug to bug and feature to enhancement', () => {
-    expect(resolveLabel('bug')).toBe('bug');
-    expect(resolveLabel('feature')).toBe('enhancement');
+describe('resolveIssueTypeName', () => {
+  it('maps bug to Bug and feature to Feature', () => {
+    expect(resolveIssueTypeName('bug')).toBe('Bug');
+    expect(resolveIssueTypeName('feature')).toBe('Feature');
   });
   it('honors env overrides', () => {
-    process.env.GITHUB_BUG_LABEL = 'kind/bug';
-    process.env.GITHUB_FEATURE_LABEL = 'kind/feature';
-    expect(resolveLabel('bug')).toBe('kind/bug');
-    expect(resolveLabel('feature')).toBe('kind/feature');
+    process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
+    process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
+    expect(resolveIssueTypeName('bug')).toBe('Defect');
+    expect(resolveIssueTypeName('feature')).toBe('Enhancement');
   });
 });
 
 describe('buildBody', () => {
-  it('includes priority, reporter, provenance, and bug sections when present', () => {
+  it('includes provenance and bug sections when present', () => {
     const text = buildBody({
       ticketType: 'bug',
       description: 'App crashes on save',
-      priorityName: 'High',
       bugFields: { stepsToReproduce: '1. click save', expectedActual: 'should save / crashes', environment: 'v7.1' },
-      reporter: { name: 'Ada Lovelace', email: 'ada@ed-fi.org', userId: 'U1' },
       source: 'slash_bug',
     });
     expect(text).toContain('App crashes on save');
-    expect(text).toContain('Priority: High');
     expect(text).toContain('Steps to reproduce');
     expect(text).toContain('Expected vs actual');
     expect(text).toContain('Environment / version');
-    expect(text).toContain('Ada Lovelace <ada@ed-fi.org>');
     expect(text).toContain('Filed via Fiona');
+  });
+
+  it('carries no priority — it belongs in the Priority issue field', () => {
+    const text = buildBody({
+      ticketType: 'bug',
+      description: 'App crashes on save',
+      bugFields: {},
+      source: 'slash_bug',
+    });
+    expect(text).not.toContain('Priority');
   });
   it('omits bug sections for features', () => {
     const text = buildBody({
       ticketType: 'feature',
       description: 'Add dark mode',
       priorityName: 'Low',
-      reporter: { name: 'Ada', userId: 'U1' },
       source: 'slash_feature',
     });
     expect(text).not.toContain('Steps to reproduce');
   });
+  it('carries no reporter identity — the issue body is world-readable on a public repo', () => {
+    const text = buildBody({
+      ticketType: 'bug',
+      description: 'App crashes on save',
+      priorityName: 'High',
+      bugFields: {},
+      source: 'slash_bug',
+    });
+    expect(text).not.toContain('Reported by');
+  });
+});
+
+describe('formatSlackUser', () => {
+  it('renders the resolved name followed by the Slack id in brackets', () => {
+    expect(formatSlackUser({ name: 'Ada Lovelace', userId: 'U1' })).toBe('Ada Lovelace [U1]');
+  });
+  it('says Unknown rather than repeating the id when the name could not be resolved', () => {
+    expect(formatSlackUser({ name: 'U0B7T64TWQN', userId: 'U0B7T64TWQN' })).toBe('Unknown [U0B7T64TWQN]');
+  });
 });
 
 describe('createTicketNow', () => {
-  it('creates the issue with the type label and records a success interaction', async () => {
+  it('creates the issue with the native type and priority, and records a success interaction', async () => {
     const result = await createTicketNow(
       { ticketType: 'bug', summary: 'It broke', description: 'details', priorityName: 'High', bugFields: {} },
       context(),
@@ -89,21 +112,45 @@ describe('createTicketNow', () => {
     expect(result).toEqual({ ok: true, key: '#300', url: 'https://github.com/o/r/issues/300', errorType: null });
     const [issueArg] = mockCreateIssue.mock.calls[0];
     expect(issueArg.title).toBe('It broke');
-    expect(issueArg.labels).toEqual(['bug']);
+    expect(issueArg.issueTypeName).toBe('Bug');
+    expect(issueArg.priorityName).toBe('High');
+    expect(issueArg).not.toHaveProperty('labels');
     expect(mockRecordInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ interactionType: 'ticket_create', status: 'success' }),
     );
   });
 
+  it('passes the reporter to the Slack User field, not the issue body', async () => {
+    await createTicketNow(
+      { ticketType: 'bug', summary: 'It broke', description: 'details', priorityName: 'High', bugFields: {} },
+      context(),
+    );
+    const [issueArg] = mockCreateIssue.mock.calls[0];
+    expect(issueArg.slackUser).toBe('Ada Lovelace [U1]');
+    expect(issueArg.bodyText).not.toContain('Ada Lovelace');
+    expect(issueArg.bodyText).not.toContain('U1');
+  });
+
   it('falls back to Slack users.info when the store misses', async () => {
     mockGetUser.mockResolvedValue(null);
     const ctx = context();
-    ctx.client.users.info.mockResolvedValue({ user: { profile: { real_name: 'Grace', email: 'grace@ed-fi.org' } } });
+    ctx.client.users.info.mockResolvedValue({ user: { profile: { real_name: 'Grace' } } });
     await createTicketNow(
       { ticketType: 'feature', summary: 's', description: 'd', priorityName: 'Medium', bugFields: {} },
       ctx,
     );
-    expect(mockCreateIssue.mock.calls[0][0].bodyText).toContain('Grace');
+    expect(mockCreateIssue.mock.calls[0][0].slackUser).toBe('Grace [U1]');
+  });
+
+  it('reports Unknown when Slack rejects users.info (missing_scope)', async () => {
+    mockGetUser.mockResolvedValue(null);
+    const ctx = context();
+    ctx.client.users.info.mockRejectedValue(new Error('An API error occurred: missing_scope'));
+    await createTicketNow(
+      { ticketType: 'feature', summary: 's', description: 'd', priorityName: 'Medium', bugFields: {} },
+      ctx,
+    );
+    expect(mockCreateIssue.mock.calls[0][0].slackUser).toBe('Unknown [U1]');
   });
 
   it('returns error and records failure when createIssue throws', async () => {

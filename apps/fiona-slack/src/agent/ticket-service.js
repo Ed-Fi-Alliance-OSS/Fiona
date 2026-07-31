@@ -68,15 +68,26 @@ async function postDraftForApproval(payload, ctx) {
   }
 }
 
-/** Map the internal ticket type to a GitHub label (env-overridable; must exist in the repo). */
-export function resolveLabel(ticketType) {
+/**
+ * Map the internal ticket type to a native GitHub issue type NAME (env-overridable;
+ * the type must already exist in the org). Replaces the previous label mapping —
+ * issues carry a real type now, not a `bug` / `enhancement` label.
+ */
+export function resolveIssueTypeName(ticketType) {
   return ticketType === 'bug'
-    ? process.env.GITHUB_BUG_LABEL || 'bug'
-    : process.env.GITHUB_FEATURE_LABEL || 'enhancement';
+    ? process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME || 'Bug'
+    : process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME || 'Feature';
 }
 
-/** Assemble the Markdown issue body from the modal fields + priority + reporter + provenance. */
-export function buildBody({ ticketType, description, priorityName, bugFields = {}, reporter, source }) {
+/**
+ * Assemble the Markdown issue body from the modal fields + provenance.
+ *
+ * Deliberately carries no reporter identity: the issue body is world-readable on a
+ * public repo. The reporter goes in the org-members-only `Slack User` issue field
+ * instead — see `formatSlackUser`. Priority likewise lives in the native `Priority`
+ * issue field, not in prose.
+ */
+export function buildBody({ ticketType, description, bugFields = {}, source }) {
   const parts = [];
   const body = (description ?? '').trim();
   if (body) parts.push(body);
@@ -85,23 +96,34 @@ export function buildBody({ ticketType, description, priorityName, bugFields = {
     if (bugFields.expectedActual?.trim()) parts.push(`### Expected vs actual\n${bugFields.expectedActual.trim()}`);
     if (bugFields.environment?.trim()) parts.push(`### Environment / version\n${bugFields.environment.trim()}`);
   }
-  if (priorityName) parts.push(`**Priority: ${priorityName}**`);
-  const who = reporter?.email ? `${reporter.name} <${reporter.email}>` : reporter?.name || reporter?.userId;
-  parts.push(`**Reported by:** ${who} (via Slack)`);
   parts.push(`_Filed via Fiona from Slack (source: ${source})._`);
   return parts.join('\n\n');
 }
 
+/**
+ * Format the reporter for the `Slack User` issue field as `<name> [<slack id>]`.
+ * `resolveReporter` falls back to the raw id as the name when Slack lookup fails, so
+ * say "Unknown" rather than printing the id twice.
+ */
+export function formatSlackUser(reporter) {
+  const userId = reporter?.userId ?? '';
+  const resolved = reporter?.name && reporter.name !== userId ? reporter.name : 'Unknown';
+  return userId ? `${resolved} [${userId}]` : resolved;
+}
+
 async function resolveReporter({ userId, client, logger }) {
   const doc = await getUser(userId, logger).catch(() => null);
-  if (doc) return { userId, name: doc.realName || doc.displayName || userId, email: doc.email || '' };
+  if (doc) return { userId, name: doc.realName || doc.displayName || userId };
   try {
     const info = await client.users.info({ user: userId });
     const profile = info?.user?.profile ?? {};
-    return { userId, name: profile.real_name || info?.user?.real_name || userId, email: profile.email || '' };
+    return { userId, name: profile.real_name || info?.user?.real_name || userId };
   } catch (err) {
-    logger?.warn?.(`Failed to resolve reporter ${userId}: ${err.message}`);
-    return { userId, name: userId, email: '' };
+    // Slack reports a denied scope here as "An API error occurred: missing_scope";
+    // surface `needed` so the missing scope is named rather than guessed at.
+    const needed = err.data?.needed ? ` (needs scope: ${err.data.needed})` : '';
+    logger?.warn?.(`Failed to resolve reporter ${userId}: ${err.message}${needed}`);
+    return { userId, name: userId };
   }
 }
 
@@ -131,14 +153,18 @@ export async function createTicketNow(payload, ctx) {
   const bodyText = buildBody({
     ticketType: payload.ticketType,
     description: payload.description,
-    priorityName: payload.priorityName,
     bugFields: payload.bugFields,
-    reporter,
     source,
   });
   try {
     const { number, url } = await createIssue(
-      { title: payload.summary, bodyText, labels: [resolveLabel(payload.ticketType)] },
+      {
+        title: payload.summary,
+        bodyText,
+        issueTypeName: resolveIssueTypeName(payload.ticketType),
+        priorityName: payload.priorityName,
+        slackUser: formatSlackUser(reporter),
+      },
       logger,
     );
     recordTicketInteraction({ status: 'success', errorType: null, userId, teamId, channelId, triggerId, logger });

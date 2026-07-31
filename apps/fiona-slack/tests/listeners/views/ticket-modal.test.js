@@ -14,6 +14,9 @@ describe('buildTicketModal', () => {
     );
     const priority = view.blocks.find((b) => b.block_id === 'priority_block');
     expect(priority.element.options).toHaveLength(PRIORITY_OPTIONS.length);
+    // Must match the GitHub Priority single-select options exactly — the value is
+    // resolved to an option id by name, so any drift fails issue creation outright.
+    expect(PRIORITY_OPTIONS).toEqual(['Urgent', 'High', 'Medium', 'Low']);
   });
 
   it('builds a feature modal without bug-specific blocks', () => {

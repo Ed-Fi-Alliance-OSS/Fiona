@@ -7,7 +7,9 @@ import { submitTicket } from '../../agent/ticket-service.js';
 import { TICKET_CREATED_TEXT, TICKET_ERROR_TEXT, TICKET_NOT_CONFIGURED_TEXT } from '../commands/command-handler.js';
 
 export const TICKET_MODAL_CALLBACK = 'ticket_modal';
-export const PRIORITY_OPTIONS = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
+// Must match the GitHub org `Priority` single-select options exactly: the selected
+// value is resolved to an option node id by name at issue-creation time.
+export const PRIORITY_OPTIONS = ['Urgent', 'High', 'Medium', 'Low'];
 const DEFAULT_PRIORITY = 'Medium';
 
 const plainText = (text) => ({ type: 'plain_text', text });
