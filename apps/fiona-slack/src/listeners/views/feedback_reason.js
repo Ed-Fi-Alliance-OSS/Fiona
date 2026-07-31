@@ -6,10 +6,19 @@
 import { recordFeedback } from '../../agent/feedback-store.js';
 import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
 
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n|$)/;
+const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
+
 function normalizeResponseType(responseType) {
   return Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
     ? responseType
     : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+}
+
+function extractSearchQuery(messageText) {
+  if (typeof messageText !== 'string') return null;
+  const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
+  return match?.[1] ?? null;
 }
 
 /**
@@ -62,6 +71,28 @@ async function fetchMessageText(client, channelId, messageTs) {
   return messages?.[0]?.text ?? null;
 }
 
+async function resolveSearchFeedbackContext(
+  client,
+  channelId,
+  messageTs,
+  interactionType,
+  storedSearchQuery,
+  storedBotResponse,
+) {
+  if (interactionType === 'slash_search') {
+    return {
+      userMessage: storedSearchQuery ?? null,
+      botResponse: storedBotResponse ?? null,
+    };
+  }
+
+  const botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, messageTs));
+  return {
+    userMessage: storedSearchQuery ?? extractSearchQuery(botResponse),
+    botResponse,
+  };
+}
+
 /**
  * Handles the `feedback_reason` modal submission. Records the feedback and reason
  * to Cosmos DB, then posts a confirmation ephemeral to the originating channel.
@@ -101,7 +132,14 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
       if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {
         ({ userMessage, botResponse } = await fetchThreadContext(client, channelId, thread_ts, messageTs));
       } else {
-        botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, messageTs));
+        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
+          client,
+          channelId,
+          messageTs,
+          interactionType,
+          searchQuery,
+          storedBotResponse,
+        ));
       }
     } catch (e) {
       logger.error('Failed to fetch feedback context:', e);
@@ -150,20 +188,47 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
  * @param {import("@slack/bolt").ViewOutput} params.view
  * @param {import("@slack/logger").Logger} params.logger
  */
-export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
+export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }) => {
   try {
     await ack();
-    const { channelId, messageTs, userId, value, responseType, interactionType } = JSON.parse(view.private_metadata);
+    const {
+      channelId,
+      messageTs,
+      userId,
+      value,
+      responseType,
+      interactionType,
+      searchQuery,
+      botResponse: storedBotResponse,
+    } = JSON.parse(view.private_metadata);
     const normalizedResponseType = normalizeResponseType(responseType);
     if (value !== 'good-feedback') return;
+    let userMessage = null;
+    let botResponse = null;
+
+    if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+      try {
+        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
+          client,
+          channelId,
+          messageTs,
+          interactionType,
+          searchQuery,
+          storedBotResponse,
+        ));
+      } catch (e) {
+        logger.error('Failed to fetch feedback context:', e);
+      }
+    }
+
     await recordFeedback({
       userId,
       channelId,
       messageTs,
       value,
       reason: null,
-      userMessage: null,
-      botResponse: null,
+      userMessage,
+      botResponse,
       responseType: normalizedResponseType,
       interactionType,
       logger,

@@ -216,6 +216,86 @@ describe('feedbackReasonViewCallback', () => {
     );
   });
 
+  it('fetches and derives full search context for non-slash search feedback', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result\nThe field is "_etag".';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.history).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', latest: '1234567890.000001', inclusive: true, limit: 1 }),
+    );
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: fullBotResponse,
+        responseType: 'search',
+        interactionType: 'assistant_message',
+      }),
+    );
+  });
+
+  it('derives multiline search queries from fetched non-slash search responses', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"line one\nline two"_\n\n1. Result';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'line one\nline two',
+        botResponse: fullBotResponse,
+      }),
+    );
+  });
+
+  it('derives queries from fetched no-results search responses', async () => {
+    const fullBotResponse = '🔍 No sources found for _"missing topic"_. Try rephrasing your query.';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'missing topic',
+        botResponse: fullBotResponse,
+      }),
+    );
+  });
+
   it('normalizes invalid responseType metadata before fetching context and storing feedback', async () => {
     const messages = [
       { ts: '1234567890.000000', text: 'User question' },
@@ -281,12 +361,18 @@ describe('feedbackReasonClosedCallback', () => {
   let mockAck;
   let mockLogger;
   let mockView;
+  let mockClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
     mockAck = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn() };
+    mockClient = {
+      conversations: {
+        history: jest.fn().mockResolvedValue({ messages: [] }),
+      },
+    };
     mockView = {
       private_metadata: JSON.stringify({
         channelId: 'C456',
@@ -302,13 +388,13 @@ describe('feedbackReasonClosedCallback', () => {
 
   it('calls ack', async () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
     expect(mockAck).toHaveBeenCalledTimes(1);
   });
 
   it('records good-feedback with reason null when modal is dismissed', async () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -336,9 +422,60 @@ describe('feedbackReasonClosedCallback', () => {
     });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ responseType: 'synthesis' }));
+  });
+
+  it('records stored search context for slash-search positive feedback when modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'What is Ed-Fi ODS?',
+      botResponse: '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result',
+        responseType: 'search',
+        interactionType: 'slash_search',
+      }),
+    );
+  });
+
+  it('fetches and derives search context for non-slash positive feedback when modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.' }],
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'missing topic',
+        botResponse: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.',
+        responseType: 'search',
+        interactionType: 'assistant_message',
+      }),
+    );
   });
 
   it('does NOT record feedback when bad-feedback modal is dismissed', async () => {
@@ -350,7 +487,7 @@ describe('feedbackReasonClosedCallback', () => {
       thread_ts: '1234567890.000000',
     });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).not.toHaveBeenCalled();
   });
@@ -360,7 +497,7 @@ describe('feedbackReasonClosedCallback', () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
     await expect(
-      feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger }),
+      feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger }),
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalled();

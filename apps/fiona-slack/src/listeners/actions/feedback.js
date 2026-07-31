@@ -5,7 +5,11 @@
 
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
-const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_$/;
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n|$)/;
+const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
+const PRIVATE_METADATA_MAX_CHARS = 3000;
+const PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS = 1000;
+const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
 
 /**
  * Resolve the contextual feedback block id from the action payload.
@@ -31,9 +35,79 @@ function getFeedbackBlockId(body, action) {
  */
 function extractSearchQuery(messageText) {
   if (typeof messageText !== 'string') return null;
-  const [headerLine] = messageText.split('\n');
-  const match = headerLine?.match(SEARCH_QUERY_PATTERN);
+  const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
   return match?.[1] ?? null;
+}
+
+function compactBotResponse(messageText) {
+  if (typeof messageText !== 'string') return null;
+  if (messageText.length <= PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS) return messageText;
+  return `${messageText.slice(0, PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS - 1)}…`;
+}
+
+function compactSearchQuery(searchQuery) {
+  if (typeof searchQuery !== 'string') return null;
+  if (searchQuery.length <= PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS) return searchQuery;
+  return `${searchQuery.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
+}
+
+function truncateForMetadata(text, maxChars) {
+  if (typeof text !== 'string' || maxChars <= 0) return null;
+  if (text.length <= maxChars) return text;
+  if (maxChars === 1) return '…';
+  return `${text.slice(0, maxChars - 1)}…`;
+}
+
+function buildPrivateMetadata(baseMetadata, searchContext = null) {
+  if (!searchContext) {
+    return JSON.stringify(baseMetadata);
+  }
+
+  let compactedContext = {
+    searchQuery: compactSearchQuery(searchContext.searchQuery),
+    botResponse: compactBotResponse(searchContext.botResponse),
+  };
+
+  let privateMetadata = JSON.stringify({
+    ...baseMetadata,
+    ...(compactedContext.searchQuery ? { searchQuery: compactedContext.searchQuery } : {}),
+    ...(compactedContext.botResponse ? { botResponse: compactedContext.botResponse } : {}),
+  });
+
+  while (
+    privateMetadata.length > PRIVATE_METADATA_MAX_CHARS &&
+    (compactedContext.searchQuery || compactedContext.botResponse)
+  ) {
+    if ((compactedContext.botResponse?.length ?? 0) >= (compactedContext.searchQuery?.length ?? 0)) {
+      compactedContext = {
+        ...compactedContext,
+        botResponse: truncateForMetadata(
+          compactedContext.botResponse,
+          Math.floor((compactedContext.botResponse?.length ?? 0) / 2),
+        ),
+      };
+    } else {
+      compactedContext = {
+        ...compactedContext,
+        searchQuery: truncateForMetadata(
+          compactedContext.searchQuery,
+          Math.floor((compactedContext.searchQuery?.length ?? 0) / 2),
+        ),
+      };
+    }
+
+    privateMetadata = JSON.stringify({
+      ...baseMetadata,
+      ...(compactedContext.searchQuery ? { searchQuery: compactedContext.searchQuery } : {}),
+      ...(compactedContext.botResponse ? { botResponse: compactedContext.botResponse } : {}),
+    });
+  }
+
+  if (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS) {
+    return JSON.stringify(baseMetadata);
+  }
+
+  return privateMetadata;
 }
 
 /**
@@ -89,18 +163,23 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
         },
         submit: { type: 'plain_text', text: 'Submit' },
         close: { type: 'plain_text', text: isGoodFeedback ? 'Skip' : 'Cancel' },
-        private_metadata: JSON.stringify({
-          channelId: channel_id,
-          messageTs: message_ts,
-          userId: user_id,
-          value,
-          thread_ts,
-          responseType,
-          interactionType,
-          ...(responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
-            ? { searchQuery: extractSearchQuery(body.message?.text), botResponse: body.message?.text ?? null }
-            : {}),
-        }),
+        private_metadata: buildPrivateMetadata(
+          {
+            channelId: channel_id,
+            messageTs: message_ts,
+            userId: user_id,
+            value,
+            thread_ts,
+            responseType,
+            interactionType,
+          },
+          responseType === FEEDBACK_RESPONSE_TYPES.SEARCH && interactionType === 'slash_search'
+            ? {
+                searchQuery: extractSearchQuery(body.message?.text),
+                botResponse: body.message?.text ?? null,
+              }
+            : null,
+        ),
         blocks: [
           {
             type: 'input',

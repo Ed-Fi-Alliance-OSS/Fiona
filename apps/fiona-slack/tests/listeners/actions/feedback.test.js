@@ -159,6 +159,26 @@ describe('feedbackActionCallback', () => {
     expect(meta.searchQuery).toBe('What is etag?');
   });
 
+  it('captures multiline search queries from the formatted header', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"line one\nline two"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('line one\nline two');
+  });
+
+  it('captures queries from no-results search messages', async () => {
+    mockBody.message.text = '🔍 No sources found for _"missing topic"_. Try rephrasing your query.';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('missing topic');
+  });
+
   it('stores the rated search response text in private_metadata', async () => {
     mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
 
@@ -167,6 +187,51 @@ describe('feedbackActionCallback', () => {
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta.botResponse).toBe(mockBody.message.text);
+  });
+
+  it('does not store search text context in private_metadata for non-slash search interactions', async () => {
+    mockBody.actions[0].block_id = 'feedback|search|assistant_message';
+    mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta).not.toHaveProperty('searchQuery');
+    expect(meta).not.toHaveProperty('botResponse');
+  });
+
+  it('truncates stored search response text in private_metadata to stay compact', async () => {
+    mockBody.message.text = `🔍 *Search results for:* _"Ed-Fi API"_\n\n${'A'.repeat(4000)}`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.botResponse.length).toBeLessThan(4000);
+    expect(meta.botResponse).toMatch(/…$/);
+  });
+
+  it('truncates a very long search query in private_metadata to stay under Slack limits', async () => {
+    const longQuery = 'Q'.repeat(2000);
+    mockBody.message.text = `🔍 *Search results for:* _"${longQuery}"_\n\n1. Result`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery.length).toBeLessThan(2000);
+    expect(view.private_metadata.length).toBeLessThan(3000);
+  });
+
+  it('keeps JSON-encoded private_metadata under Slack limits for highly escaped queries', async () => {
+    const quoteHeavyQuery = '"'.repeat(1000);
+    mockBody.message.text = `🔍 *Search results for:* _"${quoteHeavyQuery}"_\n\n1. Result`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.private_metadata.length).toBeLessThan(3000);
   });
 
   it('uses message.ts as thread_ts when thread_ts is absent', async () => {
