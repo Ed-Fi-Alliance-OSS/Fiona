@@ -3,11 +3,20 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { captureConversation } from '../../agent/conversation-capture-store.js';
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
-import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { waitForMetadataReady } from '../../agent/interaction-telemetry.js';
 import {
-  ASK_NOT_YET_TEXT,
+  CITATION_POLICY,
+  callLLM,
+  finalizeMetadataEnvelope,
+  LLM_MODEL,
+  SYSTEM_PROMPT_VERSION,
+} from '../../agent/llm-caller.js';
+import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { feedbackBlock } from '../views/feedback_block.js';
+import {
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
@@ -17,7 +26,7 @@ import {
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
- * back to help for unrecognized / missing input. Never invokes the LLM.
+ * back to help for unrecognized / missing input.
  */
 export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
@@ -29,7 +38,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleHelp({ command, ack, logger });
       break;
     case 'ask':
-      await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
+      await handleAsk({ command, ack, respond, client, logger });
       break;
     case 'search':
       await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
@@ -96,6 +105,107 @@ async function handleComingSoon({ command, ack, logger, subCommand, text }) {
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
+}
+
+/**
+ * Handles the `/fiona ask <question>` sub-command.
+ * Streams an ephemeral LLM response visible only to the invoking user.
+ * Falls back to the help response when no question is provided.
+ */
+async function handleAsk({ command, ack, respond, client, logger }) {
+  const rawArgs = (command.text ?? '').trim().slice('ask'.length).trim();
+
+  // Empty question → fall back to help
+  if (!rawArgs) {
+    await handleHelp({ command, ack, logger });
+    return;
+  }
+
+  // Acknowledge the slash command immediately (Slack requires ack within 3 seconds)
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ask: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping /fiona ask');
+    return;
+  }
+
+  // Apply rate limiting
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_ask'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_ask interaction: ${err.name}`));
+    return;
+  }
+
+  // Stream the LLM response as an ephemeral message visible only to the invoking user
+  try {
+    const streamer = client.chatStream({
+      channel: command.channel_id,
+      recipient_team_id: command.team_id,
+      recipient_user_id: command.user_id,
+    });
+
+    const prompts = [{ role: 'user', content: rawArgs }];
+    const { metadata, botText, systemPromptVersion } = await callLLM(streamer, prompts, logger);
+
+    // Wait for citation metadata to be ready before finalizing
+    await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
+
+    if (metadata) {
+      logger?.info?.(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+    }
+
+    await streamer.stop({ blocks: [feedbackBlock] });
+    finalizeMetadataEnvelope(metadata);
+
+    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask' });
+
+    try {
+      await captureConversation({
+        userId: command.user_id,
+        teamId: command.team_id,
+        channelId: command.channel_id,
+        threadTs: command.trigger_id,
+        messageTs: command.trigger_id,
+        entryPoint: 'slash_ask',
+        userMessage: rawArgs,
+        botResponse: botText,
+        threadHistory: prompts,
+        llmProvider: metadata?.provider ?? 'perplexity',
+        llmModel: LLM_MODEL,
+        systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
+        sources: metadata?.sources,
+        logger,
+      });
+    } catch (err) {
+      logger?.warn?.(`Failed to capture conversation: ${err.message}`);
+    }
+  } catch (err) {
+    logger?.error?.(`Failed to handle /fiona ask: ${err.name}`, err);
+    try {
+      await respond({ response_type: 'ephemeral', text: ':warning: Something went wrong! Please try again later.' });
+    } catch (respondErr) {
+      logger?.warn?.(`Failed to send error response for /fiona ask: ${respondErr.name}`);
+    }
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_ask'),
+      status: 'error',
+      errorType: 'unknown',
+      rateLimited: false,
+      logger,
+    }).catch((recErr) => logger?.warn?.(`Failed to record slash_ask interaction: ${recErr.name}`));
+  }
 }
 
 async function handleUnknown({ command, ack, logger, subCommand }) {
