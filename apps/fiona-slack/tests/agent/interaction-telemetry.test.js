@@ -139,7 +139,11 @@ describe('handleInteractionWithTelemetry', () => {
           errorType: 'cosmos_error',
         }),
       );
-      expect(say).toHaveBeenCalledWith(':warning: Something went wrong! Please try again later.');
+      // Must surface in the thread that failed, not the parent channel.
+      expect(say).toHaveBeenCalledWith({
+        text: ':warning: Something went wrong! Please try again later.',
+        thread_ts: '1712345678.001',
+      });
     });
 
     it('catches TimeoutError and classifies as timeout', async () => {

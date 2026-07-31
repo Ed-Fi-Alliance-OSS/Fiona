@@ -95,13 +95,14 @@ const NOT_YET_TEXT = {
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
  * @param {{ keyword: string, rawArgs: string }} cmd
+ * @param {string} [threadTs] - Thread to reply in. Omitted, Slack posts to the channel.
  */
-export async function routeCommandViaSay(say, logger, cmd) {
+export async function routeCommandViaSay(say, logger, cmd, threadTs) {
   if (cmd.keyword === 'help') {
-    await handleHelpViaSay(say, logger);
+    await handleHelpViaSay(say, logger, threadTs);
   } else {
     const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
-    await handleComingSoonViaSay(say, logger, cmd.keyword, text);
+    await handleComingSoonViaSay(say, logger, cmd.keyword, text, threadTs);
   }
 }
 
@@ -111,10 +112,11 @@ export async function routeCommandViaSay(say, logger, cmd) {
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
+ * @param {string} [threadTs] - Reply in this thread rather than the channel.
  */
-export async function handleHelpViaSay(say, logger) {
+export async function handleHelpViaSay(say, logger, threadTs) {
   try {
-    await say(HELP_TEXT);
+    await say({ text: HELP_TEXT, thread_ts: threadTs });
   } catch (err) {
     logger?.error?.(`Failed to send help response: ${err.name}`);
   }
@@ -127,10 +129,11 @@ export async function handleHelpViaSay(say, logger) {
  * @param {import('@slack/logger').Logger} logger
  * @param {string} subCommand - 'ask' or 'search'
  * @param {string} text - The coming-soon message text to send.
+ * @param {string} [threadTs] - Reply in this thread rather than the channel.
  */
-export async function handleComingSoonViaSay(say, logger, subCommand, text) {
+export async function handleComingSoonViaSay(say, logger, subCommand, text, threadTs) {
   try {
-    await say(text);
+    await say({ text, thread_ts: threadTs });
   } catch (err) {
     logger?.error?.(`Failed to send coming-soon response for ${subCommand}: ${err.name}`);
   }

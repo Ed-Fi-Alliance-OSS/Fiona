@@ -31,6 +31,29 @@ import { feedbackBlock } from '../views/feedback_block.js';
  *
  * @see {@link https://docs.slack.dev/reference/events/app_mention/}
  */
+/**
+ * Builds a `say`-shaped reply that posts privately to the invoking user, matching
+ * the ephemeral behaviour of `/fiona help`.
+ *
+ * `thread_ts` is only set when the mention is genuinely inside an existing thread:
+ * Slack renders an ephemeral in a thread only if that thread already exists, so
+ * passing a top-level message's own `ts` would silently show the user nothing.
+ */
+function replyEphemerally({ client, channel, user, event, logger }) {
+  return async ({ text }) => {
+    try {
+      await client.chat.postEphemeral({
+        channel,
+        user,
+        text,
+        ...(event.thread_ts ? { thread_ts: event.thread_ts } : {}),
+      });
+    } catch (err) {
+      logger?.error?.(`Failed to send ephemeral response: ${err.name}`);
+    }
+  };
+}
+
 export const appMentionCallback = async ({ event, client, logger, say }) => {
   const { channel, team, user } = event;
   const thread_ts = event.thread_ts || event.ts;
@@ -71,9 +94,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
-        await say(
-          "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
-        );
+        await say({
+          text: "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+          thread_ts,
+        });
         return;
       }
 
@@ -84,6 +108,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         await dispatchKeywordViaSay({
           cmd,
           say,
+          replyPrivately: replyEphemerally({ client, channel, user, event, logger }),
           logger,
           markInteractionRecorded,
           client,

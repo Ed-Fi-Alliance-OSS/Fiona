@@ -259,7 +259,7 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     const [msg] = mockSay.mock.calls[0];
-    expect(msg).toContain('request limit');
+    expect(msg.text).toContain('request limit');
     expect(callLLM).not.toHaveBeenCalled();
 
     // recordInteraction is fired before say() but not awaited — say() is not blocked on the Cosmos write
@@ -309,7 +309,9 @@ describe('message (assistant thread handler)', () => {
     });
 
     expect(mockLogger.error).toHaveBeenCalled();
-    expect(mockSay).toHaveBeenCalledWith(expect.stringContaining(':warning:'));
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(':warning:') }),
+    );
   });
 
   describe('thread history integration', () => {
@@ -554,7 +556,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockSay.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -571,7 +573,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockSay.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -603,7 +605,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockSay.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -620,7 +622,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockSay.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -637,7 +639,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockSay.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -654,7 +656,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockSay.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -672,8 +674,8 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('request limit');
-      expect(mockSay.mock.calls[0][0]).not.toContain('Available commands');
+      expect(mockSay.mock.calls[0][0].text).toContain('request limit');
+      expect(mockSay.mock.calls[0][0].text).not.toContain('Available commands');
     });
 
     it('keyword command response does not invoke the LLM', async () => {
@@ -732,7 +734,7 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(escalateViaSay).not.toHaveBeenCalled();
-      expect(mockSay.mock.calls[0][0]).toContain('request limit');
+      expect(mockSay.mock.calls[0][0].text).toContain('request limit');
     });
   });
 });

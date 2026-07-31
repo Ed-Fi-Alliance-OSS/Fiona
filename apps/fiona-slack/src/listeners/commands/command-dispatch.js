@@ -29,6 +29,10 @@ import { routeCommandViaSay } from './command-handler.js';
  * @param {string|null} [params.threadTs]
  * @param {string} params.messageTs
  * @param {'mention_escalate'|'assistant_escalate'} params.source
+ * @param {(msg: { text: string }) => Promise<void>} [params.replyPrivately] - When
+ *   supplied, help/ask/search responses go through this instead of `say`, so they
+ *   are visible only to the invoking user (matching the slash-command behaviour).
+ *   The agent panel omits it: that surface is already private and persistent.
  */
 export async function dispatchKeywordViaSay({
   cmd,
@@ -42,6 +46,7 @@ export async function dispatchKeywordViaSay({
   threadTs,
   messageTs,
   source,
+  replyPrivately,
 }) {
   if (cmd.keyword === 'escalate') {
     // postEscalation records the escalate interaction itself; suppress the
@@ -61,5 +66,8 @@ export async function dispatchKeywordViaSay({
     });
     return;
   }
-  await routeCommandViaSay(say, logger, cmd);
+  // help/ask/search answer the person who asked, so prefer the private reply when the
+  // entry point provides one. Falling back to `say`, threadTs must be passed through:
+  // without it Slack posts to the channel rather than the thread it was asked in.
+  await routeCommandViaSay(replyPrivately ?? say, logger, cmd, threadTs);
 }

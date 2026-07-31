@@ -52,7 +52,9 @@ export async function handleRateLimitedInteraction({
     }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
     markInteractionRecorded();
 
-    await say(rateLimitMessage(retryAfterMs));
+    // Reply in the originating thread. Without thread_ts Slack posts to the parent
+    // channel, so a user rate-limited inside a thread gets the notice somewhere else.
+    await say({ text: rateLimitMessage(retryAfterMs), thread_ts: threadTs });
     return true;
   }
   return false;
