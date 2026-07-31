@@ -95,13 +95,15 @@ const NOT_YET_TEXT = {
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
  * @param {{ keyword: string, rawArgs: string }} cmd
+ * @param {string|null} [threadTs]
+ * @param {(text: string) => Promise<unknown>} [replyPrivately]
  */
-export async function routeCommandViaSay(say, logger, cmd) {
+export async function routeCommandViaSay(say, logger, cmd, threadTs = null, replyPrivately) {
   if (cmd.keyword === 'help') {
-    await handleHelpViaSay(say, logger);
+    await handleHelpViaSay(say, logger, threadTs, replyPrivately);
   } else {
     const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
-    await handleComingSoonViaSay(say, logger, cmd.keyword, text);
+    await handleComingSoonViaSay(say, logger, cmd.keyword, text, threadTs, replyPrivately);
   }
 }
 
@@ -111,10 +113,16 @@ export async function routeCommandViaSay(say, logger, cmd) {
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
+ * @param {string|null} [threadTs]
+ * @param {(text: string) => Promise<unknown>} [replyPrivately]
  */
-export async function handleHelpViaSay(say, logger) {
+export async function handleHelpViaSay(say, logger, threadTs = null, replyPrivately) {
   try {
-    await say(HELP_TEXT);
+    if (replyPrivately) {
+      await replyPrivately(HELP_TEXT);
+      return;
+    }
+    await say({ text: HELP_TEXT, thread_ts: threadTs });
   } catch (err) {
     logger?.error?.(`Failed to send help response: ${err.name}`);
   }
@@ -127,10 +135,16 @@ export async function handleHelpViaSay(say, logger) {
  * @param {import('@slack/logger').Logger} logger
  * @param {string} subCommand - 'ask' or 'search'
  * @param {string} text - The coming-soon message text to send.
+ * @param {string|null} [threadTs]
+ * @param {(text: string) => Promise<unknown>} [replyPrivately]
  */
-export async function handleComingSoonViaSay(say, logger, subCommand, text) {
+export async function handleComingSoonViaSay(say, logger, subCommand, text, threadTs = null, replyPrivately) {
   try {
-    await say(text);
+    if (replyPrivately) {
+      await replyPrivately(text);
+      return;
+    }
+    await say({ text, thread_ts: threadTs });
   } catch (err) {
     logger?.error?.(`Failed to send coming-soon response for ${subCommand}: ${err.name}`);
   }

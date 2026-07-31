@@ -94,6 +94,9 @@ describe('appMentionCallback', () => {
           setStatus: jest.fn().mockResolvedValue(undefined),
         },
       },
+      chat: {
+        postEphemeral: jest.fn().mockResolvedValue(undefined),
+      },
       chatStream: jest.fn().mockReturnValue(mockStreamer),
     };
     mockEvent = {
@@ -116,8 +119,12 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    const [msg] = mockSay.mock.calls[0];
-    expect(msg).toContain('request limit');
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('request limit'),
+        thread_ts: '1234567890.000001',
+      }),
+    );
     expect(callLLM).not.toHaveBeenCalled();
 
     expect(recordInteraction).toHaveBeenCalledTimes(1);
@@ -168,7 +175,12 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockLogger.error).toHaveBeenCalled();
-    expect(mockSay).toHaveBeenCalledWith(expect.stringContaining(':warning:'));
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(':warning:'),
+        thread_ts: '1234567890.000001',
+      }),
+    );
   });
 
   it('includes plural "minutes" for retryAfterMs >= 2 minutes', async () => {
@@ -176,8 +188,7 @@ describe('appMentionCallback', () => {
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-    const [msg] = mockSay.mock.calls[0];
-    expect(msg).toContain('minutes');
+    expect(mockSay.mock.calls[0][0].text).toContain('minutes');
   });
 
   it('includes singular "minute" for retryAfterMs < 2 minutes', async () => {
@@ -185,8 +196,7 @@ describe('appMentionCallback', () => {
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-    const [msg] = mockSay.mock.calls[0];
-    expect(msg).toMatch(/\bminute\b/);
+    expect(mockSay.mock.calls[0][0].text).toMatch(/\bminute\b/);
   });
 
   describe('thread history integration', () => {
@@ -231,7 +241,12 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("I'm Fiona"),
+        thread_ts: '1234567890.000001',
+      }),
+    );
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -241,7 +256,12 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("I'm Fiona"),
+        thread_ts: '1234567890.000001',
+      }),
+    );
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -355,9 +375,34 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringContaining('Available commands'),
+        }),
+      );
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0]).not.toHaveProperty('thread_ts');
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('threads private help replies when the mention is already in a thread', async () => {
+      mockEvent.text = '<@UFIONA> help';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringContaining('Available commands'),
+          thread_ts: '1234567890.000000',
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     it('does not call setStatus (thinking) when routing to help command', async () => {
@@ -381,8 +426,15 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringMatching(/not yet available/i),
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -391,8 +443,15 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringMatching(/not yet available/i),
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -401,8 +460,15 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringContaining('Available commands'),
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -411,7 +477,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
@@ -422,8 +489,15 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          text: expect.stringMatching(/not yet available/i),
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 

@@ -105,7 +105,7 @@ export async function handleInteractionWithTelemetry(
     }
 
     logger.error('Failed to handle a user message event:', e);
-    await say(':warning: Something went wrong! Please try again later.').catch(() => {
+    await say({ text: ':warning: Something went wrong! Please try again later.', thread_ts: threadTs }).catch(() => {
       logger.warn?.('Failed to send error message to Slack');
     });
   } finally {

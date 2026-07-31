@@ -29,6 +29,7 @@ import { routeCommandViaSay } from './command-handler.js';
  * @param {string|null} [params.threadTs]
  * @param {string} params.messageTs
  * @param {'mention_escalate'|'assistant_escalate'} params.source
+ * @param {(text: string) => Promise<unknown>} [params.replyPrivately]
  */
 export async function dispatchKeywordViaSay({
   cmd,
@@ -42,6 +43,7 @@ export async function dispatchKeywordViaSay({
   threadTs,
   messageTs,
   source,
+  replyPrivately,
 }) {
   if (cmd.keyword === 'escalate') {
     // postEscalation records the escalate interaction itself; suppress the
@@ -61,5 +63,5 @@ export async function dispatchKeywordViaSay({
     });
     return;
   }
-  await routeCommandViaSay(say, logger, cmd);
+  await routeCommandViaSay(say, logger, cmd, threadTs, replyPrivately);
 }
