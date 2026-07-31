@@ -99,6 +99,33 @@ export async function routeCommandViaSay(say, logger, cmd, options = {}) {
   }
 }
 
+async function buildSearchResponse(query, logger, interactionType = null) {
+  let text;
+  let blocks;
+  try {
+    const sources = await searchForSources(query, { logger });
+    ({ text, blocks } = formatSearchResults(query, sources));
+  } catch (err) {
+    logger?.error?.(`Failed to search sources: ${err.name}: ${err.message}`);
+    text = SEARCH_ERROR_TEXT;
+    blocks = null;
+  }
+  const feedbackBlock = createFeedbackBlock({
+    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
+    interactionType,
+  });
+  const responseBlocks = Array.isArray(blocks)
+    ? [...blocks, { type: 'divider' }, feedbackBlock]
+    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
+
+  return {
+    text,
+    blocks: responseBlocks,
+    unfurl_links: false,
+    unfurl_media: false,
+  };
+}
+
 /**
  * Sends the help response via say() — visible to all thread/channel participants.
  * Used in contexts where slash-command ack() is not available (threads, agent panel).
@@ -124,27 +151,27 @@ export async function handleHelpViaSay(say, logger) {
  * @param {string} query - The search query (rawArgs from parseCommandKeyword)
  */
 export async function handleSearchViaSay(say, logger, query, { interactionType = null } = {}) {
-  let text;
-  let blocks;
   try {
-    const sources = await searchForSources(query, { logger });
-    ({ text, blocks } = formatSearchResults(query, sources));
-  } catch (err) {
-    logger?.error?.(`Failed to search sources: ${err.name}: ${err.message}`);
-    text = SEARCH_ERROR_TEXT;
-    blocks = null;
-  }
-  const feedbackBlock = createFeedbackBlock({
-    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
-    interactionType,
-  });
-  const responseBlocks = Array.isArray(blocks)
-    ? [...blocks, { type: 'divider' }, feedbackBlock]
-    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
-  try {
-    await say({ text, blocks: responseBlocks, unfurl_links: false, unfurl_media: false });
+    await say(await buildSearchResponse(query, logger, interactionType));
   } catch (err) {
     logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
+  }
+}
+
+export async function handleSearchEphemeral(
+  client,
+  logger,
+  { userId, channelId, threadTs, query, interactionType = null },
+) {
+  try {
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: threadTs,
+      ...(await buildSearchResponse(query, logger, interactionType)),
+    });
+  } catch (err) {
+    logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
   }
 }
 

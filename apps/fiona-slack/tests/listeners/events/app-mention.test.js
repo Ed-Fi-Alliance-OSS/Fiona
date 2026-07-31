@@ -95,6 +95,9 @@ describe('appMentionCallback', () => {
           setStatus: jest.fn().mockResolvedValue(undefined),
         },
       },
+      chat: {
+        postEphemeral: jest.fn().mockResolvedValue(undefined),
+      },
       chatStream: jest.fn().mockReturnValue(mockStreamer),
     };
     mockEvent = {
@@ -392,10 +395,15 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      const sayArg = mockSay.mock.calls[0][0];
-      const sayText = typeof sayArg === 'string' ? sayArg : sayArg?.text ?? '';
-      expect(sayText).toMatch(/search results|No sources found/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          thread_ts: '1234567890.000001',
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 

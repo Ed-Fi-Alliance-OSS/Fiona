@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { escalateViaSay } from '../../agent/escalation.js';
-import { routeCommandViaSay } from './command-handler.js';
+import { handleSearchEphemeral, routeCommandViaSay } from './command-handler.js';
 
 /**
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
@@ -59,6 +59,16 @@ export async function dispatchKeywordViaSay({
       isDm: (channelId || '').startsWith('D'),
       say,
       logger,
+    });
+    return;
+  }
+  if (cmd.keyword === 'search' && interactionType === 'app_mention') {
+    await handleSearchEphemeral(client, logger, {
+      userId,
+      channelId,
+      threadTs,
+      query: cmd.rawArgs,
+      interactionType,
     });
     return;
   }
