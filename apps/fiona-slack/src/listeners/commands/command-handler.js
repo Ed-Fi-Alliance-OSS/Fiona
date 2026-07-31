@@ -52,7 +52,12 @@ export const CREATE_TICKET_ACTION = 'create_ticket';
 
 // Explicit-phrase → ticket type. v1 is high-precision (exact whole-message match).
 // LLM-based intent detection is deferred (AI-174).
+//
+// The bare `bug` / `feature` entries mirror the `/fiona bug` and `/fiona feature`
+// sub-commands so the keyword and @-mention paths accept what HELP_TEXT advertises.
 const TICKET_PHRASES = new Map([
+  ['bug', 'bug'],
+  ['feature', 'feature'],
   ['file a bug', 'bug'],
   ['report a bug', 'bug'],
   ['bug report', 'bug'],

@@ -207,6 +207,29 @@ describe('parseCommandKeyword — ticket phrases', () => {
   });
 });
 
+describe('parseCommandKeyword — bare bug/feature keywords', () => {
+  // HELP_TEXT advertises `bug` and `feature` as commands reachable by @-mention and
+  // keyword, and /fiona bug works. These make the keyword path match that promise.
+  it.each([
+    ['bug', 'bug'],
+    ['feature', 'feature'],
+    ['fiona bug', 'bug'],
+    ['fiona feature', 'feature'],
+    ['/bug', 'bug'],
+    ['Bug', 'bug'],
+    ['  feature  ', 'feature'],
+  ])('resolves "%s" to file_ticket/%s', (text, expected) => {
+    expect(parseCommandKeyword(text)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
+
+  it.each(['there is a bug', 'bug in the ODS', 'feature parity question', 'debug'])(
+    'does not fire on "%s"',
+    (text) => {
+      expect(parseCommandKeyword(text)).toBeNull();
+    },
+  );
+});
+
 describe('buildCreateTicketBlocks', () => {
   it('emits a button with the ticket type and location encoded', () => {
     const blocks = buildCreateTicketBlocks('bug', 'C1', '123.45');
