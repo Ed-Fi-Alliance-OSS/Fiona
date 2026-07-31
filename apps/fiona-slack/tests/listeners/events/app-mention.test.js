@@ -94,6 +94,9 @@ describe('appMentionCallback', () => {
           setStatus: jest.fn().mockResolvedValue(undefined),
         },
       },
+      chat: {
+        postEphemeral: jest.fn().mockResolvedValue(undefined),
+      },
       chatStream: jest.fn().mockReturnValue(mockStreamer),
     };
     mockEvent = {
@@ -103,6 +106,18 @@ describe('appMentionCallback', () => {
       ts: '1234567890.000001',
       text: '<@BOT123> Hello world',
     };
+  });
+
+  it('posts the no-text greeting into the thread it was mentioned in', async () => {
+    mockEvent.text = '<@BOT123>';
+    mockEvent.thread_ts = '1234567890.000000';
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockSay).toHaveBeenCalledTimes(1);
+    const [msg] = mockSay.mock.calls[0];
+    expect(msg).toEqual(expect.objectContaining({ thread_ts: '1234567890.000000' }));
+    expect(msg.text).toContain("Hi, I'm Fiona");
   });
 
   it('calls checkRateLimit with the user ID', async () => {
@@ -117,7 +132,9 @@ describe('appMentionCallback', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     const [msg] = mockSay.mock.calls[0];
-    expect(msg).toContain('request limit');
+    expect(msg.text).toContain('request limit');
+    // Must land in the thread the user was mentioned in, not the parent channel.
+    expect(msg.thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
 
     expect(recordInteraction).toHaveBeenCalledTimes(1);
@@ -168,7 +185,9 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockLogger.error).toHaveBeenCalled();
-    expect(mockSay).toHaveBeenCalledWith(expect.stringContaining(':warning:'));
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(':warning:'), thread_ts: '1234567890.000001' }),
+    );
   });
 
   it('includes plural "minutes" for retryAfterMs >= 2 minutes', async () => {
@@ -177,7 +196,7 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     const [msg] = mockSay.mock.calls[0];
-    expect(msg).toContain('minutes');
+    expect(msg.text).toContain('minutes');
   });
 
   it('includes singular "minute" for retryAfterMs < 2 minutes', async () => {
@@ -186,7 +205,7 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     const [msg] = mockSay.mock.calls[0];
-    expect(msg).toMatch(/\bminute\b/);
+    expect(msg.text).toMatch(/\bminute\b/);
   });
 
   describe('thread history integration', () => {
@@ -231,7 +250,7 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -241,7 +260,7 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -355,9 +374,38 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('sends help ephemerally to the invoking user, never as a channel post', async () => {
+      mockEvent.text = '<@UFIONA> help';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockSay).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C123', user: 'U456' }),
+      );
+    });
+
+    it('threads the ephemeral help when the mention is inside an existing thread', async () => {
+      mockEvent.text = '<@UFIONA> help';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].thread_ts).toBe('1234567890.000000');
+    });
+
+    it('omits thread_ts for a top-level mention — an ephemeral needs an existing thread to render', async () => {
+      mockEvent.text = '<@UFIONA> help';
+      delete mockEvent.thread_ts;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0]).not.toHaveProperty('thread_ts');
     });
 
     it('does not call setStatus (thinking) when routing to help command', async () => {
@@ -381,8 +429,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -391,8 +439,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -401,8 +449,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -411,7 +459,7 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
@@ -422,8 +470,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 

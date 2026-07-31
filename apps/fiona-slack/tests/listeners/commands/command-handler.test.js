@@ -204,10 +204,10 @@ describe('handleHelpViaSay', () => {
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
   });
 
-  it('calls say() with HELP_TEXT', async () => {
-    await handleHelpViaSay(mockSay, mockLogger);
+  it('calls say() with HELP_TEXT in the originating thread', async () => {
+    await handleHelpViaSay(mockSay, mockLogger, '123.45');
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay).toHaveBeenCalledWith(HELP_TEXT);
+    expect(mockSay).toHaveBeenCalledWith({ text: HELP_TEXT, thread_ts: '123.45' });
   });
 
   it('logs error when say() throws', async () => {
@@ -232,13 +232,13 @@ describe('handleComingSoonViaSay', () => {
   });
 
   it('calls say() with ASK_NOT_YET_TEXT for ask sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
+    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT, '123.45');
+    expect(mockSay).toHaveBeenCalledWith({ text: ASK_NOT_YET_TEXT, thread_ts: '123.45' });
   });
 
   it('calls say() with SEARCH_NOT_YET_TEXT for search sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'search', SEARCH_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
+    await handleComingSoonViaSay(mockSay, mockLogger, 'search', SEARCH_NOT_YET_TEXT, '123.45');
+    expect(mockSay).toHaveBeenCalledWith({ text: SEARCH_NOT_YET_TEXT, thread_ts: '123.45' });
   });
 
   it('logs error when say() throws', async () => {
@@ -273,18 +273,18 @@ describe('routeCommandViaSay', () => {
   });
 
   it('sends HELP_TEXT when keyword is "help"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
-    expect(mockSay).toHaveBeenCalledWith(HELP_TEXT);
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' }, '123.45');
+    expect(mockSay).toHaveBeenCalledWith({ text: HELP_TEXT, thread_ts: '123.45' });
   });
 
   it('sends ASK_NOT_YET_TEXT when keyword is "ask"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' }, '123.45');
+    expect(mockSay).toHaveBeenCalledWith({ text: ASK_NOT_YET_TEXT, thread_ts: '123.45' });
   });
 
   it('sends SEARCH_NOT_YET_TEXT when keyword is "search"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' }, '123.45');
+    expect(mockSay).toHaveBeenCalledWith({ text: SEARCH_NOT_YET_TEXT, thread_ts: '123.45' });
   });
 
   it('does not throw when say() throws', async () => {
