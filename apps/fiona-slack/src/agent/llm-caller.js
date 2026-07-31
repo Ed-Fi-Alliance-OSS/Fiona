@@ -537,7 +537,7 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
     return [];
   } catch (error) {
     logger?.warn?.(`Search failed: ${error.message}`);
-    return [];
+    throw error;
   }
 }
 

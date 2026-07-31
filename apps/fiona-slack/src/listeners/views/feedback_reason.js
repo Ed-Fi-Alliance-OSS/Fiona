@@ -74,9 +74,17 @@ async function fetchMessageText(client, channelId, messageTs) {
  */
 export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) => {
   try {
-    const { channelId, messageTs, userId, value, thread_ts, responseType, interactionType, searchQuery } = JSON.parse(
-      view.private_metadata,
-    );
+    const {
+      channelId,
+      messageTs,
+      userId,
+      value,
+      thread_ts,
+      responseType,
+      interactionType,
+      searchQuery,
+      botResponse: storedBotResponse,
+    } = JSON.parse(view.private_metadata);
     const normalizedResponseType = normalizeResponseType(responseType);
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
@@ -93,7 +101,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
       if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {
         ({ userMessage, botResponse } = await fetchThreadContext(client, channelId, thread_ts, messageTs));
       } else {
-        botResponse = await fetchMessageText(client, channelId, messageTs);
+        botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, messageTs));
       }
     } catch (e) {
       logger.error('Failed to fetch feedback context:', e);

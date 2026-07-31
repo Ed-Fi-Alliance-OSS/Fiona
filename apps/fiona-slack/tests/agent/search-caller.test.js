@@ -124,14 +124,13 @@ describe('searchForSources', () => {
   it('warns and returns empty array when the SDK throws', async () => {
     mockSearchCreate.mockRejectedValue(new Error('network failure'));
     const logger = { warn: jest.fn() };
-    const sources = await searchForSources('query', { logger });
-    expect(sources).toEqual([]);
+    await expect(searchForSources('query', { logger })).rejects.toThrow('network failure');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Search failed'));
   });
 
-  it('does not throw when the SDK throws', async () => {
+  it('rethrows when the SDK throws', async () => {
     mockSearchCreate.mockRejectedValue(new Error('boom'));
-    await expect(searchForSources('query')).resolves.toEqual([]);
+    await expect(searchForSources('query')).rejects.toThrow('boom');
   });
 });
 

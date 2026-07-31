@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { formatSearchResults, searchForSources } from '../../agent/search-caller.js';
+import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 
 export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
@@ -124,8 +124,16 @@ export async function handleHelpViaSay(say, logger) {
  * @param {string} query - The search query (rawArgs from parseCommandKeyword)
  */
 export async function handleSearchViaSay(say, logger, query, { interactionType = null } = {}) {
-  const sources = await searchForSources(query, { logger });
-  const { text, blocks } = formatSearchResults(query, sources);
+  let text;
+  let blocks;
+  try {
+    const sources = await searchForSources(query, { logger });
+    ({ text, blocks } = formatSearchResults(query, sources));
+  } catch (err) {
+    logger?.error?.(`Failed to search sources: ${err.name}: ${err.message}`);
+    text = SEARCH_ERROR_TEXT;
+    blocks = null;
+  }
   const feedbackBlock = createFeedbackBlock({
     responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
     interactionType,

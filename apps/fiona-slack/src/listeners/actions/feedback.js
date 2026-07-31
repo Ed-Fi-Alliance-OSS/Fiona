@@ -5,7 +5,7 @@
 
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
-const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_/;
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_$/;
 
 /**
  * Resolve the contextual feedback block id from the action payload.
@@ -31,7 +31,8 @@ function getFeedbackBlockId(body, action) {
  */
 function extractSearchQuery(messageText) {
   if (typeof messageText !== 'string') return null;
-  const match = messageText.match(SEARCH_QUERY_PATTERN);
+  const [headerLine] = messageText.split('\n');
+  const match = headerLine?.match(SEARCH_QUERY_PATTERN);
   return match?.[1] ?? null;
 }
 
@@ -97,7 +98,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
           responseType,
           interactionType,
           ...(responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
-            ? { searchQuery: extractSearchQuery(body.message?.text) }
+            ? { searchQuery: extractSearchQuery(body.message?.text), botResponse: body.message?.text ?? null }
             : {}),
         }),
         blocks: [

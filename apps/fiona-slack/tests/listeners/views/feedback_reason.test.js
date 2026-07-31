@@ -199,21 +199,17 @@ describe('feedbackReasonViewCallback', () => {
       responseType: 'search',
       interactionType: 'slash_search',
       searchQuery: 'What is Ed-Fi ODS?',
-    });
-    mockClient.conversations.history.mockResolvedValueOnce({
-      messages: [{ ts: '1234567890.000001', text: 'Search result response' }],
+      botResponse: 'Stored ephemeral response',
     });
 
     await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockClient.conversations.replies).not.toHaveBeenCalled();
-    expect(mockClient.conversations.history).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'C456', latest: '1234567890.000001', inclusive: true, limit: 1 }),
-    );
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
         userMessage: 'What is Ed-Fi ODS?',
-        botResponse: 'Search result response',
+        botResponse: 'Stored ephemeral response',
         responseType: 'search',
         interactionType: 'slash_search',
       }),

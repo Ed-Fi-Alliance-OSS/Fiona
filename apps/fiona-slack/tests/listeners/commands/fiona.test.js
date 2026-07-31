@@ -253,6 +253,19 @@ describe('fionaCommandCallback', () => {
         expect(mockSearchForSources).toHaveBeenCalledWith('Ed-Fi ODS API', expect.objectContaining({ logger: mockLogger }));
       });
 
+      it('responds with SEARCH_ERROR_TEXT when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({
+            response_type: 'ephemeral',
+            text: MOCK_SEARCH_ERROR_TEXT,
+          }),
+        );
+      });
+
       it('calls respond() with response_type ephemeral', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(

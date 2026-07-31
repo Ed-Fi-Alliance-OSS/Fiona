@@ -288,6 +288,18 @@ describe('handleSearchViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
   });
 
+  it('calls say() with SEARCH_ERROR_TEXT when searchForSources fails', async () => {
+    mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: ':warning: Search error.',
+      }),
+    );
+  });
+
   it('disables link unfurls for search results', async () => {
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
     expect(mockSay).toHaveBeenCalledWith(

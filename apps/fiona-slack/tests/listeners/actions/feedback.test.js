@@ -126,6 +126,7 @@ describe('feedbackActionCallback', () => {
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta).toEqual({
+      botResponse: '🔍 *Search results for:* _"Bot response text"_',
       channelId: 'C456',
       messageTs: '1234567890.000001',
       userId: 'U123',
@@ -145,6 +146,27 @@ describe('feedbackActionCallback', () => {
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta.searchQuery).toBe('What does "_meta" mean?');
+  });
+
+  it('does not capture result text when a later snippet contains the sequence "_', async () => {
+    mockBody.message.text =
+      '🔍 *Search results for:* _"What is etag?"_\n\n1. Result\nThe field is "_etag" in some payloads.';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('What is etag?');
+  });
+
+  it('stores the rated search response text in private_metadata', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.botResponse).toBe(mockBody.message.text);
   });
 
   it('uses message.ts as thread_ts when thread_ts is absent', async () => {
