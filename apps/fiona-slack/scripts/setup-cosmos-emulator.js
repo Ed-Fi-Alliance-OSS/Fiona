@@ -32,6 +32,7 @@ const DATABASE_NAME = process.env.COSMOS_DATABASE || 'chatbot';
 const FEEDBACK_CONTAINER = process.env.COSMOS_CONTAINER || 'feedback';
 const INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 const CONVERSATIONS_CONTAINER = process.env.COSMOS_CONVERSATIONS_CONTAINER || 'conversations';
+const FEATURE_FLAGS_CONTAINER = process.env.COSMOS_FEATURE_FLAGS_CONTAINER || 'feature-flags';
 
 // Build CosmosClient from connection string if available, otherwise fall back
 // to the well-known emulator endpoint + key.
@@ -161,6 +162,22 @@ async function main() {
     },
   });
   console.log(`Container '${CONVERSATIONS_CONTAINER}' ready.`);
+
+  // --- feature-flags container ---
+  await database.containers.createIfNotExists({
+    id: FEATURE_FLAGS_CONTAINER,
+    partitionKey: {
+      paths: ['/id'],
+      kind: 'Hash',
+      version: 2,
+    },
+    indexingPolicy: {
+      indexingMode: 'consistent',
+      includedPaths: [{ path: '/*' }],
+      excludedPaths: [{ path: '/"_etag"/?' }],
+    },
+  });
+  console.log(`Container '${FEATURE_FLAGS_CONTAINER}' ready.`);
 
   if (!process.env.COSMOS_CONNECTION_STRING) {
     console.log('\nDone. Add this to your .env to connect the app:');

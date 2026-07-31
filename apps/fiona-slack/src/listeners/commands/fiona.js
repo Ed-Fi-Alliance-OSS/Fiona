@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { postEscalation } from '../../agent/escalation.js';
+import { isFeatureEnabled } from '../../agent/feature-flags.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import {
@@ -11,6 +12,7 @@ import {
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
+  ESCALATE_UNAVAILABLE_TEXT,
   HELP_TEXT,
   SEARCH_NOT_YET_TEXT,
 } from './command-handler.js';
@@ -125,6 +127,11 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping escalate');
     await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
+    return;
+  }
+
+  if (!(await isFeatureEnabled('escalate', { userId: command.user_id }, logger))) {
+    await respond({ response_type: 'ephemeral', text: ESCALATE_UNAVAILABLE_TEXT });
     return;
   }
 

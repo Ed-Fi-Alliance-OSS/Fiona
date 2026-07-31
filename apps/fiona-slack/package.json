@@ -11,7 +11,8 @@
     "test": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js",
     "test:ci": "node --experimental-vm-modules node_modules/jest-cli/bin/jest.js --coverage --reporters=default --reporters=jest-junit",
     "setup:emulator": "node scripts/setup-cosmos-emulator.js",
-    "load:slack-users": "node scripts/load-slack-users.js"
+    "load:slack-users": "node scripts/load-slack-users.js",
+    "seed:feature-flags": "node scripts/seed-feature-flags.js"
   },
   "author": "Ed-Fi Alliance, LLC",
   "license": "Apache-2.0",

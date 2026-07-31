@@ -11,6 +11,7 @@ const mockDatabase = { container: jest.fn().mockReturnValue(mockContainerObj) };
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
   database: jest.fn().mockReturnValue(mockDatabase),
 }));
+const mockIsFeatureEnabled = jest.fn().mockResolvedValue(true);
 
 jest.unstable_mockModule('@azure/cosmos', () => ({
   CosmosClient: MockCosmosClient,
@@ -18,6 +19,10 @@ jest.unstable_mockModule('@azure/cosmos', () => ({
 
 jest.unstable_mockModule('@azure/identity', () => ({
   DefaultAzureCredential: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../src/agent/feature-flags.js', () => ({
+  isFeatureEnabled: mockIsFeatureEnabled,
 }));
 
 const VALID_CAPTURE = {
@@ -36,30 +41,46 @@ const VALID_CAPTURE = {
   sources: [{ url: 'https://docs.ed-fi.org', title: 'Ed-Fi Docs', index: 1 }],
 };
 
-describe('conversation-capture-store - CAPTURE_ALL_CONVERSATIONS disabled', () => {
+describe('conversation-capture-store - conversationCapture flag gating', () => {
   let captureConversation;
 
   beforeAll(async () => {
-    delete process.env.CAPTURE_ALL_CONVERSATIONS;
+    process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==';
+    process.env.COSMOS_CONVERSATIONS_CONTAINER = 'conversations';
+    process.env.DEPLOYMENT_TYPE = 'local';
     delete process.env.COSMOS_ENDPOINT;
-    delete process.env.COSMOS_CONNECTION_STRING;
-    delete process.env.COSMOS_CONVERSATIONS_CONTAINER;
+    jest.resetModules();
     ({ captureConversation } = await import('../../src/agent/conversation-capture-store.js'));
   });
 
-  it('is a no-op when CAPTURE_ALL_CONVERSATIONS is not set', async () => {
+  afterAll(() => {
+    delete process.env.COSMOS_CONNECTION_STRING;
+    delete process.env.COSMOS_CONVERSATIONS_CONTAINER;
+    delete process.env.DEPLOYMENT_TYPE;
+  });
+
+  beforeEach(() => {
+    mockUpsert.mockReset().mockResolvedValue({});
+    mockIsFeatureEnabled.mockReset();
+  });
+
+  it('does not write when conversationCapture is disabled', async () => {
+    mockIsFeatureEnabled.mockResolvedValue(false);
     await captureConversation(VALID_CAPTURE);
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 
-  it("is a no-op when CAPTURE_ALL_CONVERSATIONS is set to 'false'", async () => {
-    process.env.CAPTURE_ALL_CONVERSATIONS = 'false';
-    jest.resetModules();
-    const { captureConversation: captureConversationWithFalseFlag } = await import(
-      '../../src/agent/conversation-capture-store.js'
-    );
-    await captureConversationWithFalseFlag(VALID_CAPTURE);
-    expect(mockUpsert).not.toHaveBeenCalled();
+  it('writes when conversationCapture is enabled', async () => {
+    mockIsFeatureEnabled.mockResolvedValue(true);
+    await captureConversation(VALID_CAPTURE);
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('consults isFeatureEnabled with the conversationCapture flag name and the caller logger', async () => {
+    mockIsFeatureEnabled.mockResolvedValue(true);
+    const logger = { warn: jest.fn() };
+    await captureConversation({ ...VALID_CAPTURE, logger });
+    expect(mockIsFeatureEnabled).toHaveBeenCalledWith('conversationCapture', {}, logger);
   });
 });
 
@@ -67,7 +88,6 @@ describe('conversation-capture-store - Cosmos not configured', () => {
   let captureConversation;
 
   beforeAll(async () => {
-    process.env.CAPTURE_ALL_CONVERSATIONS = 'true';
     delete process.env.COSMOS_ENDPOINT;
     delete process.env.COSMOS_CONNECTION_STRING;
     delete process.env.COSMOS_CONVERSATIONS_CONTAINER;
@@ -75,8 +95,9 @@ describe('conversation-capture-store - Cosmos not configured', () => {
     ({ captureConversation } = await import('../../src/agent/conversation-capture-store.js'));
   });
 
-  afterAll(() => {
-    delete process.env.CAPTURE_ALL_CONVERSATIONS;
+  beforeEach(() => {
+    mockIsFeatureEnabled.mockReset().mockResolvedValue(true);
+    mockUpsert.mockReset().mockResolvedValue({});
   });
 
   it('warns exactly once per module lifetime when Cosmos is not configured', async () => {
@@ -96,7 +117,6 @@ describe('conversation-capture-store - Cosmos configured via connection string',
   let captureConversation;
 
   beforeAll(async () => {
-    process.env.CAPTURE_ALL_CONVERSATIONS = 'true';
     process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==';
     process.env.COSMOS_CONVERSATIONS_CONTAINER = 'conversations';
     process.env.DEPLOYMENT_TYPE = 'local';
@@ -107,13 +127,14 @@ describe('conversation-capture-store - Cosmos configured via connection string',
   });
 
   afterAll(() => {
-    delete process.env.CAPTURE_ALL_CONVERSATIONS;
     delete process.env.COSMOS_CONNECTION_STRING;
     delete process.env.COSMOS_CONVERSATIONS_CONTAINER;
+    delete process.env.DEPLOYMENT_TYPE;
   });
 
   beforeEach(() => {
-    mockUpsert.mockClear();
+    mockIsFeatureEnabled.mockReset().mockResolvedValue(true);
+    mockUpsert.mockReset().mockResolvedValue({});
     mockDatabase.container.mockClear();
     MockCosmosClient.mockClear();
     jest.spyOn(global, 'setTimeout').mockImplementation((fn) => {
@@ -229,7 +250,6 @@ describe('conversation-capture-store - production auth guard', () => {
   let captureConversation;
 
   beforeAll(async () => {
-    process.env.CAPTURE_ALL_CONVERSATIONS = 'true';
     process.env.COSMOS_ENDPOINT = 'https://prod.documents.azure.com:443/';
     process.env.COSMOS_KEY = 'secret-key';
     process.env.DEPLOYMENT_TYPE = 'production';
@@ -240,10 +260,14 @@ describe('conversation-capture-store - production auth guard', () => {
   });
 
   afterAll(() => {
-    delete process.env.CAPTURE_ALL_CONVERSATIONS;
     delete process.env.COSMOS_ENDPOINT;
     delete process.env.COSMOS_KEY;
     delete process.env.DEPLOYMENT_TYPE;
+  });
+
+  beforeEach(() => {
+    mockIsFeatureEnabled.mockReset().mockResolvedValue(true);
+    mockUpsert.mockReset().mockResolvedValue({});
   });
 
   it('warns and skips writes when COSMOS_KEY auth is configured in production', async () => {

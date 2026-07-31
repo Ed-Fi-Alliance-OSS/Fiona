@@ -23,7 +23,16 @@ const mockPostEscalation = jest.fn().mockResolvedValue({ ok: true, errorType: nu
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
   postEscalation: mockPostEscalation,
 }));
+
+// Default to enabled so the many pre-existing (non-gating) escalate tests below
+// don't need to know about the flag; gating tests override with mockResolvedValueOnce.
+const mockIsFeatureEnabled = jest.fn().mockResolvedValue(true);
+jest.unstable_mockModule('../../../src/agent/feature-flags.js', () => ({
+  isFeatureEnabled: mockIsFeatureEnabled,
+}));
+
 const { fionaCommandCallback } = await import('../../../src/listeners/commands/fiona.js');
+const { ESCALATE_UNAVAILABLE_TEXT } = await import('../../../src/listeners/commands/command-handler.js');
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
@@ -400,6 +409,29 @@ describe('fionaCommandCallback', () => {
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringContaining('request limit') }),
       );
+    });
+
+    describe('feature-flag gating', () => {
+      it('checks isFeatureEnabled with the escalate flag and the invoking user id', async () => {
+        const ack = jest.fn().mockResolvedValue(undefined);
+        await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('escalate', { userId: 'U1' }, mockLogger);
+      });
+
+      it('short-circuits with the unavailable message and skips postEscalation when disabled', async () => {
+        mockIsFeatureEnabled.mockResolvedValueOnce(false);
+        const ack = jest.fn().mockResolvedValue(undefined);
+        await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+        expect(mockPostEscalation).not.toHaveBeenCalled();
+        expect(mockRespond).toHaveBeenCalledWith({ response_type: 'ephemeral', text: ESCALATE_UNAVAILABLE_TEXT });
+      });
+
+      it('proceeds to postEscalation when enabled', async () => {
+        mockIsFeatureEnabled.mockResolvedValueOnce(true);
+        const ack = jest.fn().mockResolvedValue(undefined);
+        await fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger });
+        expect(mockPostEscalation).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

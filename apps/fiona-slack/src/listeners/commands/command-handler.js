@@ -36,6 +36,7 @@ export const ESCALATE_CONFIRM_TEXT = '✅ Your conversation has been escalated. 
 export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
 export const ESCALATE_ERROR_TEXT =
   ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
+export const ESCALATE_UNAVAILABLE_TEXT = ':information_source: Escalation isn’t available for your account right now.';
 
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
