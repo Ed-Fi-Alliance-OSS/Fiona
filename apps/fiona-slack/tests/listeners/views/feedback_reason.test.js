@@ -220,6 +220,38 @@ describe('feedbackReasonViewCallback', () => {
     );
   });
 
+  it('normalizes invalid responseType metadata before fetching context and storing feedback', async () => {
+    const messages = [
+      { ts: '1234567890.000000', text: 'User question' },
+      { ts: '1234567890.000001', text: 'Bot response' },
+    ];
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+      responseType: 'tampered',
+      interactionType: 'assistant_message',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({ messages });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000000' }),
+    );
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'User question',
+        botResponse: 'Bot response',
+        responseType: 'synthesis',
+      }),
+    );
+  });
+
   it('logs error but does not throw when recordFeedback fails', async () => {
     mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
 
@@ -295,6 +327,22 @@ describe('feedbackReasonClosedCallback', () => {
         interactionType: 'assistant_message',
       }),
     );
+  });
+
+  it('normalizes invalid responseType metadata to synthesis when the modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      responseType: 'tampered',
+      interactionType: 'assistant_message',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ responseType: 'synthesis' }));
   });
 
   it('does NOT record feedback when bad-feedback modal is dismissed', async () => {

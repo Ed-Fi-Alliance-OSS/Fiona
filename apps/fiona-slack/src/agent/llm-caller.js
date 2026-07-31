@@ -495,6 +495,11 @@ export async function callLLM(streamer, prompts, logger) {
 const SEARCH_MAX_SOURCES = parsePositiveIntEnv(process.env.SEARCH_MAX_SOURCES, 5);
 const SEARCH_ABSOLUTE_MAX = 10;
 
+function clampSearchMaxSources(maxSources) {
+  const normalizedMaxSources = Number.isFinite(maxSources) ? Math.trunc(maxSources) : SEARCH_MAX_SOURCES;
+  return Math.min(Math.max(normalizedMaxSources, 1), SEARCH_ABSOLUTE_MAX);
+}
+
 /**
  * Call the Perplexity Search API to retrieve source documents for a query.
  * Returns a list of normalized sources (URL, title, optional snippet) with no
@@ -513,7 +518,7 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
   if (!perplexitySearchClient) return [];
   if (!query || !query.trim()) return [];
 
-  const cappedMaxSources = Math.min(maxSources, SEARCH_ABSOLUTE_MAX);
+  const cappedMaxSources = clampSearchMaxSources(maxSources);
 
   try {
     const response = await perplexitySearchClient.search.create({

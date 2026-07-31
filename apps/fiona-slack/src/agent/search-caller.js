@@ -38,13 +38,12 @@ const SNIPPET_MAX_WORDS = Number.isFinite(_snippetMaxRaw) && _snippetMaxRaw > 0 
  */
 function truncateSnippet(text) {
   if (!text || typeof text !== 'string') return '';
-  // Collapse newlines and runs of whitespace to a single space
-  let cleaned = text
+  const cleaned = text
+    .replace(/\*\*([\s\S]*?)\*\*/g, '$1')
+    .replace(/(^|\n)#{1,6}\s+/g, '$1')
     .replace(/\n+/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  // Strip bold markers (**text**) and heading markers (## …)
-  cleaned = cleaned.replace(/\*\*([\s\S]*?)\*\*/g, '$1').replace(/#{1,6}\s+/g, '');
   const words = cleaned.split(/\s+/);
   if (words.length <= SNIPPET_MAX_WORDS) return cleaned;
   return `${words.slice(0, SNIPPET_MAX_WORDS).join(' ')}…`;

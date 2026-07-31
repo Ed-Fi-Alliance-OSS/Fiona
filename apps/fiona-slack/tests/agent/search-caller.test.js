@@ -86,6 +86,19 @@ describe('searchForSources', () => {
     );
   });
 
+  it.each([
+    ['zero', 0, 1],
+    ['negative', -2, 1],
+    ['NaN', Number.NaN, 5],
+    ['non-integer', 2.9, 2],
+  ])('clamps %s maxSources to a valid max_results value', async (_label, maxSources, expectedMaxResults) => {
+    mockSearchOk([]);
+    await searchForSources('query', { maxSources });
+    expect(mockSearchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ max_results: expectedMaxResults }),
+    );
+  });
+
   it('passes max_results to the SDK and caps results via normalizeSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
@@ -256,6 +269,24 @@ describe('formatSearchResults', () => {
     expect(blockText).not.toContain('###');
   });
 
+  it('does not strip hash markers that are not markdown headings', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: 'C# 10 references issue # 123.\n### Heading',
+      },
+    ];
+    const { text, blocks } = formatSearchResults('query', sources);
+    expect(text).toContain('C# 10 references issue # 123.');
+    expect(text).toContain('Heading');
+    const contextBlocks = blocks.filter((b) => b.type === 'context');
+    const blockText = contextBlocks.map((b) => b.elements?.map((el) => el.text).join('')).join('');
+    expect(blockText).toContain('C# 10 references issue # 123.');
+    expect(blockText).not.toContain('###');
+  });
+
   it('collapses newlines in snippet to a single line', () => {
     const sources = [
       {
@@ -325,4 +356,3 @@ describe('SEARCH_ERROR_TEXT', () => {
     expect(SEARCH_ERROR_TEXT.length).toBeGreaterThan(0);
   });
 });
-

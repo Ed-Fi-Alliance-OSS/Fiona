@@ -6,6 +6,12 @@
 import { recordFeedback } from '../../agent/feedback-store.js';
 import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
 
+function normalizeResponseType(responseType) {
+  return Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
+    ? responseType
+    : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+}
+
 /**
  * Retrieve thread-based feedback context by locating the rated bot message and
  * the user message immediately before it.
@@ -71,7 +77,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     const { channelId, messageTs, userId, value, thread_ts, responseType, interactionType, searchQuery } = JSON.parse(
       view.private_metadata,
     );
-    const normalizedResponseType = responseType ?? FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+    const normalizedResponseType = normalizeResponseType(responseType);
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
@@ -140,7 +146,7 @@ export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
   try {
     await ack();
     const { channelId, messageTs, userId, value, responseType, interactionType } = JSON.parse(view.private_metadata);
-    const normalizedResponseType = responseType ?? FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+    const normalizedResponseType = normalizeResponseType(responseType);
     if (value !== 'good-feedback') return;
     await recordFeedback({
       userId,

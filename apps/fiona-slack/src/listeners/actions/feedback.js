@@ -5,7 +5,7 @@
 
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
-const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+?)"_/;
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_/;
 
 /**
  * Resolve the contextual feedback block id from the action payload.

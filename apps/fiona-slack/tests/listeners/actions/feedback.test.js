@@ -137,6 +137,16 @@ describe('feedbackActionCallback', () => {
     });
   });
 
+  it('captures the full search query when it contains the sequence "_', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"What does "_meta" mean?"_';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('What does "_meta" mean?');
+  });
+
   it('uses message.ts as thread_ts when thread_ts is absent', async () => {
     delete mockBody.message.thread_ts;
 
