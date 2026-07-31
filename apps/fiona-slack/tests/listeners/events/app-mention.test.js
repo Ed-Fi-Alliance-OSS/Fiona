@@ -396,11 +396,28 @@ describe('appMentionCallback', () => {
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
       expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      const payload = mockClient.chat.postEphemeral.mock.calls[0][0];
+      expect(payload).toMatchObject({
+        channel: 'C123',
+        user: 'U456',
+      });
+      expect(payload).not.toHaveProperty('thread_ts');
+      expect(mockSay).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('keeps search results in-thread when the app mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> search Data Standard 6.0';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
       expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: 'C123',
           user: 'U456',
-          thread_ts: '1234567890.000001',
+          thread_ts: '1234567890.000000',
         }),
       );
       expect(mockSay).not.toHaveBeenCalled();

@@ -167,7 +167,7 @@ export async function handleSearchEphemeral(
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
-      thread_ts: threadTs,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
       ...(await buildSearchResponse(query, logger, interactionType)),
     });
   } catch (err) {

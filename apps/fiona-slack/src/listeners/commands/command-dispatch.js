@@ -66,7 +66,7 @@ export async function dispatchKeywordViaSay({
     await handleSearchEphemeral(client, logger, {
       userId,
       channelId,
-      threadTs,
+      threadTs: threadTs === messageTs ? null : threadTs,
       query: cmd.rawArgs,
       interactionType,
     });
