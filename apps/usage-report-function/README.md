@@ -11,6 +11,11 @@ Every week it computes these KPIs from the `interactions` and `feedback` Cosmos 
 - Good/bad feedback counts and response rate
 - Average interactions per user
 
+When a matching executive PDF report is available (generated separately by
+the `generate-usage-report-pdf` GitHub Actions workflow — see
+[DEPLOYMENT.md](DEPLOYMENT.md#usage-report-pdf-pipeline)), the Slack message
+also includes a link to it.
+
 ## Local development
 
 ### Prerequisites
@@ -55,6 +60,7 @@ cp local.settings.json.example local.settings.json
 | `COSMOS_ENDPOINT` | Emulator or your Azure Cosmos endpoint                                   |
 | `SLACK_DRY_RUN`   | Set to `true` to print the report to the log instead of posting to Slack |
 | `REPORT_SCHEDULE` | Use `* * * * * *` locally so the function fires immediately on start     |
+| `USAGE_REPORTS_STORAGE_ACCOUNT_URL` | Optional. Storage account hosting the `usage-reports` container (see [DEPLOYMENT.md](DEPLOYMENT.md#usage-report-pdf-pipeline)). If unset, the Slack message is posted without a report link. |
 
 When `SLACK_DRY_RUN=true`, the function skips Key Vault and the Slack post entirely — no credentials needed and no data leaves the machine.
 

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Test the Post-Mortem Capture Script
+
+on:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'scripts/postmortem/**'
+      - '.github/workflows/on-pullrequest-postmortem.yml'
+  pull_request:
+    paths:
+      - 'scripts/postmortem/**'
+      - '.github/workflows/on-pullrequest-postmortem.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-postmortem-capture:
+    name: Test - scripts/postmortem
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts/postmortem
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      # No dependencies to install: the capture script and its tests run on the
+      # Node standard library and the fixtures under scripts/postmortem/fixtures.
+      - name: Run tests
+        run: npm test
