@@ -174,11 +174,17 @@ describe('createIssue', () => {
     expect(mutationInput()).toEqual({ repositoryId: 'R_repo', title: 't', body: 'b' });
   });
 
-  it('derives the GraphQL endpoint from GITHUB_API_URL for Enterprise Server', async () => {
+  it('always posts to the github.com GraphQL endpoint', async () => {
+    await createIssue({ title: 't', bodyText: 'b' }, logger);
+
+    expect(mockPost.mock.calls[0][0]).toBe('https://api.github.com/graphql');
+  });
+
+  it('ignores GITHUB_API_URL — Enterprise Server is not supported', async () => {
     process.env.GITHUB_API_URL = 'https://ghe.example.org/api/v3';
     await createIssue({ title: 't', bodyText: 'b' }, logger);
 
-    expect(mockPost.mock.calls[0][0]).toBe('https://ghe.example.org/api/graphql');
+    expect(mockPost.mock.calls[0][0]).toBe('https://api.github.com/graphql');
   });
 
   it('throws github_auth_failed on HTTP 401', async () => {

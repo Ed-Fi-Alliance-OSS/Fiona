@@ -46,13 +46,10 @@ export function isGithubConfigured() {
 }
 
 /**
- * GraphQL endpoint derived from the REST base in `GITHUB_API_URL`. Enterprise Server
- * serves REST at `/api/v3` and GraphQL at `/api/graphql`; github.com appends `/graphql`.
+ * The GitHub GraphQL endpoint. Fixed: Ed-Fi uses github.com, not Enterprise Server,
+ * so there is no host to configure.
  */
-function graphqlUrl() {
-  const base = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
-  return base.endsWith('/api/v3') ? `${base.slice(0, -'/api/v3'.length)}/api/graphql` : `${base}/graphql`;
-}
+const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql';
 
 function slackUserFieldName() {
   return process.env.SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME || DEFAULT_SLACK_USER_FIELD_NAME;
@@ -84,7 +81,11 @@ function failure(type, detail, logger) {
 async function graphql(query, variables, logger) {
   let res;
   try {
-    res = await axios.post(graphqlUrl(), { query, variables }, { headers: headers(), timeout: REQUEST_TIMEOUT_MS });
+    res = await axios.post(
+      GITHUB_GRAPHQL_URL,
+      { query, variables },
+      { headers: headers(), timeout: REQUEST_TIMEOUT_MS },
+    );
   } catch (err) {
     const status = err.response?.status;
     const type = status === 401 || status === 403 ? 'github_auth_failed' : 'github_create_failed';

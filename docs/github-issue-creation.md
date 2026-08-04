@@ -128,7 +128,6 @@ treated as disabled and issues are created immediately.
 | --- | --- | --- |
 | `SLACK_GITHUB_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
 | `SLACK_GITHUB_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `SLACK_GITHUB_ISSUE_REPO`. Never logged. |
-| `GITHUB_API_URL` | `https://api.github.com` | REST base override for GitHub Enterprise Server. The GraphQL endpoint is derived from it: a base ending in `/api/v3` becomes `/api/graphql`, otherwise `/graphql` is appended. |
 | `SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME` | `Slack User` | **Name** (not node ID) of the org-level text issue field that records the reporter. Resolved to a node ID from the repository lookup on every create, so it survives the field being deleted and recreated. List the available fields with `GET /orgs/{org}/issue-fields`. |
 | `SLACK_GITHUB_ISSUE_BUG_TYPE_NAME` | `Bug` | Native issue type applied to bugs. **Must already exist in the org** — an unknown type fails with a message naming it (recorded as `github_create_failed`). |
 | `SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME` | `Feature` | Native issue type applied to feature requests. Same pre-existence requirement. |
@@ -139,6 +138,11 @@ treated as disabled and issues are created immediately.
 Feature is disabled — and the modal never opens — until both `SLACK_GITHUB_ISSUE_REPO`
 and `SLACK_GITHUB_ISSUE_TOKEN` are set (`isGithubConfigured()` /
 `isTicketingEnabled()`).
+
+The GraphQL endpoint is **not configurable**. It is fixed at
+`https://api.github.com/graphql` because Ed-Fi uses github.com; GitHub Enterprise Server
+is not supported. A test asserts that `GITHUB_API_URL` is ignored, so reintroducing a
+configurable host is a deliberate change rather than an accident.
 
 ### Open items to confirm before enabling in production
 
