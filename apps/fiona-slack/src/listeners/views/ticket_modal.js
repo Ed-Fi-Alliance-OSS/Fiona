@@ -4,7 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { submitTicket } from '../../agent/ticket-service.js';
-import { TICKET_CREATED_TEXT, TICKET_ERROR_TEXT, TICKET_NOT_CONFIGURED_TEXT } from '../commands/command-handler.js';
+import {
+  normalizeTicketType,
+  TICKET_CREATED_TEXT,
+  TICKET_ERROR_TEXT,
+  TICKET_NOT_CONFIGURED_TEXT,
+} from '../commands/command-handler.js';
 
 export const TICKET_MODAL_CALLBACK = 'ticket_modal';
 // Must match the GitHub org `Priority` single-select options exactly: the selected
@@ -111,12 +116,14 @@ export const ticketModalSubmitCallback = async ({ ack, body, view, client, logge
   await ack();
   const userId = body.user?.id;
   try {
-    const { ticketType, channelId } = JSON.parse(view.private_metadata || '{}');
+    const { ticketType: rawTicketType, channelId } = JSON.parse(view.private_metadata || '{}');
+    // private_metadata is client-supplied; normalize rather than trust it.
+    const ticketType = normalizeTicketType(rawTicketType);
     const payload = {
       ticketType,
       summary: readValue(view, 'summary_block', 'summary_input'),
       description: readValue(view, 'description_block', 'description_input'),
-      priorityName: view.state.values?.priority_block?.priority_input?.selected_option?.value || 'Medium',
+      priorityName: view.state.values?.priority_block?.priority_input?.selected_option?.value || DEFAULT_PRIORITY,
       bugFields:
         ticketType === 'bug'
           ? {

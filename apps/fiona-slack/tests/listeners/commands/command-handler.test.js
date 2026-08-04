@@ -11,6 +11,7 @@ const {
   handleComingSoonViaSay,
   routeCommandViaSay,
   buildCreateTicketBlocks,
+  normalizeTicketType,
   CREATE_TICKET_ACTION,
   HELP_TEXT,
   ASK_NOT_YET_TEXT,
@@ -236,6 +237,21 @@ describe('buildCreateTicketBlocks', () => {
     const button = blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
     expect(button).toBeTruthy();
     expect(JSON.parse(button.value)).toEqual({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
+  });
+});
+
+describe('normalizeTicketType', () => {
+  it('passes through the two known types', () => {
+    expect(normalizeTicketType('bug')).toBe('bug');
+    expect(normalizeTicketType('feature')).toBe('feature');
+  });
+
+  it('coerces anything unrecognised to bug rather than letting it become a feature', () => {
+    // resolveIssueTypeName is `ticketType === 'bug' ? Bug : Feature`, so an
+    // unvalidated value silently files the request as a Feature.
+    for (const bad of ['chore', 'BUG', '', null, undefined, 0, {}]) {
+      expect(normalizeTicketType(bad)).toBe('bug');
+    }
   });
 });
 

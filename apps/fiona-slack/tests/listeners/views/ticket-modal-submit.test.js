@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 const mockSubmitTicket = jest.fn();
@@ -65,5 +70,26 @@ describe('ticketModalSubmitCallback', () => {
     const args = makeArgs();
     await ticketModalSubmitCallback(args);
     expect(args.client.chat.postMessage.mock.calls[0][0].text).toMatch(/not available/i);
+  });
+
+  it('falls back to bug when private_metadata carries an unrecognised ticket type', async () => {
+    // private_metadata is client-supplied. Unvalidated, anything that is not
+    // exactly 'bug' is filed as a Feature by resolveIssueTypeName.
+    const args = makeArgs({ ticketType: 'chore' });
+
+    await ticketModalSubmitCallback(args);
+
+    const [payload, ctx] = mockSubmitTicket.mock.calls[0];
+    expect(payload.ticketType).toBe('bug');
+    expect(ctx.source).toBe('modal_bug');
+  });
+
+  it('defaults the priority to Medium when nothing is selected', async () => {
+    const args = makeArgs();
+    args.view.state.values.priority_block = { priority_input: {} };
+
+    await ticketModalSubmitCallback(args);
+
+    expect(mockSubmitTicket.mock.calls[0][0].priorityName).toBe('Medium');
   });
 });
