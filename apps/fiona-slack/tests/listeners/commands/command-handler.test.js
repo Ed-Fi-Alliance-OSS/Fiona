@@ -12,6 +12,7 @@ const {
   routeCommandViaSay,
   buildCreateTicketBlocks,
   normalizeTicketType,
+  TICKET_TYPES,
   CREATE_TICKET_ACTION,
   HELP_TEXT,
   ASK_NOT_YET_TEXT,
@@ -241,14 +242,23 @@ describe('buildCreateTicketBlocks', () => {
 });
 
 describe('normalizeTicketType', () => {
-  it('passes through the two known types', () => {
+  it('passes through the known types', () => {
     expect(normalizeTicketType('bug')).toBe('bug');
     expect(normalizeTicketType('feature')).toBe('feature');
   });
 
+  it('accepts question as a known type', () => {
+    expect(normalizeTicketType('question')).toBe('question');
+  });
+
+  it('exposes exactly the three known types in dropdown order', () => {
+    expect(TICKET_TYPES).toEqual(['bug', 'feature', 'question']);
+  });
+
   it('coerces anything unrecognised to bug rather than letting it become a feature', () => {
-    // resolveIssueTypeName is `ticketType === 'bug' ? Bug : Feature`, so an
-    // unvalidated value silently files the request as a Feature.
+    // resolveIssueTypeName maps only 'bug' and 'feature' to a named type; anything
+    // else files with no type at all, so an unvalidated value would file an
+    // untyped issue rather than a wrongly-typed one.
     for (const bad of ['chore', 'BUG', '', null, undefined, 0, {}]) {
       expect(normalizeTicketType(bad)).toBe('bug');
     }

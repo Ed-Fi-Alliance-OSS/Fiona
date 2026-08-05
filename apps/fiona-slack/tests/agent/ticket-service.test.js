@@ -52,6 +52,26 @@ describe('resolveIssueTypeName', () => {
     expect(resolveIssueTypeName('bug')).toBe('Defect');
     expect(resolveIssueTypeName('feature')).toBe('Enhancement');
   });
+
+  // createIssue skips issueTypeId entirely when the name is falsy, so undefined
+  // is how "file this with no native type" is expressed.
+  it('returns undefined for question, so the issue is filed with no type', () => {
+    expect(resolveIssueTypeName('question')).toBeUndefined();
+  });
+
+  it('is not affected by the type-name overrides for question', () => {
+    process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
+    process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
+    expect(resolveIssueTypeName('question')).toBeUndefined();
+  });
+
+  // The fallback flips deliberately: an unrecognized value used to file as a
+  // Feature. Untyped is recoverable by a triager; mistyped looks correct and is
+  // never revisited. normalizeTicketType should mean this never fires.
+  it('returns undefined rather than Feature for an unrecognized type', () => {
+    expect(resolveIssueTypeName('chore')).toBeUndefined();
+    expect(resolveIssueTypeName(undefined)).toBeUndefined();
+  });
 });
 
 describe('buildBody', () => {

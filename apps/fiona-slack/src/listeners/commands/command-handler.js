@@ -50,20 +50,19 @@ export function TICKET_CREATED_TEXT(key, url) {
 
 export const CREATE_TICKET_ACTION = 'create_ticket';
 
-/** The only ticket types any entry point may produce. */
-export const TICKET_TYPES = ['bug', 'feature'];
+/** The only ticket types any entry point may produce. Order drives the modal dropdown. */
+export const TICKET_TYPES = ['bug', 'feature', 'question'];
 
 /**
  * Coerce an untrusted ticket type to a known value, defaulting to `bug`.
  *
- * Ticket types arrive from Slack-supplied payloads — a button's `value` and a
- * view's `private_metadata` — so they cannot be assumed valid. An unrecognized
- * value must not reach `resolveIssueTypeName`, whose `ticketType === 'bug'`
- * check treats everything else as a feature and would file a bug report as a
- * feature request.
+ * Ticket types arrive from Slack-supplied payloads — a button's `value` and the
+ * modal's view state — so they cannot be assumed valid. An unrecognized value
+ * must not reach `resolveIssueTypeName`, which maps only `bug` and `feature` to a
+ * named type and files everything else with no type at all.
  *
  * @param {unknown} value
- * @returns {'bug'|'feature'}
+ * @returns {'bug'|'feature'|'question'}
  */
 export function normalizeTicketType(value) {
   return TICKET_TYPES.includes(value) ? value : 'bug';

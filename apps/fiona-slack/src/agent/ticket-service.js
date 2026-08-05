@@ -18,9 +18,15 @@ export function isApprovalRequired() {
   return process.env.TICKET_APPROVAL_REQUIRED === 'true' && Boolean(process.env.TICKET_TRIAGE_CHANNEL_ID);
 }
 
+// User-facing labels for the approval-gate draft. Deliberately not the modal's
+// dropdown labels: this copy reads as a noun phrase in a sentence ("New bug
+// report pending approval"), where the dropdown reads as a bare choice ("Bug").
+const DRAFT_LABELS = { bug: 'bug report', feature: 'feature request', question: 'question' };
+const draftLabel = (ticketType) => DRAFT_LABELS[ticketType] ?? 'request';
+
 function draftBlocks(payload) {
   const lines = [
-    `*New ${payload.ticketType} request* — pending approval`,
+    `*New ${draftLabel(payload.ticketType)}* — pending approval`,
     `*Summary:* ${payload.summary}`,
     `*Priority:* ${payload.priorityName}`,
     `*Description:* ${payload.description}`,
@@ -54,7 +60,7 @@ async function postDraftForApproval(payload, ctx) {
   try {
     await client.chat.postMessage({
       channel: process.env.TICKET_TRIAGE_CHANNEL_ID,
-      text: `New ${payload.ticketType} request pending approval: ${payload.summary}`,
+      text: `New ${draftLabel(payload.ticketType)} pending approval: ${payload.summary}`,
       blocks: draftBlocks(payload),
       metadata: {
         event_type: 'ticket_draft',
@@ -72,11 +78,23 @@ async function postDraftForApproval(payload, ctx) {
  * Map the internal ticket type to a native GitHub issue type NAME (env-overridable;
  * the type must already exist in the org). Replaces the previous label mapping —
  * issues carry a real type now, not a `bug` / `enhancement` label.
+ *
+ * `question` returns undefined on purpose: createIssue omits `issueTypeId` entirely
+ * for a falsy name, so the issue is created with no native type and a triager
+ * classifies it later.
+ *
+ * An unrecognized value also returns undefined rather than falling through to
+ * Feature. normalizeTicketType should mean nothing unrecognized ever arrives; this
+ * is the backstop behind it, and untyped is the better failure — a triager can see
+ * an untyped issue, whereas a mistyped one looks finished and is never revisited.
+ *
+ * @param {'bug'|'feature'|'question'} ticketType
+ * @returns {string|undefined}
  */
 export function resolveIssueTypeName(ticketType) {
-  return ticketType === 'bug'
-    ? process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME || 'Bug'
-    : process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME || 'Feature';
+  if (ticketType === 'bug') return process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME || 'Bug';
+  if (ticketType === 'feature') return process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME || 'Feature';
+  return undefined;
 }
 
 /**
