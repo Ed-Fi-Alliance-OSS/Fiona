@@ -9,6 +9,7 @@ import {
   TICKET_CREATED_TEXT,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
+  TICKET_TYPES,
 } from '../commands/command-handler.js';
 
 export const TICKET_MODAL_CALLBACK = 'ticket_modal';
@@ -16,6 +17,32 @@ export const TICKET_MODAL_CALLBACK = 'ticket_modal';
 // value is resolved to an option node id by name at issue-creation time.
 export const PRIORITY_OPTIONS = ['Urgent', 'High', 'Medium', 'Low'];
 const DEFAULT_PRIORITY = 'Medium';
+
+export const TICKET_TYPE_ACTION = 'ticket_type_input';
+
+// Display labels for the Type dropdown. Derived from TICKET_TYPES rather than
+// redeclaring the set, so the modal cannot drift from the types the rest of the
+// app accepts. "Question / not sure" names both cases on purpose: someone who
+// cannot classify their report should not have to decide whether it counts as a
+// question.
+const TICKET_TYPE_LABELS = { bug: 'Bug', feature: 'Feature', question: 'Question / not sure' };
+export const TICKET_TYPE_OPTIONS = TICKET_TYPES.map((value) => ({ value, name: TICKET_TYPE_LABELS[value] }));
+
+// Per-type copy. A lookup rather than a ternary because there are three variants
+// and only one of them carries the bug-specific blocks.
+const TICKET_TYPE_COPY = {
+  bug: { title: 'Report a bug', summary: 'Short description of the bug', description: 'What happened?' },
+  feature: {
+    title: 'Request a feature',
+    summary: 'Short description of the feature',
+    description: 'What would you like and why?',
+  },
+  question: {
+    title: 'Ask a question',
+    summary: 'Short description of your question',
+    description: 'What would you like to know?',
+  },
+};
 
 const plainText = (text) => ({ type: 'plain_text', text });
 
@@ -26,8 +53,28 @@ function textInput({ blockId, actionId, label, multiline, optional, initialValue
   return { type: 'input', block_id: blockId, optional: Boolean(optional), label: plainText(label), element };
 }
 
-function priorityBlock() {
+// dispatch_action makes selecting a type emit a block_actions event, which
+// actions/ticket_type.js handles by re-rendering the view. Verified live on
+// 2026-08-05: the event fires and carries both selected_option and view.state.
+function typeBlock(ticketType) {
+  const options = TICKET_TYPE_OPTIONS.map((t) => ({ text: plainText(t.name), value: t.value }));
+  return {
+    type: 'input',
+    block_id: 'type_block',
+    dispatch_action: true,
+    label: plainText('Type'),
+    element: {
+      type: 'static_select',
+      action_id: TICKET_TYPE_ACTION,
+      options,
+      initial_option: options.find((o) => o.value === ticketType) ?? options[0],
+    },
+  };
+}
+
+function priorityBlock(priority) {
   const options = PRIORITY_OPTIONS.map((name) => ({ text: plainText(name), value: name }));
+  const selected = PRIORITY_OPTIONS.includes(priority) ? priority : DEFAULT_PRIORITY;
   return {
     type: 'input',
     block_id: 'priority_block',
@@ -36,24 +83,29 @@ function priorityBlock() {
       type: 'static_select',
       action_id: 'priority_input',
       options,
-      initial_option: options.find((o) => o.value === DEFAULT_PRIORITY),
+      initial_option: options.find((o) => o.value === selected),
     },
   };
 }
 
 /**
  * Build the ticket modal view. Field set depends on ticketType.
- * @param {{ ticketType: 'bug'|'feature', channelId?: string, threadTs?: string, prefill?: { summary?: string, description?: string } }} params
+ * @param {{ ticketType: 'bug'|'feature'|'question', channelId?: string, threadTs?: string, prefill?: { summary?: string, description?: string, priority?: string } }} params
  */
 export function buildTicketModal({ ticketType, channelId, threadTs, prefill = {} }) {
-  const isBug = ticketType === 'bug';
+  // Normalize once: an unrecognized type would otherwise render one type's field
+  // set beneath a dropdown that fell back to displaying Bug.
+  const type = normalizeTicketType(ticketType);
+  const isBug = type === 'bug';
+  const copy = TICKET_TYPE_COPY[type];
   const blocks = [
+    typeBlock(type),
     textInput({
       blockId: 'summary_block',
       actionId: 'summary_input',
       label: 'Summary',
       initialValue: prefill.summary,
-      placeholder: isBug ? 'Short description of the bug' : 'Short description of the feature',
+      placeholder: copy.summary,
     }),
     textInput({
       blockId: 'description_block',
@@ -61,9 +113,9 @@ export function buildTicketModal({ ticketType, channelId, threadTs, prefill = {}
       label: 'Description',
       multiline: true,
       initialValue: prefill.description,
-      placeholder: isBug ? 'What happened?' : 'What would you like and why?',
+      placeholder: copy.description,
     }),
-    priorityBlock(),
+    priorityBlock(prefill.priority),
   ];
 
   if (isBug) {
@@ -89,16 +141,48 @@ export function buildTicketModal({ ticketType, channelId, threadTs, prefill = {}
   return {
     type: 'modal',
     callback_id: TICKET_MODAL_CALLBACK,
-    title: plainText(isBug ? 'Report a bug' : 'Request a feature'),
+    title: plainText(copy.title),
     submit: plainText('Create issue'),
     close: plainText('Cancel'),
-    private_metadata: JSON.stringify({ ticketType, channelId, threadTs }),
+    private_metadata: JSON.stringify({ ticketType: type, channelId, threadTs }),
     blocks,
   };
 }
 
 function readValue(view, blockId, actionId) {
   return view.state.values?.[blockId]?.[actionId]?.value?.trim() || '';
+}
+
+/**
+ * Read the selected ticket type out of live view state.
+ *
+ * View state is client-supplied like private_metadata was, so it goes through
+ * normalizeTicketType rather than being trusted — that keeps the validated-enum
+ * guarantee in one place for both the submit and the type-change paths.
+ *
+ * @param {import("@slack/bolt").ViewOutput} view
+ * @returns {'bug'|'feature'|'question'}
+ */
+export function readTicketType(view) {
+  return normalizeTicketType(view?.state?.values?.type_block?.[TICKET_TYPE_ACTION]?.selected_option?.value);
+}
+
+/**
+ * Read the values that must survive a type change.
+ *
+ * Slack preserves input values across views.update only for identical input
+ * blocks, and ours are not identical — placeholders change with the type. These
+ * are carried forward explicitly instead.
+ *
+ * @param {import("@slack/bolt").ViewOutput} view
+ * @returns {{ summary: string, description: string, priority: string|undefined }}
+ */
+export function readPrefill(view) {
+  return {
+    summary: readValue(view, 'summary_block', 'summary_input'),
+    description: readValue(view, 'description_block', 'description_input'),
+    priority: view?.state?.values?.priority_block?.priority_input?.selected_option?.value,
+  };
 }
 
 /**
