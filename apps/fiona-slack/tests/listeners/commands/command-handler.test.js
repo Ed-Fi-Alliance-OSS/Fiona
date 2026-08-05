@@ -230,6 +230,16 @@ describe('parseCommandKeyword — bare bug/feature keywords', () => {
       expect(parseCommandKeyword(text)).toBeNull();
     },
   );
+
+  // HELP_TEXT advertises `ticket` alongside its two aliases; the keyword and
+  // @-mention paths must accept all three or help is lying to the user.
+  it.each([
+    ['ticket', 'feature'],
+    ['bug', 'bug'],
+    ['feature', 'feature'],
+  ])('resolves the advertised word "%s" to file_ticket/%s', (text, expected) => {
+    expect(parseCommandKeyword(text)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
 });
 
 describe('buildCreateTicketBlocks', () => {
@@ -276,6 +286,27 @@ describe('HELP_TEXT', () => {
 
   it('mentions fiona help as the two-word keyword alternative', () => {
     expect(HELP_TEXT).toMatch('fiona help');
+  });
+
+  it('advertises the single ticket command and all three things it can file', () => {
+    expect(HELP_TEXT).toMatch(/^ticket\s+File a bug, feature request or question/m);
+  });
+
+  it('names bug and feature as aliases', () => {
+    expect(HELP_TEXT).toMatch(/aliases: bug, feature/);
+  });
+
+  // `question` is dropdown-only by decision: it has no command word, so it must
+  // not appear in the alias list or the keyword path would be out of step.
+  it('does not advertise question as an alias', () => {
+    expect(HELP_TEXT).not.toMatch(/aliases:.*question/);
+  });
+
+  // The acceptance criterion is that no user-facing text still promises two
+  // separate commands.
+  it('no longer advertises bug and feature as commands in their own right', () => {
+    expect(HELP_TEXT).not.toMatch(/^bug\s+Report a bug/m);
+    expect(HELP_TEXT).not.toMatch(/^feature\s+Request a feature/m);
   });
 });
 

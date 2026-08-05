@@ -11,8 +11,8 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
-bug                     Report a bug (opens a form)
-feature                 Request a feature (opens a form)
+ticket                  File a bug, feature request or question (opens a form)
+                        aliases: bug, feature
 \`\`\`
 
 *How to reach Fiona:*
@@ -71,9 +71,13 @@ export function normalizeTicketType(value) {
 // Explicit-phrase → ticket type. v1 is high-precision (exact whole-message match).
 // LLM-based intent detection is deferred (AI-174).
 //
-// The bare `bug` / `feature` entries mirror the `/fiona bug` and `/fiona feature`
-// sub-commands so the keyword and @-mention paths accept what HELP_TEXT advertises.
+// The bare `ticket` / `bug` / `feature` entries mirror the `/fiona ticket` command
+// and its two aliases, so the keyword and @-mention paths accept what HELP_TEXT
+// advertises. `ticket` resolves to `feature` to match what `/fiona ticket`
+// preselects — the two entry points for the same word must not disagree. The
+// user can switch it in the dropdown either way.
 const TICKET_PHRASES = new Map([
+  ['ticket', 'feature'],
   ['bug', 'bug'],
   ['feature', 'feature'],
   ['file a bug', 'bug'],
