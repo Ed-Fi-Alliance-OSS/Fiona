@@ -144,7 +144,7 @@ export function buildTicketModal({ ticketType, channelId, threadTs, prefill = {}
     title: plainText(copy.title),
     submit: plainText('Create issue'),
     close: plainText('Cancel'),
-    private_metadata: JSON.stringify({ ticketType: type, channelId, threadTs }),
+    private_metadata: JSON.stringify({ channelId, threadTs }),
     blocks,
   };
 }
@@ -200,9 +200,10 @@ export const ticketModalSubmitCallback = async ({ ack, body, view, client, logge
   await ack();
   const userId = body.user?.id;
   try {
-    const { ticketType: rawTicketType, channelId } = JSON.parse(view.private_metadata || '{}');
-    // private_metadata is client-supplied; normalize rather than trust it.
-    const ticketType = normalizeTicketType(rawTicketType);
+    const { channelId } = JSON.parse(view.private_metadata || '{}');
+    // The type comes from the validated Type dropdown in live view state, not from
+    // client-supplied private_metadata.
+    const ticketType = readTicketType(view);
     const payload = {
       ticketType,
       summary: readValue(view, 'summary_block', 'summary_input'),

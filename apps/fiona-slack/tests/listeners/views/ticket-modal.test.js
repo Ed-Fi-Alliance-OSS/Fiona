@@ -24,7 +24,9 @@ describe('buildTicketModal', () => {
     const view = buildTicketModal({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
     expect(view.type).toBe('modal');
     expect(view.callback_id).toBe(TICKET_MODAL_CALLBACK);
-    expect(JSON.parse(view.private_metadata)).toEqual({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
+    // The type is no longer carried here — it is read from validated view state on
+    // submit, so a tampered private_metadata cannot change the filed issue type.
+    expect(JSON.parse(view.private_metadata)).toEqual({ channelId: 'C1', threadTs: '123.45' });
     const priority = blockById(view, 'priority_block');
     expect(priority.element.options).toHaveLength(PRIORITY_OPTIONS.length);
     // Must match the GitHub Priority single-select options exactly — the value is

@@ -17,9 +17,10 @@ function makeArgs({ ticketType = 'bug' } = {}) {
     ack: jest.fn().mockResolvedValue(undefined),
     body: { user: { id: 'U1' }, team: { id: 'T1' } },
     view: {
-      private_metadata: JSON.stringify({ ticketType, channelId: 'C1', threadTs: null }),
+      private_metadata: JSON.stringify({ channelId: 'C1', threadTs: null }),
       state: {
         values: {
+          type_block: { ticket_type_input: { selected_option: ticketType ? { value: ticketType } : undefined } },
           summary_block: { summary_input: { value: 'It broke' } },
           description_block: { description_input: { value: 'when I click save' } },
           priority_block: { priority_input: { selected_option: { value: 'High' } } },
@@ -72,9 +73,32 @@ describe('ticketModalSubmitCallback', () => {
     expect(args.client.chat.postMessage.mock.calls[0][0].text).toMatch(/not available/i);
   });
 
-  it('falls back to bug when private_metadata carries an unrecognised ticket type', async () => {
-    // private_metadata is client-supplied. Unvalidated, anything that is not
-    // exactly 'bug' is filed as a Feature by resolveIssueTypeName.
+  it('files a feature with no bug fields when the dropdown says feature', async () => {
+    const args = makeArgs({ ticketType: 'feature' });
+
+    await ticketModalSubmitCallback(args);
+
+    const [payload, ctx] = mockSubmitTicket.mock.calls[0];
+    expect(payload.ticketType).toBe('feature');
+    expect(payload.bugFields).toEqual({});
+    expect(ctx.source).toBe('modal_feature');
+  });
+
+  it('files a question with no bug fields and a modal_question source', async () => {
+    const args = makeArgs({ ticketType: 'question' });
+
+    await ticketModalSubmitCallback(args);
+
+    const [payload, ctx] = mockSubmitTicket.mock.calls[0];
+    expect(payload.ticketType).toBe('question');
+    expect(payload.bugFields).toEqual({});
+    expect(payload.priorityName).toBe('High');
+    expect(ctx.source).toBe('modal_question');
+  });
+
+  it('falls back to bug when view state carries an unrecognised ticket type', async () => {
+    // View state is client-supplied. Unvalidated, anything that is not exactly
+    // 'bug' or 'feature' would file with no issue type at all.
     const args = makeArgs({ ticketType: 'chore' });
 
     await ticketModalSubmitCallback(args);
@@ -82,6 +106,25 @@ describe('ticketModalSubmitCallback', () => {
     const [payload, ctx] = mockSubmitTicket.mock.calls[0];
     expect(payload.ticketType).toBe('bug');
     expect(ctx.source).toBe('modal_bug');
+  });
+
+  it('falls back to bug when no type is selected at all', async () => {
+    const args = makeArgs({ ticketType: undefined });
+
+    await ticketModalSubmitCallback(args);
+
+    expect(mockSubmitTicket.mock.calls[0][0].ticketType).toBe('bug');
+  });
+
+  // The whole point of moving the type out of private_metadata: a tampered
+  // metadata blob must not be able to change the type that gets filed.
+  it('ignores a ticket type smuggled back into private_metadata', async () => {
+    const args = makeArgs({ ticketType: 'feature' });
+    args.view.private_metadata = JSON.stringify({ ticketType: 'bug', channelId: 'C1', threadTs: null });
+
+    await ticketModalSubmitCallback(args);
+
+    expect(mockSubmitTicket.mock.calls[0][0].ticketType).toBe('feature');
   });
 
   it('defaults the priority to Medium when nothing is selected', async () => {
