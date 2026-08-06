@@ -243,11 +243,42 @@ describe('parseCommandKeyword — bare bug/feature keywords', () => {
 });
 
 describe('buildCreateTicketBlocks', () => {
+  const buttonOf = (blocks) => blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
+  const promptOf = (blocks) => blocks.find((b) => b.type === 'section').text.text;
+
   it('emits a button with the ticket type and location encoded', () => {
     const blocks = buildCreateTicketBlocks('bug', 'C1', '123.45');
-    const button = blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
+    const button = buttonOf(blocks);
     expect(button).toBeTruthy();
     expect(JSON.parse(button.value)).toEqual({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
+  });
+
+  // The offer is deliberately type-neutral: the button opens the one ticket form
+  // and the type is a dropdown inside it, so naming a type here would promise a
+  // narrower form than the user gets. Decided 2026-08-05. Asserted as literals
+  // rather than against the module's own constants, which would pass vacuously.
+  it.each([['bug'], ['feature'], ['question']])('offers one neutral prompt for %s', (ticketType) => {
+    expect(promptOf(buildCreateTicketBlocks(ticketType, 'C1', null))).toBe(
+      'Would you like to submit a support ticket? I can open a form for you.',
+    );
+  });
+
+  it.each([['bug'], ['feature'], ['question']])('labels the button neutrally for %s', (ticketType) => {
+    expect(buttonOf(buildCreateTicketBlocks(ticketType, 'C1', null)).text.text).toBe('Submit a support ticket');
+  });
+
+  it('no longer names a type in the prompt or the button', () => {
+    for (const ticketType of ['bug', 'feature', 'question']) {
+      const blocks = buildCreateTicketBlocks(ticketType, 'C1', null);
+      expect(promptOf(blocks)).not.toMatch(/report a bug|request a feature/i);
+      expect(buttonOf(blocks).text.text).not.toMatch(/bug|feature/i);
+    }
+  });
+
+  // Neutral copy must not neutralise the behaviour: the preselect still travels
+  // in the button value, which is what create_ticket.js reads to build the modal.
+  it.each([['bug'], ['feature'], ['question']])('still carries %s as the preselect in the button value', (ticketType) => {
+    expect(JSON.parse(buttonOf(buildCreateTicketBlocks(ticketType, 'C1', null)).value).ticketType).toBe(ticketType);
   });
 });
 

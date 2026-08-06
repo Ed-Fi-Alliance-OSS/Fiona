@@ -88,21 +88,31 @@ const TICKET_PHRASES = new Map([
   ['file a feature', 'feature'],
 ]);
 
+// The conversational offer names no type, whichever phrase reached it. The button
+// opens the one ticket form and the type is a dropdown inside it, so naming a type
+// here would promise a narrower form than the user actually gets. Decided
+// 2026-08-05, replacing per-type copy ("Report a bug" / "Request a feature").
+const CREATE_TICKET_PROMPT = 'Would you like to submit a support ticket? I can open a form for you.';
+const CREATE_TICKET_LABEL = 'Submit a support ticket';
+
 /**
  * Blocks for the conversational "Create ticket" offer.
- * @param {'bug'|'feature'} ticketType
+ *
+ * `ticketType` no longer affects the copy — it survives only in the button's
+ * value, which create_ticket.js reads to preselect the dropdown.
+ *
+ * @param {'bug'|'feature'|'question'} ticketType
  */
 export function buildCreateTicketBlocks(ticketType, channelId, threadTs) {
-  const label = ticketType === 'bug' ? 'Report a bug' : 'Request a feature';
   return [
-    { type: 'section', text: { type: 'mrkdwn', text: `Want to ${label.toLowerCase()}? I can open a form for you.` } },
+    { type: 'section', text: { type: 'mrkdwn', text: CREATE_TICKET_PROMPT } },
     {
       type: 'actions',
       elements: [
         {
           type: 'button',
           action_id: CREATE_TICKET_ACTION,
-          text: { type: 'plain_text', text: label },
+          text: { type: 'plain_text', text: CREATE_TICKET_LABEL },
           value: JSON.stringify({ ticketType, channelId, threadTs }),
         },
       ],
