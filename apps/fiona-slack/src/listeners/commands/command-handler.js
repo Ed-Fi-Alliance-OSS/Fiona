@@ -11,8 +11,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation (coming soon)
-ticket                  File a bug, feature request or question (opens a form)
-                        aliases: bug, feature
+ticket                  Create an Ed-Fi support ticket (opens a form)
 \`\`\`
 
 *How to reach Fiona:*
@@ -72,10 +71,13 @@ export function normalizeTicketType(value) {
 // LLM-based intent detection is deferred (AI-174).
 //
 // The bare `ticket` / `bug` / `feature` entries mirror the `/fiona ticket` command
-// and its two aliases, so the keyword and @-mention paths accept what HELP_TEXT
-// advertises. `ticket` resolves to `feature` to match what `/fiona ticket`
-// preselects — the two entry points for the same word must not disagree. The
-// user can switch it in the dropdown either way.
+// and its two aliases. Only `ticket` is advertised in HELP_TEXT; the aliases are
+// deliberately discoverable-but-hidden, so help offers one way to do this while
+// anyone who already types `bug` keeps working. Accepting more than we advertise
+// is safe — the reverse, advertising a word the keyword path rejects, is not.
+// `ticket` resolves to `feature` to match what `/fiona ticket` preselects — the
+// two entry points for the same word must not disagree. The user can switch it in
+// the dropdown either way.
 const TICKET_PHRASES = new Map([
   ['ticket', 'feature'],
   ['bug', 'bug'],

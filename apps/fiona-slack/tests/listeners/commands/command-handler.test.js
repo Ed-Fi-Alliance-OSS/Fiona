@@ -319,25 +319,23 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toMatch('fiona help');
   });
 
-  it('advertises the single ticket command and all three things it can file', () => {
-    expect(HELP_TEXT).toMatch(/^ticket\s+File a bug, feature request or question/m);
+  it('advertises one ticket command, described in Ed-Fi terms', () => {
+    expect(HELP_TEXT).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
   });
 
-  it('names bug and feature as aliases', () => {
-    expect(HELP_TEXT).toMatch(/aliases: bug, feature/);
+  // `bug` and `feature` still work as slash sub-commands and as keywords, and
+  // `question` is reachable from the dropdown — none of them are advertised.
+  // Discoverable but hidden, so help offers exactly one way to do this. The
+  // aliases keep working: see the parseCommandKeyword phrase tests above.
+  it('does not advertise the aliases at all', () => {
+    expect(HELP_TEXT).not.toMatch(/alias/i);
   });
 
-  // `question` is dropdown-only by decision: it has no command word, so it must
-  // not appear in the alias list or the keyword path would be out of step.
-  it('does not advertise question as an alias', () => {
-    expect(HELP_TEXT).not.toMatch(/aliases:.*question/);
-  });
-
-  // The acceptance criterion is that no user-facing text still promises two
-  // separate commands.
-  it('no longer advertises bug and feature as commands in their own right', () => {
-    expect(HELP_TEXT).not.toMatch(/^bug\s+Report a bug/m);
-    expect(HELP_TEXT).not.toMatch(/^feature\s+Request a feature/m);
+  // The acceptance criterion is that no user-facing text still promises separate
+  // per-type commands.
+  it('no longer advertises bug or feature as commands in their own right', () => {
+    expect(HELP_TEXT).not.toMatch(/^bug\b/m);
+    expect(HELP_TEXT).not.toMatch(/^feature\b/m);
   });
 });
 
