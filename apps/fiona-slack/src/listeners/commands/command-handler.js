@@ -39,8 +39,14 @@ export const ESCALATE_ERROR_TEXT =
   ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
 
 // GitHub issue-creation copy, shared by the slash sub-commands and the modal handler.
+//
+// The community site is written in Slack's <url|label> link form. Every consumer of
+// this constant passes it as a message `text` field — say() in command-dispatch,
+// respond() in fiona.js, chat.postMessage in ticket_modal.js — where Slack renders
+// that as a link. It would render literally inside a modal plain_text block, so
+// this string must not be reused there without splitting the copy.
 export const TICKET_NOT_CONFIGURED_TEXT =
-  ':information_source: Issue creation is not available right now. Please reach out to the team directly.';
+  ':information_source: Issue creation is not available right now. Please submit your request at <https://community.ed-fi.org|community.ed-fi.org>';
 export const TICKET_ERROR_TEXT =
   ':warning: Sorry, I could not create your issue right now. Please try again later or reach out to the team directly.';
 export function TICKET_CREATED_TEXT(key, url) {

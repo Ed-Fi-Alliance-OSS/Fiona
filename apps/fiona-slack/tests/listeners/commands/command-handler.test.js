@@ -17,6 +17,7 @@ const {
   HELP_TEXT,
   ASK_NOT_YET_TEXT,
   SEARCH_NOT_YET_TEXT,
+  TICKET_NOT_CONFIGURED_TEXT,
 } = await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
@@ -303,6 +304,27 @@ describe('normalizeTicketType', () => {
     for (const bad of ['chore', 'BUG', '', null, undefined, 0, {}]) {
       expect(normalizeTicketType(bad)).toBe('bug');
     }
+  });
+});
+
+describe('TICKET_NOT_CONFIGURED_TEXT', () => {
+  it('sends the user to the community site rather than "the team"', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).toBe(
+      ':information_source: Issue creation is not available right now. Please submit your request at <https://community.ed-fi.org|community.ed-fi.org>',
+    );
+  });
+
+  // Slack renders <url|label> as a link in a message `text` field. Every use of
+  // this constant is such a field — say() in command-dispatch, respond() twice in
+  // fiona.js, and the chat.postMessage DM in ticket_modal.js — so the link form is
+  // safe everywhere. It would render literally in a modal plain_text block; if this
+  // string is ever reused there, the copy needs splitting.
+  it('wraps the site in Slack link syntax so it renders as a link', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).toMatch(/<https:\/\/community\.ed-fi\.org\|community\.ed-fi\.org>/);
+  });
+
+  it('no longer tells the user to reach out to the team directly', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).not.toMatch(/reach out to the team/i);
   });
 });
 
