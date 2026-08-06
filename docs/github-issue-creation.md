@@ -6,29 +6,53 @@
 
 ## Purpose
 
-Let a Slack user file a bug report or feature request against a GitHub repo
-without leaving Slack. Fiona opens a short modal, collects the details, and
+Let a Slack user file a bug report, feature request or question against a GitHub
+repo without leaving Slack. Fiona opens a short modal, collects the details, and
 creates (or, with the approval gate enabled, drafts for review) a GitHub issue
 via the GraphQL API — then DMs the requester the issue number and link.
 
 ## Entry points
 
+There is **one** ticket command. `bug` and `feature` survive as aliases that
+preselect a type in the same form; they are deliberately
+**discoverable-but-hidden** — `/fiona help` advertises only `ticket`, so help
+offers one way to do this while anyone who already types `bug` keeps working.
+
 | Entry point | Trigger | Context |
 | --- | --- | --- |
-| `/fiona bug` | Slash command | Opens the ticket modal pre-set to `bug` |
-| `/fiona feature` | Slash command | Opens the ticket modal pre-set to `feature` |
-| Conversational offer | Exact whole-message match on one of the phrases below, in a channel, DM, or thread | Posts a "Report a bug" / "Request a feature" button; clicking it opens the same modal |
+| `/fiona ticket` | Slash command | Opens the ticket modal with **Feature** preselected |
+| `/fiona bug`, `/fiona feature` | Slash command aliases (unadvertised) | The same modal, preselected to `bug` / `feature` |
+| Conversational offer | Exact whole-message match on one of the phrases below, in a channel, DM, or thread | Posts a **Submit a support ticket** button; clicking it opens the same modal |
+
+`/fiona ticket` preselects **Feature**, not the neutral Question option and not
+`bug`. That is a deliberate product decision taken on 2026-08-05; the telemetry
+signal that would overturn it is a stream of `modal_feature` submissions arriving
+with a `slash_ticket` source, meaning users who typed the generic word are
+accepting a type they did not choose.
+
+Telemetry records the word the user typed, not the resolved type —
+`slash_ticket`, `slash_bug`, `slash_feature` are distinct interaction types, so
+whether anyone still uses the aliases is an evidence question rather than a guess.
 
 The conversational offer only fires on an **exact, whole-message** match — a
 message that merely contains one of these phrases as part of a longer sentence
-does not trigger it. The recognized phrases are:
+does not trigger it. The recognized phrases, and the type each preselects:
 
-- `file a bug`
-- `report a bug`
-- `bug report`
-- `request a feature`
-- `feature request`
-- `file a feature`
+| Phrase | Preselects |
+| --- | --- |
+| `ticket` | `feature` |
+| `bug` | `bug` |
+| `feature` | `feature` |
+| `file a bug`, `report a bug`, `bug report` | `bug` |
+| `request a feature`, `feature request`, `file a feature` | `feature` |
+
+`ticket` resolves to `feature` here for the same reason `/fiona ticket` does —
+two entry points for one word must not disagree. A leading slash and a `fiona `
+prefix are both tolerated, so `/bug` and `fiona ticket` work too.
+
+**No phrase reaches the `question` type.** It is reachable only from the modal's
+Type dropdown, by decision: giving it a command word would mean advertising a
+word for a case people reach for when they cannot classify their own report.
 
 This is deliberately high-precision pattern matching rather than intent
 detection, so Fiona never mis-fires the offer on an unrelated message. Smarter,
@@ -43,6 +67,9 @@ and conversational paths stay in lockstep.
 
 ## Modal fields
 
+- **Type** (required, first block) — a `static_select` offering **Bug**,
+  **Feature** and **Question / not sure**. Changing it rebuilds the form in place;
+  see [Switching type](#switching-type) below.
 - **Summary** (core, required) — becomes the GitHub issue title.
 - **Description** (core, required) — becomes the top of the issue body.
 - **Priority** — written to the org-level **`Priority`** single-select issue field,
@@ -59,6 +86,41 @@ and conversational paths stay in lockstep.
   issue field (see [Privacy note](#privacy-note) below). Nothing identifying the
   reporter goes into the issue body; the user does not type or confirm this.
 
+## Switching type
+
+The Type select sits in an `input` block with `dispatch_action: true`. That makes
+it do two jobs: it contributes to `view.state.values` on submit **and** emits a
+`block_actions` event when changed. Verified live in Slack on 2026-08-05 — an
+earlier design that moved the select into an `actions` block and shadowed the type
+in `private_metadata` was therefore never needed and is not built.
+
+`ticketTypeActionCallback`
+(`apps/fiona-slack/src/listeners/actions/ticket_type.js`) acks that event and
+calls `views.update` with a rebuilt view, keyed on the view's `id` and `hash`.
+
+- **Summary, Description and Priority are carried forward explicitly.** Slack
+  preserves input values across `views.update` only for *identical* input blocks,
+  and ours are not identical — the placeholders change with the type. Priority in
+  particular used to be hard-coded to `Medium` on every build, so a rebuild would
+  silently discard a chosen priority.
+- **Bug-specific field content is lost** when switching away from Bug and is not
+  restored on switching back. Accepted deliberately rather than stashed.
+- **A failed update is logged and otherwise ignored.** The user keeps the previous
+  field set, and submit still reads the type from live view state, so the worst
+  outcome is an issue filed with three empty optional fields.
+- **Not rate-limited, and not re-checked against `isTicketingEnabled()`.** A type
+  toggle is a Slack-side interaction with no GitHub cost, and a view that exists
+  proves the config guard already passed; re-checking would let a config change
+  mid-form blank the user's typing.
+
+### The submitted type comes from view state, not `private_metadata`
+
+`private_metadata` carries only `{ channelId, threadTs }`. The ticket type is read
+from the validated Type dropdown in live view state (`readTicketType`), which runs
+it through `normalizeTicketType` — view state is client-supplied too, so it is
+normalized rather than trusted. A ticket type smuggled into `private_metadata`
+cannot change the type of the filed issue.
+
 ## Ticket type → GitHub issue type
 
 Issues carry a **native GitHub issue type**, not a label. Labels are no longer
@@ -68,6 +130,15 @@ applied by Fiona at all — `issueTypeId` replaced `labelIds` on the mutation.
 | --- | --- | --- |
 | `bug` | `Bug` | `SLACK_GITHUB_ISSUE_BUG_TYPE_NAME` |
 | `feature` | `Feature` | `SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME` |
+| `question` | **none — filed with no type at all** | n/a |
+
+`resolveIssueTypeName` returns `undefined` for `question`, and `createIssue` omits
+`issueTypeId` entirely for a falsy name, so the issue is created untyped and a
+triager classifies it later. An **unrecognised** value also returns `undefined`
+rather than falling through to `Feature`: `normalizeTicketType` should mean nothing
+unrecognised ever arrives, and untyped is the better failure mode — a triager can
+see an untyped issue, whereas a mistyped one looks finished and never gets
+revisited.
 
 > Issue types are defined at **organization** level and resolved by name from
 > `repository.issueTypes`. The type must already exist — Fiona does not create types.
@@ -80,7 +151,11 @@ applied by Fiona at all — `issueTypeId` replaced `labelIds` on the mutation.
 1. If GitHub is not configured (see [Configuration](#configuration)),
    returns `{ ok: false, mode: 'not_configured', errorType: 'github_not_configured' }`
    and the slash/conversational handlers respond with "Issue creation is not
-   available right now" — **the modal is never opened** in this case.
+   available right now. Please submit your request at community.ed-fi.org" —
+   **the modal is never opened** in this case. That copy
+   (`TICKET_NOT_CONFIGURED_TEXT`) carries the site as a Slack `<url|label>` link
+   and is only ever passed as a message `text` field; it would render literally
+   inside a modal `plain_text` block.
 2. If the approval gate is enabled (`isApprovalRequired()` — see below), posts
    a draft with **Approve & create** / **Discard** buttons to the triage
    channel instead of creating the issue immediately.
@@ -165,7 +240,8 @@ configurable host is a deliberate change rather than an accident.
   and the `Slack User` and `Priority` issue fields, must already exist at
   organization level. Fiona creates none of them, and each is resolved by name —
   a rename in GitHub org settings breaks issue creation until the corresponding
-  env var is updated.
+  env var is updated. The `question` type needs nothing configured, because it
+  files with no native issue type at all.
 - **Priority options must match the modal**: `PRIORITY_OPTIONS` in
   `ticket_modal.js` and the GitHub `Priority` field's options are two lists that
   must be kept in sync by hand. `tests/listeners/views/ticket-modal.test.js`
@@ -237,6 +313,7 @@ No GitHub-specific Slack scope is needed — GitHub authentication is the PAT
   `apps/fiona-slack/src/listeners/commands/fiona.js`,
   `apps/fiona-slack/src/listeners/commands/command-handler.js`,
   `apps/fiona-slack/src/listeners/views/ticket_modal.js`,
+  `apps/fiona-slack/src/listeners/actions/ticket_type.js`,
   `apps/fiona-slack/src/listeners/actions/ticket_approval.js`.
 - Env var reference: `apps/fiona-slack/.env.sample`.
 - Living product context: `docs/fiona-skills-prd.md`.
