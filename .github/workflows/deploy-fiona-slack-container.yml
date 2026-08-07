@@ -95,6 +95,15 @@ jobs:
             deploymentType="${{ inputs.environment || 'insiders' }}" \
             escalationUsergroupId=${{ vars.ESCALATION_USERGROUP_ID || '' }} \
             escalationChannel="${{ vars.ESCALATION_CHANNEL_ID || '' }}" \
+            ghIssueToken="${{ secrets.GH_ISSUE_TOKEN }}" \
+            ghIssueRepo="${{ vars.GH_ISSUE_REPO || '' }}" \
+            ghIssueBugTypeName="${{ vars.GH_ISSUE_BUG_TYPE_NAME || 'Bug' }}" \
+            ghIssueFeatureTypeName="${{ vars.GH_ISSUE_FEATURE_TYPE_NAME || 'Feature' }}" \
+            ghIssueSlackUserFieldName="${{ vars.GH_ISSUE_SLACK_USER_FIELD_NAME || '' }}" \
+            ghIssuePriorityFieldName="${{ vars.GH_ISSUE_PRIORITY_FIELD_NAME || '' }}" \
+            ghIssuePriorityOptionNames="${{ vars.GH_ISSUE_PRIORITY_OPTION_NAMES || '' }}" \
+            ticketApprovalRequired=${{ vars.TICKET_APPROVAL_REQUIRED || 'false' }} \
+            ticketTriageChannelId="${{ vars.TICKET_TRIAGE_CHANNEL_ID || '' }}" \
             skipRoleAssignments=true
 
     - name: Verify deployment

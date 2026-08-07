@@ -5,7 +5,7 @@
 
 import axios from 'axios';
 
-const REQUIRED_VARS = ['GITHUB_ISSUE_REPO', 'GITHUB_ISSUE_TOKEN'];
+const REQUIRED_VARS = ['GH_ISSUE_REPO', 'GH_ISSUE_TOKEN'];
 const REQUEST_TIMEOUT_MS = 15000;
 
 // Org-level text issue field that records who filed the ticket. Configured by NAME,
@@ -52,16 +52,16 @@ export function isGithubConfigured() {
 const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql';
 
 function slackUserFieldName() {
-  return process.env.GITHUB_ISSUE_SLACK_USER_FIELD_NAME || DEFAULT_SLACK_USER_FIELD_NAME;
+  return process.env.GH_ISSUE_SLACK_USER_FIELD_NAME || DEFAULT_SLACK_USER_FIELD_NAME;
 }
 
 function priorityFieldName() {
-  return process.env.GITHUB_ISSUE_PRIORITY_FIELD_NAME || DEFAULT_PRIORITY_FIELD_NAME;
+  return process.env.GH_ISSUE_PRIORITY_FIELD_NAME || DEFAULT_PRIORITY_FIELD_NAME;
 }
 
 function headers() {
   return {
-    Authorization: `Bearer ${process.env.GITHUB_ISSUE_TOKEN}`,
+    Authorization: `Bearer ${process.env.GH_ISSUE_TOKEN}`,
     Accept: 'application/vnd.github+json',
   };
 }
@@ -113,7 +113,7 @@ async function graphql(query, variables, logger) {
  * @returns {Promise<{ number: number, url: string }>}
  */
 export async function createIssue({ title, bodyText, issueTypeName, priorityName, slackUser }, logger) {
-  const [owner, name] = (process.env.GITHUB_ISSUE_REPO || '').split('/');
+  const [owner, name] = (process.env.GH_ISSUE_REPO || '').split('/');
 
   const lookup = await graphql(REPO_LOOKUP, { owner, name }, logger);
   const repository = lookup?.repository;

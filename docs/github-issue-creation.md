@@ -128,8 +128,8 @@ applied by Fiona at all — `issueTypeId` replaced `labelIds` on the mutation.
 
 | Ticket type | GitHub issue type (default) | Env override |
 | --- | --- | --- |
-| `bug` | `Bug` | `GITHUB_ISSUE_BUG_TYPE_NAME` |
-| `feature` | `Feature` | `GITHUB_ISSUE_FEATURE_TYPE_NAME` |
+| `bug` | `Bug` | `GH_ISSUE_BUG_TYPE_NAME` |
+| `feature` | `Feature` | `GH_ISSUE_FEATURE_TYPE_NAME` |
 | `question` | **none — filed with no type at all** | n/a |
 
 `resolveIssueTypeName` returns `undefined` for `question`, and `createIssue` omits
@@ -201,17 +201,17 @@ treated as disabled and issues are created immediately.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GITHUB_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
-| `GITHUB_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `GITHUB_ISSUE_REPO`. Never logged. |
-| `GITHUB_ISSUE_SLACK_USER_FIELD_NAME` | `Slack User` | **Name** (not node ID) of the org-level text issue field that records the reporter. Resolved to a node ID from the repository lookup on every create, so it survives the field being deleted and recreated. List the available fields with `GET /orgs/{org}/issue-fields`. |
-| `GITHUB_ISSUE_BUG_TYPE_NAME` | `Bug` | Native issue type applied to bugs. **Must already exist in the org** — an unknown type fails with a message naming it (recorded as `github_create_failed`). |
-| `GITHUB_ISSUE_FEATURE_TYPE_NAME` | `Feature` | Native issue type applied to feature requests. Same pre-existence requirement. |
-| `GITHUB_ISSUE_PRIORITY_FIELD_NAME` | `Priority` | **Name** of the org-level single-select field receiving the modal's priority. Its option names must match `PRIORITY_OPTIONS` in `ticket_modal.js` exactly. |
+| `GH_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
+| `GH_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `GH_ISSUE_REPO`. Never logged. |
+| `GH_ISSUE_SLACK_USER_FIELD_NAME` | `Slack User` | **Name** (not node ID) of the org-level text issue field that records the reporter. Resolved to a node ID from the repository lookup on every create, so it survives the field being deleted and recreated. List the available fields with `GET /orgs/{org}/issue-fields`. |
+| `GH_ISSUE_BUG_TYPE_NAME` | `Bug` | Native issue type applied to bugs. **Must already exist in the org** — an unknown type fails with a message naming it (recorded as `github_create_failed`). |
+| `GH_ISSUE_FEATURE_TYPE_NAME` | `Feature` | Native issue type applied to feature requests. Same pre-existence requirement. |
+| `GH_ISSUE_PRIORITY_FIELD_NAME` | `Priority` | **Name** of the org-level single-select field receiving the modal's priority. Its option names must match `PRIORITY_OPTIONS` in `ticket_modal.js` exactly. |
 | `TICKET_APPROVAL_REQUIRED` | `false` | When `true` (and `TICKET_TRIAGE_CHANNEL_ID` is set), gates issue creation behind human approval. |
 | `TICKET_TRIAGE_CHANNEL_ID` | (unset) | Channel **ID** (e.g. `C0123456789`) where approval drafts are posted. The bot must be a member of that channel to post. |
 
-Feature is disabled — and the modal never opens — until both `GITHUB_ISSUE_REPO`
-and `GITHUB_ISSUE_TOKEN` are set (`isGithubConfigured()` /
+Feature is disabled — and the modal never opens — until both `GH_ISSUE_REPO`
+and `GH_ISSUE_TOKEN` are set (`isGithubConfigured()` /
 `isTicketingEnabled()`).
 
 The GraphQL endpoint is **not configurable**. It is fixed at
@@ -221,9 +221,9 @@ configurable host is a deliberate change rather than an accident.
 
 ### Open items to confirm before enabling in production
 
-- **Repo owner/repo**: `GITHUB_ISSUE_REPO` targets exactly one fixed repository —
+- **Repo owner/repo**: `GH_ISSUE_REPO` targets exactly one fixed repository —
   confirm it's the intended one before setting it in any environment.
-- **PAT scope**: use a fine-grained PAT restricted to `GITHUB_ISSUE_REPO` with only
+- **PAT scope**: use a fine-grained PAT restricted to `GH_ISSUE_REPO` with only
   **Issues: write** permission — do not use a classic PAT with broader repo
   access.
 - **PAT writing the `Slack User` field** — ✅ **verified working** against
@@ -235,7 +235,7 @@ configurable host is a deliberate change rather than an accident.
   **no issue is created at all**; the fallback would be to create the issue first
   and set the field in a second `updateIssue`/`createIssueFieldValue` call.
 - **Configure the field by NAME**, e.g. `Slack User` — not its node ID. Putting a
-  node ID in `GITHUB_ISSUE_SLACK_USER_FIELD_NAME` will fail the name lookup.
+  node ID in `GH_ISSUE_SLACK_USER_FIELD_NAME` will fail the name lookup.
 - **Issue types and fields must pre-exist**: the `Bug` and `Feature` issue types,
   and the `Slack User` and `Priority` issue fields, must already exist at
   organization level. Fiona creates none of them, and each is resolved by name —
@@ -298,7 +298,7 @@ email addresses), but it stays in `manifest.json` because
 > work around it — `users.list` needs `users:read` too.
 
 No GitHub-specific Slack scope is needed — GitHub authentication is the PAT
-(`GITHUB_ISSUE_TOKEN`), not a Slack OAuth scope.
+(`GH_ISSUE_TOKEN`), not a Slack OAuth scope.
 
 ## Deferred
 

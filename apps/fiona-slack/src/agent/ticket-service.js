@@ -92,8 +92,8 @@ async function postDraftForApproval(payload, ctx) {
  * @returns {string|undefined}
  */
 export function resolveIssueTypeName(ticketType) {
-  if (ticketType === 'bug') return process.env.GITHUB_ISSUE_BUG_TYPE_NAME || 'Bug';
-  if (ticketType === 'feature') return process.env.GITHUB_ISSUE_FEATURE_TYPE_NAME || 'Feature';
+  if (ticketType === 'bug') return process.env.GH_ISSUE_BUG_TYPE_NAME || 'Bug';
+  if (ticketType === 'feature') return process.env.GH_ISSUE_FEATURE_TYPE_NAME || 'Feature';
   return undefined;
 }
 
