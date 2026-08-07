@@ -3,17 +3,13 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { TICKET_APPROVE_ACTION, TICKET_DISCARD_ACTION } from '../../agent/ticket-service.js';
 import { CREATE_TICKET_ACTION } from '../commands/command-handler.js';
 import { FEEDBACK_ACTION } from '../views/feedback_block.js';
 import { TICKET_TYPE_ACTION } from '../views/ticket_modal.js';
 import { createTicketActionCallback } from './create_ticket.js';
 import { feedbackActionCallback } from './feedback.js';
-import {
-  TICKET_APPROVE_ACTION,
-  TICKET_DISCARD_ACTION,
-  ticketApproveActionCallback,
-  ticketDiscardActionCallback,
-} from './ticket_approval.js';
+import { ticketApproveActionCallback, ticketDiscardActionCallback } from './ticket_approval.js';
 import { ticketTypeActionCallback } from './ticket_type.js';
 
 /**

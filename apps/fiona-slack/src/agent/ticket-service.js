@@ -3,10 +3,19 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { TICKET_APPROVE_ACTION, TICKET_DISCARD_ACTION } from '../listeners/actions/ticket_approval.js';
 import { createIssue, isGithubConfigured } from './github-client.js';
 import { recordInteraction } from './interaction-store.js';
 import { getUser } from './slack-users-store.js';
+
+// Declared here rather than in the listener that handles them. This module builds
+// the approval draft's Block Kit, so it needs the action_ids; importing them from
+// listeners/actions/ticket_approval.js closed a cycle, because that module imports
+// createTicketNow back from here. Owning them keeps the dependency one-way.
+//
+// The deeper fix is to stop building Slack blocks in the agent layer at all —
+// tracked separately in AI-203.
+export const TICKET_APPROVE_ACTION = 'ticket_approve';
+export const TICKET_DISCARD_ACTION = 'ticket_discard';
 
 /** True when GitHub is configured (feature enabled). */
 export function isTicketingEnabled() {

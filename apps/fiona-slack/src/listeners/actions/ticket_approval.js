@@ -3,10 +3,10 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+// TICKET_APPROVE_ACTION / TICKET_DISCARD_ACTION are declared in ticket-service.js,
+// which renders the buttons carrying them. Declaring them here instead closed an
+// import cycle, since that module imports createTicketNow from here.
 import { createTicketNow } from '../../agent/ticket-service.js';
-
-export const TICKET_APPROVE_ACTION = 'ticket_approve';
-export const TICKET_DISCARD_ACTION = 'ticket_discard';
 
 function readDraft(body) {
   return body.message?.metadata?.event_payload || null;
