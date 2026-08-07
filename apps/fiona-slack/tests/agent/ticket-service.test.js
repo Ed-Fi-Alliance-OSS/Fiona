@@ -34,8 +34,8 @@ const context = () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  delete process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME;
-  delete process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME;
+  delete process.env.GITHUB_ISSUE_BUG_TYPE_NAME;
+  delete process.env.GITHUB_ISSUE_FEATURE_TYPE_NAME;
   mockIsGithubConfigured.mockReturnValue(true);
   mockGetUser.mockResolvedValue({ realName: 'Ada Lovelace', email: 'ada@ed-fi.org' });
   mockCreateIssue.mockResolvedValue({ number: 300, url: 'https://github.com/o/r/issues/300' });
@@ -47,8 +47,8 @@ describe('resolveIssueTypeName', () => {
     expect(resolveIssueTypeName('feature')).toBe('Feature');
   });
   it('honors env overrides', () => {
-    process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
-    process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
+    process.env.GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
+    process.env.GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
     expect(resolveIssueTypeName('bug')).toBe('Defect');
     expect(resolveIssueTypeName('feature')).toBe('Enhancement');
   });
@@ -60,8 +60,8 @@ describe('resolveIssueTypeName', () => {
   });
 
   it('is not affected by the type-name overrides for question', () => {
-    process.env.SLACK_GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
-    process.env.SLACK_GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
+    process.env.GITHUB_ISSUE_BUG_TYPE_NAME = 'Defect';
+    process.env.GITHUB_ISSUE_FEATURE_TYPE_NAME = 'Enhancement';
     expect(resolveIssueTypeName('question')).toBeUndefined();
   });
 

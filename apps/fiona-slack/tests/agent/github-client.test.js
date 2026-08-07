@@ -58,11 +58,11 @@ beforeEach(() => {
   // mockClear leaves queued mockResolvedValueOnce values in place; a test that throws
   // before consuming both would leak its leftover response into the next test.
   mockPost.mockReset();
-  process.env.SLACK_GITHUB_ISSUE_REPO = 'Ed-Fi-Alliance-OSS/Fiona';
-  process.env.SLACK_GITHUB_ISSUE_TOKEN = 'ghp-secret-token';
+  process.env.GITHUB_ISSUE_REPO = 'Ed-Fi-Alliance-OSS/Fiona';
+  process.env.GITHUB_ISSUE_TOKEN = 'ghp-secret-token';
   delete process.env.GITHUB_API_URL;
-  delete process.env.SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME;
-  delete process.env.SLACK_GITHUB_ISSUE_PRIORITY_FIELD_NAME;
+  delete process.env.GITHUB_ISSUE_SLACK_USER_FIELD_NAME;
+  delete process.env.GITHUB_ISSUE_PRIORITY_FIELD_NAME;
   mockPost.mockResolvedValueOnce(repoLookup()).mockResolvedValueOnce(createResult());
 });
 
@@ -71,7 +71,7 @@ describe('isGithubConfigured', () => {
     expect(isGithubConfigured()).toBe(true);
   });
   it('is false when the token is missing', () => {
-    delete process.env.SLACK_GITHUB_ISSUE_TOKEN;
+    delete process.env.GITHUB_ISSUE_TOKEN;
     expect(isGithubConfigured()).toBe(false);
   });
 });
@@ -134,8 +134,8 @@ describe('createIssue', () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
   });
 
-  it('honors SLACK_GITHUB_ISSUE_PRIORITY_FIELD_NAME', async () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_FIELD_NAME = 'Effort';
+  it('honors GITHUB_ISSUE_PRIORITY_FIELD_NAME', async () => {
+    process.env.GITHUB_ISSUE_PRIORITY_FIELD_NAME = 'Effort';
     await expect(createIssue({ title: 't', bodyText: 'b', priorityName: 'High' }, logger)).rejects.toMatchObject({
       type: 'github_create_failed',
     });
@@ -149,15 +149,15 @@ describe('createIssue', () => {
     expect(mutationInput().issueFields).toEqual([{ fieldId: 'IFT_slack', textValue: 'Ada Lovelace [U1]' }]);
   });
 
-  it('honors SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME', async () => {
-    process.env.SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME = 'Jira Key';
+  it('honors GITHUB_ISSUE_SLACK_USER_FIELD_NAME', async () => {
+    process.env.GITHUB_ISSUE_SLACK_USER_FIELD_NAME = 'Jira Key';
     await createIssue({ title: 't', bodyText: 'b', slackUser: 'Ada [U1]' }, logger);
 
     expect(mutationInput().issueFields).toEqual([{ fieldId: 'IFT_jira', textValue: 'Ada [U1]' }]);
   });
 
   it('throws github_create_failed naming the field when it is not visible to the token', async () => {
-    process.env.SLACK_GITHUB_ISSUE_SLACK_USER_FIELD_NAME = 'Nonexistent Field';
+    process.env.GITHUB_ISSUE_SLACK_USER_FIELD_NAME = 'Nonexistent Field';
 
     await expect(createIssue({ title: 't', bodyText: 'b', slackUser: 'Ada [U1]' }, logger)).rejects.toMatchObject({
       type: 'github_create_failed',

@@ -31,7 +31,7 @@ const PREFERRED_DEFAULT_PRIORITY = 'Medium';
  * @returns {string[]}
  */
 export function priorityOptionNames() {
-  const configured = (process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES ?? '')
+  const configured = (process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES ?? '')
     .split(',')
     .map((name) => name.trim())
     .filter(Boolean);

@@ -18,7 +18,7 @@ import {
 } from '../../../src/listeners/views/ticket_modal.js';
 
 beforeEach(() => {
-  delete process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES;
+  delete process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES;
 });
 
 const blockIds = (view) => view.blocks.map((b) => b.block_id);
@@ -149,17 +149,17 @@ describe('priorityOptionNames', () => {
   });
 
   it('returns the configured names, in the configured order', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     expect(priorityOptionNames()).toEqual(['Critical', 'Normal', 'Whenever']);
   });
 
   it('trims surrounding whitespace and drops empty entries', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = '  P1 , ,P2,  ';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = '  P1 , ,P2,  ';
     expect(priorityOptionNames()).toEqual(['P1', 'P2']);
   });
 
   it.each([[''], ['   '], [',,']])('falls back to the defaults for a useless value %p', (raw) => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = raw;
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = raw;
     expect(priorityOptionNames()).toEqual(DEFAULT_PRIORITY_OPTION_NAMES);
   });
 });
@@ -167,33 +167,33 @@ describe('priorityOptionNames', () => {
 describe('defaultPriorityName', () => {
   it('is Medium when the configured list contains it', () => {
     expect(defaultPriorityName()).toBe('Medium');
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Low,Medium,High';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Low,Medium,High';
     expect(defaultPriorityName()).toBe('Medium');
   });
 
   // Without this the modal would preselect a value the GitHub field does not have,
   // and issue creation would fail after the user had filled in the whole form.
   it('falls back to the first configured name when Medium is not offered', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     expect(defaultPriorityName()).toBe('Critical');
   });
 });
 
 describe('buildTicketModal priority overrides', () => {
   it('renders the configured option names', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     const priority = blockById(buildTicketModal({ ticketType: 'bug' }), 'priority_block');
     expect(priority.element.options.map((o) => o.value)).toEqual(['Critical', 'Normal', 'Whenever']);
   });
 
   it('preselects the first configured name when Medium is not offered', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     const priority = blockById(buildTicketModal({ ticketType: 'bug' }), 'priority_block');
     expect(priority.element.initial_option.value).toBe('Critical');
   });
 
   it('carries a prefilled priority that is in the configured list', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     const view = buildTicketModal({ ticketType: 'bug', prefill: { priority: 'Whenever' } });
     expect(blockById(view, 'priority_block').element.initial_option.value).toBe('Whenever');
   });
@@ -201,7 +201,7 @@ describe('buildTicketModal priority overrides', () => {
   // A stale value carried through a type toggle after the config changed must not
   // survive into the rebuilt view.
   it('discards a prefilled priority that is not in the configured list', () => {
-    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    process.env.GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
     const view = buildTicketModal({ ticketType: 'bug', prefill: { priority: 'Urgent' } });
     expect(blockById(view, 'priority_block').element.initial_option.value).toBe('Critical');
   });
