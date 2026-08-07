@@ -37,6 +37,7 @@ function makeArgs({ ticketType = 'bug' } = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES;
   mockSubmitTicket.mockResolvedValue({ ok: true, mode: 'created', key: '#9', url: 'https://github.com/o/r/issues/9', errorType: null });
 });
 
@@ -134,5 +135,18 @@ describe('ticketModalSubmitCallback', () => {
     await ticketModalSubmitCallback(args);
 
     expect(mockSubmitTicket.mock.calls[0][0].priorityName).toBe('Medium');
+  });
+
+  // The fallback name is sent straight to GitHub and resolved against the
+  // single-select field's options. Hardcoding Medium here would fail issue
+  // creation outright for an org that renamed its priorities.
+  it('falls back to the first configured priority when Medium is not offered', async () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    const args = makeArgs();
+    args.view.state.values.priority_block = { priority_input: {} };
+
+    await ticketModalSubmitCallback(args);
+
+    expect(mockSubmitTicket.mock.calls[0][0].priorityName).toBe('Critical');
   });
 });

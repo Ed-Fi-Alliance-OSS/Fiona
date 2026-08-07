@@ -13,10 +13,46 @@ import {
 } from '../commands/command-handler.js';
 
 export const TICKET_MODAL_CALLBACK = 'ticket_modal';
+
 // Must match the GitHub org `Priority` single-select options exactly: the selected
-// value is resolved to an option node id by name at issue-creation time.
-export const PRIORITY_OPTIONS = ['Urgent', 'High', 'Medium', 'Low'];
-const DEFAULT_PRIORITY = 'Medium';
+// value is resolved to an option node id by name at issue-creation time. That field
+// is org-configurable, so the list is hardcoded as a default and overridable by one
+// comma-separated env var rather than requiring a code change.
+export const DEFAULT_PRIORITY_OPTION_NAMES = ['Urgent', 'High', 'Medium', 'Low'];
+const PREFERRED_DEFAULT_PRIORITY = 'Medium';
+
+/**
+ * The Priority option names to offer, read at call time so tests and a re-read of
+ * the environment both work the way the rest of this feature's config does.
+ *
+ * A value that parses to nothing — unset, blank, or only separators — falls back to
+ * the defaults. An empty dropdown would be worse than an out-of-date one.
+ *
+ * @returns {string[]}
+ */
+export function priorityOptionNames() {
+  const configured = (process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return configured.length ? configured : DEFAULT_PRIORITY_OPTION_NAMES;
+}
+
+/**
+ * The Priority to preselect, and the value sent when the user submits without
+ * touching the dropdown.
+ *
+ * Medium when it is on offer, otherwise the first configured name. It cannot be a
+ * constant: this name is resolved against the GitHub field's options by name, so
+ * preselecting a value the field does not have would fail issue creation after the
+ * user had already filled in the form.
+ *
+ * @returns {string}
+ */
+export function defaultPriorityName() {
+  const options = priorityOptionNames();
+  return options.includes(PREFERRED_DEFAULT_PRIORITY) ? PREFERRED_DEFAULT_PRIORITY : options[0];
+}
 
 export const TICKET_TYPE_ACTION = 'ticket_type_input';
 
@@ -73,8 +109,9 @@ function typeBlock(ticketType) {
 }
 
 function priorityBlock(priority) {
-  const options = PRIORITY_OPTIONS.map((name) => ({ text: plainText(name), value: name }));
-  const selected = PRIORITY_OPTIONS.includes(priority) ? priority : DEFAULT_PRIORITY;
+  const names = priorityOptionNames();
+  const options = names.map((name) => ({ text: plainText(name), value: name }));
+  const selected = names.includes(priority) ? priority : defaultPriorityName();
   return {
     type: 'input',
     block_id: 'priority_block',
@@ -208,7 +245,7 @@ export const ticketModalSubmitCallback = async ({ ack, body, view, client, logge
       ticketType,
       summary: readValue(view, 'summary_block', 'summary_input'),
       description: readValue(view, 'description_block', 'description_input'),
-      priorityName: view.state.values?.priority_block?.priority_input?.selected_option?.value || DEFAULT_PRIORITY,
+      priorityName: view.state.values?.priority_block?.priority_input?.selected_option?.value || defaultPriorityName(),
       bugFields:
         ticketType === 'bug'
           ? {

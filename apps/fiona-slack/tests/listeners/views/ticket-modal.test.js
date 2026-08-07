@@ -3,17 +3,23 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { TICKET_TYPES } from '../../../src/listeners/commands/command-handler.js';
 import {
   buildTicketModal,
+  defaultPriorityName,
+  priorityOptionNames,
   readPrefill,
   readTicketType,
-  PRIORITY_OPTIONS,
+  DEFAULT_PRIORITY_OPTION_NAMES,
   TICKET_MODAL_CALLBACK,
   TICKET_TYPE_ACTION,
   TICKET_TYPE_OPTIONS,
 } from '../../../src/listeners/views/ticket_modal.js';
+
+beforeEach(() => {
+  delete process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES;
+});
 
 const blockIds = (view) => view.blocks.map((b) => b.block_id);
 const typeBlockOf = (view) => view.blocks.find((b) => b.block_id === 'type_block');
@@ -28,10 +34,10 @@ describe('buildTicketModal', () => {
     // submit, so a tampered private_metadata cannot change the filed issue type.
     expect(JSON.parse(view.private_metadata)).toEqual({ channelId: 'C1', threadTs: '123.45' });
     const priority = blockById(view, 'priority_block');
-    expect(priority.element.options).toHaveLength(PRIORITY_OPTIONS.length);
+    expect(priority.element.options).toHaveLength(DEFAULT_PRIORITY_OPTION_NAMES.length);
     // Must match the GitHub Priority single-select options exactly — the value is
     // resolved to an option id by name, so any drift fails issue creation outright.
-    expect(PRIORITY_OPTIONS).toEqual(['Urgent', 'High', 'Medium', 'Low']);
+    expect(DEFAULT_PRIORITY_OPTION_NAMES).toEqual(['Urgent', 'High', 'Medium', 'Low']);
   });
 
   // Block order is a product decision (Type first, then Summary, Description, Priority,
@@ -131,6 +137,73 @@ describe('buildTicketModal', () => {
       expect(typeof option.name).toBe('string');
       expect(option.name.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// The option NAMES must match the GitHub single-select field's options exactly, and
+// that field is org-configurable — so the list is hardcoded as a default but can be
+// overridden by one comma-separated env var.
+describe('priorityOptionNames', () => {
+  it('returns the hardcoded defaults when the override is unset', () => {
+    expect(priorityOptionNames()).toEqual(['Urgent', 'High', 'Medium', 'Low']);
+  });
+
+  it('returns the configured names, in the configured order', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    expect(priorityOptionNames()).toEqual(['Critical', 'Normal', 'Whenever']);
+  });
+
+  it('trims surrounding whitespace and drops empty entries', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = '  P1 , ,P2,  ';
+    expect(priorityOptionNames()).toEqual(['P1', 'P2']);
+  });
+
+  it.each([[''], ['   '], [',,']])('falls back to the defaults for a useless value %p', (raw) => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = raw;
+    expect(priorityOptionNames()).toEqual(DEFAULT_PRIORITY_OPTION_NAMES);
+  });
+});
+
+describe('defaultPriorityName', () => {
+  it('is Medium when the configured list contains it', () => {
+    expect(defaultPriorityName()).toBe('Medium');
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Low,Medium,High';
+    expect(defaultPriorityName()).toBe('Medium');
+  });
+
+  // Without this the modal would preselect a value the GitHub field does not have,
+  // and issue creation would fail after the user had filled in the whole form.
+  it('falls back to the first configured name when Medium is not offered', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    expect(defaultPriorityName()).toBe('Critical');
+  });
+});
+
+describe('buildTicketModal priority overrides', () => {
+  it('renders the configured option names', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    const priority = blockById(buildTicketModal({ ticketType: 'bug' }), 'priority_block');
+    expect(priority.element.options.map((o) => o.value)).toEqual(['Critical', 'Normal', 'Whenever']);
+  });
+
+  it('preselects the first configured name when Medium is not offered', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    const priority = blockById(buildTicketModal({ ticketType: 'bug' }), 'priority_block');
+    expect(priority.element.initial_option.value).toBe('Critical');
+  });
+
+  it('carries a prefilled priority that is in the configured list', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    const view = buildTicketModal({ ticketType: 'bug', prefill: { priority: 'Whenever' } });
+    expect(blockById(view, 'priority_block').element.initial_option.value).toBe('Whenever');
+  });
+
+  // A stale value carried through a type toggle after the config changed must not
+  // survive into the rebuilt view.
+  it('discards a prefilled priority that is not in the configured list', () => {
+    process.env.SLACK_GITHUB_ISSUE_PRIORITY_OPTION_NAMES = 'Critical,Normal,Whenever';
+    const view = buildTicketModal({ ticketType: 'bug', prefill: { priority: 'Urgent' } });
+    expect(blockById(view, 'priority_block').element.initial_option.value).toBe('Critical');
   });
 });
 

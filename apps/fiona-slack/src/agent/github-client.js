@@ -14,7 +14,7 @@ const REQUEST_TIMEOUT_MS = 15000;
 const DEFAULT_SLACK_USER_FIELD_NAME = 'Slack User';
 
 // Org-level single-select issue field holding the reporter's chosen priority. The
-// modal's PRIORITY_OPTIONS must match this field's option names exactly.
+// modal's priorityOptionNames() must match this field's option names exactly.
 const DEFAULT_PRIORITY_FIELD_NAME = 'Priority';
 
 // GraphQL error types that mean "the token is not allowed to do this" rather than
