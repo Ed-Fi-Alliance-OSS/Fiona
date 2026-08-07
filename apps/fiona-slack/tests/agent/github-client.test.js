@@ -139,8 +139,34 @@ describe('createIssue', () => {
     await expect(createIssue({ title: 't', bodyText: 'b', priorityName: 'High' }, logger)).rejects.toMatchObject({
       type: 'github_create_failed',
     });
-    // Looked up "Effort", which has no "High" option — proves the name was honored.
+    // Looked up "Effort", which does not exist — proves the name was honored.
     expect(logger.error.mock.calls.flat().join(' ')).toContain('Effort');
+  });
+
+  // A missing FIELD and a missing OPTION are different misconfigurations with
+  // different fixes, and the Slack User path already distinguishes them. Blaming
+  // the option when the field is absent sends whoever is configuring this to look
+  // at the wrong thing — and it is the first error they hit on a fresh setup.
+  it('reports a missing Priority field as a missing field, not a missing option', async () => {
+    process.env.GH_ISSUE_PRIORITY_FIELD_NAME = 'Effort';
+
+    await expect(createIssue({ title: 't', bodyText: 'b', priorityName: 'High' }, logger)).rejects.toMatchObject({
+      type: 'github_create_failed',
+    });
+
+    const logged = logger.error.mock.calls.flat().join(' ');
+    expect(logged).toContain('"Effort" is not available');
+    expect(logged).not.toContain('has no option');
+  });
+
+  it('still reports a missing option as a missing option when the field does exist', async () => {
+    await expect(createIssue({ title: 't', bodyText: 'b', priorityName: 'Lowest' }, logger)).rejects.toMatchObject({
+      type: 'github_create_failed',
+    });
+
+    const logged = logger.error.mock.calls.flat().join(' ');
+    expect(logged).toContain('has no option "Lowest"');
+    expect(logged).toContain('Priority');
   });
 
   it('resolves the Slack User field by name to its node id', async () => {

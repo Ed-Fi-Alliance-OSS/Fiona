@@ -154,7 +154,18 @@ export async function createIssue({ title, bodyText, issueTypeName, priorityName
   if (priorityName) {
     const fieldName = priorityFieldName();
     const field = findField(fieldName);
-    const option = (field?.options ?? []).find((opt) => opt?.name === priorityName);
+    // A missing field and a missing option are different misconfigurations with
+    // different fixes, so they get different errors — matching the text-field path
+    // above. Checking the option first would collapse both into "has no option",
+    // because `field?.options` is empty when the field itself is absent.
+    if (!field?.id) {
+      throw failure(
+        'github_create_failed',
+        `single-select issue field "${fieldName}" is not available on ${owner}/${name} (check the field name and that the token can read it)`,
+        logger,
+      );
+    }
+    const option = (field.options ?? []).find((opt) => opt?.name === priorityName);
     if (!option?.id) {
       throw failure(
         'github_create_failed',
