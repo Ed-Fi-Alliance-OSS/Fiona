@@ -4,7 +4,8 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { escalateViaSay } from '../../agent/escalation.js';
-import { routeCommandViaSay } from './command-handler.js';
+import { isTicketingEnabled } from '../../agent/ticket-service.js';
+import { buildCreateTicketBlocks, routeCommandViaSay, TICKET_NOT_CONFIGURED_TEXT } from './command-handler.js';
 
 /**
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
@@ -43,6 +44,21 @@ export async function dispatchKeywordViaSay({
   messageTs,
   source,
 }) {
+  if (cmd.keyword === 'file_ticket') {
+    // Don't offer a button that opens a modal the feature cannot honour — the
+    // docs state the modal is never opened while ticketing is unconfigured.
+    if (!isTicketingEnabled()) {
+      await say({ text: TICKET_NOT_CONFIGURED_TEXT, thread_ts: threadTs }).catch((err) =>
+        logger?.warn?.(`Failed to post ticket not-configured notice: ${err.message}`),
+      );
+      return;
+    }
+    const blocks = buildCreateTicketBlocks(cmd.rawArgs, channelId, threadTs);
+    await say({ text: 'Would you like to create an issue?', blocks, thread_ts: threadTs }).catch((err) =>
+      logger?.warn?.(`Failed to offer ticket button: ${err.message}`),
+    );
+    return;
+  }
   if (cmd.keyword === 'escalate') {
     // postEscalation records the escalate interaction itself; suppress the
     // telemetry wrapper's turn record so the event is counted exactly once.

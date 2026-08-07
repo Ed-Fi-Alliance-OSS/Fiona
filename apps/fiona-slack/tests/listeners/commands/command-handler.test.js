@@ -5,8 +5,20 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const { parseCommandKeyword, handleHelpViaSay, handleComingSoonViaSay, routeCommandViaSay, HELP_TEXT, ASK_NOT_YET_TEXT, SEARCH_NOT_YET_TEXT } =
-  await import('../../../src/listeners/commands/command-handler.js');
+const {
+  parseCommandKeyword,
+  handleHelpViaSay,
+  handleComingSoonViaSay,
+  routeCommandViaSay,
+  buildCreateTicketBlocks,
+  normalizeTicketType,
+  TICKET_TYPES,
+  CREATE_TICKET_ACTION,
+  HELP_TEXT,
+  ASK_NOT_YET_TEXT,
+  SEARCH_NOT_YET_TEXT,
+  TICKET_NOT_CONFIGURED_TEXT,
+} = await import('../../../src/listeners/commands/command-handler.js');
 
 describe('parseCommandKeyword', () => {
   describe('help keyword', () => {
@@ -181,6 +193,141 @@ describe('parseCommandKeyword', () => {
   });
 });
 
+describe('parseCommandKeyword — ticket phrases', () => {
+  it.each([
+    ['file a bug', 'bug'],
+    ['report a bug', 'bug'],
+    ['bug report', 'bug'],
+    ['request a feature', 'feature'],
+    ['feature request', 'feature'],
+    ['file a feature', 'feature'],
+  ])('detects "%s" as file_ticket/%s', (phrase, expected) => {
+    expect(parseCommandKeyword(phrase)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
+
+  it('does not fire on unrelated text', () => {
+    expect(parseCommandKeyword('how do I fix a bug in the ODS?')).toBeNull();
+  });
+});
+
+describe('parseCommandKeyword — bare bug/feature keywords', () => {
+  // HELP_TEXT advertises `bug` and `feature` as commands reachable by @-mention and
+  // keyword, and /fiona bug works. These make the keyword path match that promise.
+  it.each([
+    ['bug', 'bug'],
+    ['feature', 'feature'],
+    ['fiona bug', 'bug'],
+    ['fiona feature', 'feature'],
+    ['/bug', 'bug'],
+    ['Bug', 'bug'],
+    ['  feature  ', 'feature'],
+  ])('resolves "%s" to file_ticket/%s', (text, expected) => {
+    expect(parseCommandKeyword(text)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
+
+  it.each(['there is a bug', 'bug in the ODS', 'feature parity question', 'debug'])(
+    'does not fire on "%s"',
+    (text) => {
+      expect(parseCommandKeyword(text)).toBeNull();
+    },
+  );
+
+  // HELP_TEXT advertises `ticket` alongside its two aliases; the keyword and
+  // @-mention paths must accept all three or help is lying to the user.
+  it.each([
+    ['ticket', 'feature'],
+    ['bug', 'bug'],
+    ['feature', 'feature'],
+  ])('resolves the advertised word "%s" to file_ticket/%s', (text, expected) => {
+    expect(parseCommandKeyword(text)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
+  });
+});
+
+describe('buildCreateTicketBlocks', () => {
+  const buttonOf = (blocks) => blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
+  const promptOf = (blocks) => blocks.find((b) => b.type === 'section').text.text;
+
+  it('emits a button with the ticket type and location encoded', () => {
+    const blocks = buildCreateTicketBlocks('bug', 'C1', '123.45');
+    const button = buttonOf(blocks);
+    expect(button).toBeTruthy();
+    expect(JSON.parse(button.value)).toEqual({ ticketType: 'bug', channelId: 'C1', threadTs: '123.45' });
+  });
+
+  // The offer is deliberately type-neutral: the button opens the one ticket form
+  // and the type is a dropdown inside it, so naming a type here would promise a
+  // narrower form than the user gets. Decided 2026-08-05. Asserted as literals
+  // rather than against the module's own constants, which would pass vacuously.
+  it.each([['bug'], ['feature'], ['question']])('offers one neutral prompt for %s', (ticketType) => {
+    expect(promptOf(buildCreateTicketBlocks(ticketType, 'C1', null))).toBe(
+      'Would you like to submit a support ticket? I can open a form for you.',
+    );
+  });
+
+  it.each([['bug'], ['feature'], ['question']])('labels the button neutrally for %s', (ticketType) => {
+    expect(buttonOf(buildCreateTicketBlocks(ticketType, 'C1', null)).text.text).toBe('Submit a support ticket');
+  });
+
+  it('no longer names a type in the prompt or the button', () => {
+    for (const ticketType of ['bug', 'feature', 'question']) {
+      const blocks = buildCreateTicketBlocks(ticketType, 'C1', null);
+      expect(promptOf(blocks)).not.toMatch(/report a bug|request a feature/i);
+      expect(buttonOf(blocks).text.text).not.toMatch(/bug|feature/i);
+    }
+  });
+
+  // Neutral copy must not neutralise the behaviour: the preselect still travels
+  // in the button value, which is what create_ticket.js reads to build the modal.
+  it.each([['bug'], ['feature'], ['question']])('still carries %s as the preselect in the button value', (ticketType) => {
+    expect(JSON.parse(buttonOf(buildCreateTicketBlocks(ticketType, 'C1', null)).value).ticketType).toBe(ticketType);
+  });
+});
+
+describe('normalizeTicketType', () => {
+  it('passes through the known types', () => {
+    expect(normalizeTicketType('bug')).toBe('bug');
+    expect(normalizeTicketType('feature')).toBe('feature');
+  });
+
+  it('accepts question as a known type', () => {
+    expect(normalizeTicketType('question')).toBe('question');
+  });
+
+  it('exposes exactly the three known types in dropdown order', () => {
+    expect(TICKET_TYPES).toEqual(['bug', 'feature', 'question']);
+  });
+
+  it('coerces anything unrecognised to bug rather than letting it become a feature', () => {
+    // resolveIssueTypeName maps only 'bug' and 'feature' to a named type; anything
+    // else files with no type at all, so an unvalidated value would file an
+    // untyped issue rather than a wrongly-typed one.
+    for (const bad of ['chore', 'BUG', '', null, undefined, 0, {}]) {
+      expect(normalizeTicketType(bad)).toBe('bug');
+    }
+  });
+});
+
+describe('TICKET_NOT_CONFIGURED_TEXT', () => {
+  it('sends the user to the community site rather than "the team"', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).toBe(
+      ':information_source: Issue creation is not available right now. Please submit your request at <https://community.ed-fi.org|community.ed-fi.org>',
+    );
+  });
+
+  // Slack renders <url|label> as a link in a message `text` field. Every use of
+  // this constant is such a field — say() in command-dispatch, respond() twice in
+  // fiona.js, and the chat.postMessage DM in ticket_modal.js — so the link form is
+  // safe everywhere. It would render literally in a modal plain_text block; if this
+  // string is ever reused there, the copy needs splitting.
+  it('wraps the site in Slack link syntax so it renders as a link', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).toMatch(/<https:\/\/community\.ed-fi\.org\|community\.ed-fi\.org>/);
+  });
+
+  it('no longer tells the user to reach out to the team directly', () => {
+    expect(TICKET_NOT_CONFIGURED_TEXT).not.toMatch(/reach out to the team/i);
+  });
+});
+
 describe('HELP_TEXT', () => {
   it('mentions /fiona slash command for channel use', () => {
     expect(HELP_TEXT).toMatch('/fiona');
@@ -192,6 +339,25 @@ describe('HELP_TEXT', () => {
 
   it('mentions fiona help as the two-word keyword alternative', () => {
     expect(HELP_TEXT).toMatch('fiona help');
+  });
+
+  it('advertises one ticket command, described in Ed-Fi terms', () => {
+    expect(HELP_TEXT).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
+  });
+
+  // `bug` and `feature` still work as slash sub-commands and as keywords, and
+  // `question` is reachable from the dropdown — none of them are advertised.
+  // Discoverable but hidden, so help offers exactly one way to do this. The
+  // aliases keep working: see the parseCommandKeyword phrase tests above.
+  it('does not advertise the aliases at all', () => {
+    expect(HELP_TEXT).not.toMatch(/alias/i);
+  });
+
+  // The acceptance criterion is that no user-facing text still promises separate
+  // per-type commands.
+  it('no longer advertises bug or feature as commands in their own right', () => {
+    expect(HELP_TEXT).not.toMatch(/^bug\b/m);
+    expect(HELP_TEXT).not.toMatch(/^feature\b/m);
   });
 });
 

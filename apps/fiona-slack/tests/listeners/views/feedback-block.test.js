@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, it, expect } from '@jest/globals';
-import { feedbackBlock } from '../../../src/listeners/views/feedback_block.js';
+import { FEEDBACK_ACTION, feedbackBlock } from '../../../src/listeners/views/feedback_block.js';
 
 describe('feedbackBlock', () => {
   it('has type "context_actions"', () => {
@@ -21,6 +21,14 @@ describe('feedbackBlock', () => {
 
   it('element has action_id "feedback"', () => {
     expect(feedbackBlock.elements[0].action_id).toBe('feedback');
+  });
+
+  // The block declares the action_id and actions/index.js registers the handler
+  // against it. The constant is only worth having if both really use it, so pin
+  // the exported value and the block to each other.
+  it('declares its action_id from the exported FEEDBACK_ACTION constant', () => {
+    expect(FEEDBACK_ACTION).toBe('feedback');
+    expect(feedbackBlock.elements[0].action_id).toBe(FEEDBACK_ACTION);
   });
 
   it('positive button has value "good-feedback"', () => {
