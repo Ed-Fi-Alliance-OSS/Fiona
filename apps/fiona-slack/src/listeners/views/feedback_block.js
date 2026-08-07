@@ -3,6 +3,11 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+// The action_id the feedback buttons dispatch under. Declared here, with the block
+// that owns it, and imported by the listener registration — the two must match
+// exactly or the buttons silently stop being handled.
+export const FEEDBACK_ACTION = 'feedback';
+
 /**
  * `feedbackBlock` are feedback buttons included with messages.
  *
@@ -13,7 +18,7 @@ export const feedbackBlock = {
   elements: [
     {
       type: 'feedback_buttons',
-      action_id: 'feedback',
+      action_id: FEEDBACK_ACTION,
       positive_button: {
         text: { type: 'plain_text', text: 'Good Response' },
         accessibility_label: 'Submit positive feedback on this response',

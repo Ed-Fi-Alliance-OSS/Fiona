@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { CREATE_TICKET_ACTION } from '../commands/command-handler.js';
+import { FEEDBACK_ACTION } from '../views/feedback_block.js';
 import { TICKET_TYPE_ACTION } from '../views/ticket_modal.js';
 import { createTicketActionCallback } from './create_ticket.js';
 import { feedbackActionCallback } from './feedback.js';
@@ -19,7 +20,7 @@ import { ticketTypeActionCallback } from './ticket_type.js';
  * @param {import("@slack/bolt").App} app
  */
 export const register = (app) => {
-  app.action('feedback', feedbackActionCallback);
+  app.action(FEEDBACK_ACTION, feedbackActionCallback);
   app.action(CREATE_TICKET_ACTION, createTicketActionCallback);
   app.action(TICKET_APPROVE_ACTION, ticketApproveActionCallback);
   app.action(TICKET_DISCARD_ACTION, ticketDiscardActionCallback);
