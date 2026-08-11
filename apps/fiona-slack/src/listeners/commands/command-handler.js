@@ -14,6 +14,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 help                    Show this help message
 ask <question>          Ask a question about Ed-Fi (coming soon)
 search <query>          Search Ed-Fi documentation
+ticket                  Create an Ed-Fi support ticket (opens a form)
 \`\`\`
 
 *How to reach Fiona:*
@@ -35,6 +36,96 @@ export const ESCALATE_DM_TEXT = '✅ A team member will follow up shortly.';
 export const ESCALATE_ERROR_TEXT =
   ':warning: Sorry, I could not escalate your conversation right now. Please reach out to the team directly.';
 
+// GitHub issue-creation copy, shared by the slash sub-commands and the modal handler.
+//
+// The community site is written in Slack's <url|label> link form. Every consumer of
+// this constant passes it as a message `text` field — say() in command-dispatch,
+// respond() in fiona.js, chat.postMessage in ticket_modal.js — where Slack renders
+// that as a link. It would render literally inside a modal plain_text block, so
+// this string must not be reused there without splitting the copy.
+export const TICKET_NOT_CONFIGURED_TEXT =
+  ':information_source: Issue creation is not available right now. Please submit your request at <https://community.ed-fi.org|community.ed-fi.org>';
+export const TICKET_ERROR_TEXT =
+  ':warning: Sorry, I could not create your issue right now. Please try again later or reach out to the team directly.';
+export function TICKET_CREATED_TEXT(key, url) {
+  return `:white_check_mark: Created *<${url}|${key}>*. Thanks — the team will take it from here.`;
+}
+
+export const CREATE_TICKET_ACTION = 'create_ticket';
+
+/** The only ticket types any entry point may produce. Order drives the modal dropdown. */
+export const TICKET_TYPES = ['bug', 'feature', 'question'];
+
+/**
+ * Coerce an untrusted ticket type to a known value, defaulting to `bug`.
+ *
+ * Ticket types arrive from Slack-supplied payloads — a button's `value` and the
+ * modal's view state — so they cannot be assumed valid. An unrecognized value
+ * must not reach `resolveIssueTypeName`, which maps only `bug` and `feature` to a
+ * named type and files everything else with no type at all.
+ *
+ * @param {unknown} value
+ * @returns {'bug'|'feature'|'question'}
+ */
+export function normalizeTicketType(value) {
+  return TICKET_TYPES.includes(value) ? value : 'bug';
+}
+
+// Explicit-phrase → ticket type. v1 is high-precision (exact whole-message match).
+// LLM-based intent detection is deferred (AI-174).
+//
+// The bare `ticket` / `bug` / `feature` entries mirror the `/fiona ticket` command
+// and its two aliases. Only `ticket` is advertised in HELP_TEXT; the aliases are
+// deliberately discoverable-but-hidden, so help offers one way to do this while
+// anyone who already types `bug` keeps working. Accepting more than we advertise
+// is safe — the reverse, advertising a word the keyword path rejects, is not.
+// `ticket` resolves to `feature` to match what `/fiona ticket` preselects — the
+// two entry points for the same word must not disagree. The user can switch it in
+// the dropdown either way.
+const TICKET_PHRASES = new Map([
+  ['ticket', 'feature'],
+  ['bug', 'bug'],
+  ['feature', 'feature'],
+  ['file a bug', 'bug'],
+  ['report a bug', 'bug'],
+  ['bug report', 'bug'],
+  ['request a feature', 'feature'],
+  ['feature request', 'feature'],
+  ['file a feature', 'feature'],
+]);
+
+// The conversational offer names no type, whichever phrase reached it. The button
+// opens the one ticket form and the type is a dropdown inside it, so naming a type
+// here would promise a narrower form than the user actually gets. Decided
+// 2026-08-05, replacing per-type copy ("Report a bug" / "Request a feature").
+const CREATE_TICKET_PROMPT = 'Would you like to submit a support ticket? I can open a form for you.';
+const CREATE_TICKET_LABEL = 'Submit a support ticket';
+
+/**
+ * Blocks for the conversational "Create ticket" offer.
+ *
+ * `ticketType` no longer affects the copy — it survives only in the button's
+ * value, which create_ticket.js reads to preselect the dropdown.
+ *
+ * @param {'bug'|'feature'|'question'} ticketType
+ */
+export function buildCreateTicketBlocks(ticketType, channelId, threadTs) {
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: CREATE_TICKET_PROMPT } },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: CREATE_TICKET_ACTION,
+          text: { type: 'plain_text', text: CREATE_TICKET_LABEL },
+          value: JSON.stringify({ ticketType, channelId, threadTs }),
+        },
+      ],
+    },
+  ];
+}
+
 /**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
@@ -45,6 +136,7 @@ export const ESCALATE_ERROR_TEXT =
  *   - "search <args>"      — requires non-empty args after "search "; bare "search" → null
  *   - "fiona <command>"    — same rules after stripping the "fiona " prefix (two-word form)
  *   - "/<command>"         — a stray leading slash is stripped first, so "/escalate" == "escalate"
+ *   - ticket phrases       — exact whole-message match only (e.g. "file a bug"); see TICKET_PHRASES
  *
  * @param {string} text - Trimmed, mention-stripped message text.
  * @returns {{ keyword: string, rawArgs: string } | null}
@@ -76,6 +168,10 @@ export function parseCommandKeyword(text) {
         return { keyword: kw, rawArgs };
       }
     }
+  }
+
+  if (TICKET_PHRASES.has(bodyLower)) {
+    return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
   return null;

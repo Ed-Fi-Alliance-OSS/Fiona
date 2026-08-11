@@ -38,6 +38,17 @@ const mockPostEscalation = jest.fn().mockResolvedValue({ ok: true, errorType: nu
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
   postEscalation: mockPostEscalation,
 }));
+
+const mockIsTicketingEnabled = jest.fn();
+jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({
+  isTicketingEnabled: mockIsTicketingEnabled,
+}));
+
+const mockBuildTicketModal = jest.fn(() => ({ type: 'modal', callback_id: 'ticket_modal' }));
+jest.unstable_mockModule('../../../src/listeners/views/ticket_modal.js', () => ({
+  buildTicketModal: mockBuildTicketModal,
+}));
+
 const { fionaCommandCallback } = await import('../../../src/listeners/commands/fiona.js');
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
@@ -549,6 +560,215 @@ describe('fionaCommandCallback', () => {
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringContaining('request limit') }),
       );
+    });
+  });
+
+  describe('bug/feature sub-commands', () => {
+    let mockRespond;
+    let mockClient;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockIsTicketingEnabled.mockReturnValue(true);
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockClient = { views: { open: jest.fn().mockResolvedValue({}) } };
+    });
+
+    const cmd = (over = {}) => ({
+      user_id: 'U_TICKET', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1',
+      channel_name: 'general', text: 'bug', ...over,
+    });
+
+    it('opens the bug modal with trigger_id when enabled', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'bug' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(mockBuildTicketModal).toHaveBeenCalledWith(
+        expect.objectContaining({ ticketType: 'bug', channelId: 'C1' }),
+      );
+      expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'trig-1' }));
+    });
+
+    it('opens the feature modal with trigger_id when enabled', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockBuildTicketModal).toHaveBeenCalledWith(
+        expect.objectContaining({ ticketType: 'feature', channelId: 'C1' }),
+      );
+      expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'trig-1' }));
+    });
+
+    it('records slash_bug telemetry after opening the modal', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'bug' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_bug' }),
+      );
+    });
+
+    it('responds not-configured and does not open a modal when disabled', async () => {
+      mockIsTicketingEnabled.mockReturnValue(false);
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringMatching(/not available/i) }),
+      );
+    });
+
+    it('records slash_feature interaction as an error with errorType not_configured when disabled', async () => {
+      mockIsTicketingEnabled.mockReturnValue(false);
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          interactionType: 'slash_feature',
+          status: 'error',
+          errorType: 'not_configured',
+        }),
+      );
+    });
+
+    it('does not throw and responds not-configured when required fields are missing', async () => {
+      const { trigger_id: _t, ...cmdWithoutTrigger } = cmd({ text: 'bug' });
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await expect(
+        fionaCommandCallback({
+          command: cmdWithoutTrigger, ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        }),
+      ).resolves.toBeUndefined();
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringMatching(/not available/i) }),
+      );
+    });
+
+    it('does not open a modal and shows the rate-limit message when rate limited', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL');
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'bug', user_id: 'U_TICKET_RL' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('request limit') }),
+      );
+    });
+
+    it('records slash_bug telemetry with errorType rate_limited when rate limited', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL2');
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'bug', user_id: 'U_TICKET_RL2' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          interactionType: 'slash_bug',
+          status: 'error',
+          errorType: 'rate_limited',
+          rateLimited: true,
+        }),
+      );
+    });
+
+    it('responds with the transient error text (not the not-available text) when views.open rejects', async () => {
+      mockClient.views.open.mockRejectedValueOnce(new Error('slack API timeout'));
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'bug', user_id: 'U_TICKET_ERR' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringMatching(/could not create/i) }),
+      );
+      expect(mockRespond).not.toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringMatching(/not available/i) }),
+      );
+    });
+
+    // Decided 2026-08-05. Deliberately NOT the neutral 'question' option and no
+    // longer 'bug' as the 08-04 spec had it — see the addendum's note.
+    it('opens the modal preselected to feature for /fiona ticket', async () => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'ticket' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(mockBuildTicketModal).toHaveBeenCalledWith(
+        expect.objectContaining({ ticketType: 'feature', channelId: 'C1' }),
+      );
+      expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'trig-1' }));
+    });
+
+    // Telemetry records the word the user typed, not a canonical name, so whether
+    // anyone still uses the aliases becomes an evidence question later.
+    it.each([
+      ['ticket', 'slash_ticket'],
+      ['bug', 'slash_bug'],
+      ['feature', 'slash_feature'],
+    ])('records %s as %s', async (text, interactionType) => {
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType }));
+    });
+
+    it('records slash_ticket, not slash_bug, when ticket is disabled', async () => {
+      mockIsTicketingEnabled.mockReturnValue(false);
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'ticket' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ticket', status: 'error', errorType: 'not_configured' }),
+      );
+    });
+
+    it('records slash_ticket with rate_limited when ticket is rate limited', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL3');
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'ticket', user_id: 'U_TICKET_RL3' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      await flushMicrotasks();
+      expect(mockClient.views.open).not.toHaveBeenCalled();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ticket', errorType: 'rate_limited', rateLimited: true }),
+      );
+    });
+
+    it('logs the invoked word, not the ticket type, when views.open rejects', async () => {
+      mockClient.views.open.mockRejectedValueOnce(new Error('slack API timeout'));
+      const ack = jest.fn().mockResolvedValue(undefined);
+      await fionaCommandCallback({
+        command: cmd({ text: 'ticket', user_id: 'U_TICKET_ERR2' }),
+        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+      });
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('ticket'));
     });
   });
 });

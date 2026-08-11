@@ -7,13 +7,17 @@ import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
+import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
+import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
+  TICKET_ERROR_TEXT,
+  TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
 
 /**
@@ -37,6 +41,20 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
+      break;
+    // Preselects Feature, not Bug and not the neutral Question option. Decided
+    // 2026-08-05; the rationale and the telemetry signal that would overturn it
+    // are recorded in 2026-08-05-ticket-type-question-design.md.
+    case 'ticket':
+      await handleTicket({ command, ack, respond, client, logger, ticketType: 'feature', invokedAs: 'ticket' });
+      break;
+    // Aliases. They preselect a type in the same form rather than opening a
+    // different one, and record the word the user actually typed.
+    case 'bug':
+      await handleTicket({ command, ack, respond, client, logger, ticketType: 'bug', invokedAs: 'bug' });
+      break;
+    case 'feature':
+      await handleTicket({ command, ack, respond, client, logger, ticketType: 'feature', invokedAs: 'feature' });
       break;
     default:
       await handleUnknown({ command, ack, logger, subCommand });
@@ -233,4 +251,61 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
     response_type: 'ephemeral',
     text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
   });
+}
+
+/**
+ * Opens the ticket modal. `invokedAs` is the word the user typed and drives every
+ * telemetry name and log line; `ticketType` only preselects the dropdown. Keeping
+ * them separate is what lets `/fiona bug` record slash_bug while opening a form
+ * the user can switch to a feature before submitting.
+ */
+async function handleTicket({ command, ack, respond, client, logger, ticketType, invokedAs }) {
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ${invokedAs}: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping ticket');
+    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+    return;
+  }
+
+  if (!isTicketingEnabled()) {
+    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
+    recordInteraction({
+      ...slashInteractionRecord(command, `slash_${invokedAs}`),
+      status: 'error',
+      errorType: 'not_configured',
+      rateLimited: false,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_${invokedAs} interaction: ${err.name}`));
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, `slash_${invokedAs}`),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_${invokedAs} interaction: ${err.name}`));
+    return;
+  }
+
+  try {
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: buildTicketModal({ ticketType, channelId: command.channel_id }),
+    });
+    fireAndForgetRecord({ command, logger, interactionType: `slash_${invokedAs}` });
+  } catch (err) {
+    logger?.error?.(`Failed to open ${invokedAs} modal: ${err.message}`);
+    await respond({ response_type: 'ephemeral', text: TICKET_ERROR_TEXT });
+  }
 }

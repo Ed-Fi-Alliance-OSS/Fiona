@@ -19,6 +19,10 @@ language conversation.
   persisted to Azure Cosmos DB for analytics.
 - **Rate limiting** — Per-user sliding-window rate limiter to prevent abuse.
 - **Socket Mode** — Outbound WebSocket only; no public URL or ingress required.
+- **GitHub issue creation** — `/fiona ticket` (or an explicit in-conversation
+  phrase like "file a bug") opens a modal and files a GitHub issue as a bug,
+  feature request or question, with an optional human-approval gate. See
+  [`docs/github-issue-creation.md`](docs/github-issue-creation.md).
 
 ## Repository Structure
 
