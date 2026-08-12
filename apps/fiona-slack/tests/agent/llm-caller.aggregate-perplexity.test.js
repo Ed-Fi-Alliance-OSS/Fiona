@@ -15,9 +15,10 @@ jest.unstable_mockModule('../../src/agent/utils/citation-telemetry.js', () => ({
 // Capture the create mock so tests can set their own resolved value.
 const mockCreate = jest.fn();
 
-jest.unstable_mockModule('openai', () => ({
-  OpenAI: jest.fn().mockImplementation(() => ({
+jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
+  default: jest.fn().mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
+    search: { create: jest.fn() },
   })),
 }));
 

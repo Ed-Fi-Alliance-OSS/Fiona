@@ -5,18 +5,14 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-// Mock the OpenAI module to prevent module init errors (llm-caller.js creates
-// an OpenAI client on load when PERPLEXITY_API_KEY is set).
-jest.unstable_mockModule('openai', () => ({
-  OpenAI: jest.fn().mockImplementation(() => ({
-    chat: { completions: { create: jest.fn() } },
-  })),
-}));
-
 // Mock the Perplexity SDK so tests control search results without hitting the API.
+// llm-caller.js creates one Perplexity client on load (for both chat and
+// search) when PERPLEXITY_API_KEY is set, so `chat.completions.create` is
+// stubbed here too even though these tests only exercise `search.create`.
 const mockSearchCreate = jest.fn();
 jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
   default: jest.fn().mockImplementation(() => ({
+    chat: { completions: { create: jest.fn() } },
     search: { create: mockSearchCreate },
   })),
 }));
