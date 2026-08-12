@@ -52,7 +52,7 @@ export async function handleRateLimitedInteraction({
     }).catch((e) => logger.warn?.(`Failed to record interaction: ${e.message}`));
     markInteractionRecorded();
 
-    await say(rateLimitMessage(retryAfterMs));
+    await say({ text: rateLimitMessage(retryAfterMs), thread_ts: threadTs });
     return true;
   }
   return false;

@@ -30,6 +30,7 @@ import { buildCreateTicketBlocks, routeCommandViaSay, TICKET_NOT_CONFIGURED_TEXT
  * @param {string|null} [params.threadTs]
  * @param {string} params.messageTs
  * @param {'mention_escalate'|'assistant_escalate'} params.source
+ * @param {(text: string) => Promise<unknown>} [params.replyPrivately]
  */
 export async function dispatchKeywordViaSay({
   cmd,
@@ -43,6 +44,7 @@ export async function dispatchKeywordViaSay({
   threadTs,
   messageTs,
   source,
+  replyPrivately,
 }) {
   if (cmd.keyword === 'file_ticket') {
     // Don't offer a button that opens a modal the feature cannot honour — the
@@ -77,5 +79,5 @@ export async function dispatchKeywordViaSay({
     });
     return;
   }
-  await routeCommandViaSay(say, logger, cmd);
+  await routeCommandViaSay(say, logger, cmd, threadTs, replyPrivately);
 }

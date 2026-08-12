@@ -35,6 +35,13 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
   const { channel, team, user } = event;
   const thread_ts = event.thread_ts || event.ts;
   const messageTs = event.ts;
+  const replyEphemerally = async (text) =>
+    client.chat.postEphemeral({
+      channel,
+      user,
+      text,
+      ...(event.thread_ts ? { thread_ts: event.thread_ts } : {}),
+    });
 
   await handleInteractionWithTelemetry(
     {
@@ -71,9 +78,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
-        await say(
-          "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
-        );
+        await say({
+          text: "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+          thread_ts,
+        });
         return;
       }
 
@@ -93,6 +101,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           threadTs: thread_ts,
           messageTs,
           source: 'mention_escalate',
+          replyPrivately: replyEphemerally,
         });
         return;
       }
