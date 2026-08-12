@@ -3,18 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { CosmosClient } from '@azure/cosmos';
-import { DefaultAzureCredential } from '@azure/identity';
-
-const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
-const COSMOS_KEY = process.env.COSMOS_KEY;
-const COSMOS_CONNECTION_STRING = process.env.COSMOS_CONNECTION_STRING;
-const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
-const COSMOS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
-const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'local';
+import { createCosmosClient, getCosmosConfig, isEmulatorTarget } from './cosmos-utils.js';
 
 let warnedMissingConfig = false;
-let warnedInsecureProductionCosmosKey = false;
 const RETRYABLE_CODES = new Set([410, 429, 449, 500, 503]);
 const RECONNECT_CODES = new Set([410, 503]);
 
@@ -60,16 +51,12 @@ function toNumericCode(error) {
   return null;
 }
 
-function isEmulatorTarget() {
-  const target = `${COSMOS_CONNECTION_STRING ?? ''} ${COSMOS_ENDPOINT ?? ''}`.toLowerCase();
-  return target.includes('localhost') || target.includes('127.0.0.1');
-}
-
 function getRetryPolicy() {
   if (process.env.NODE_ENV === 'test') {
     return { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 5 };
   }
-  if (isEmulatorTarget()) {
+  const config = getCosmosConfig();
+  if (isEmulatorTarget(config.connectionString, config.endpoint)) {
     return { maxAttempts: 2, baseDelayMs: 200, maxDelayMs: 1000 };
   }
   return { maxAttempts: 3, baseDelayMs: 150, maxDelayMs: 800 };
@@ -89,32 +76,10 @@ function getDelayMs(policy, attempt) {
 export async function getContainer(logger) {
   if (container) return container;
 
-  const connectionString = COSMOS_CONNECTION_STRING;
-  const endpoint = COSMOS_ENDPOINT;
-  const key = COSMOS_KEY;
-  const database = COSMOS_DATABASE;
-  const cosmosContainer = COSMOS_CONTAINER;
+  const config = getCosmosConfig();
+  const cosmosContainer = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 
-  let client;
-  if (connectionString) {
-    client = new CosmosClient({ connectionString });
-  } else if (endpoint && key) {
-    if (DEPLOYMENT_TYPE === 'production') {
-      if (!warnedInsecureProductionCosmosKey) {
-        warnedInsecureProductionCosmosKey = true;
-        logger?.warn?.(
-          'Interaction store does not support COSMOS_KEY auth in production. Use COSMOS_CONNECTION_STRING or managed identity (COSMOS_ENDPOINT only).',
-        );
-      }
-      return null;
-    }
-    client = new CosmosClient({ endpoint, key });
-  } else if (endpoint) {
-    client = new CosmosClient({
-      endpoint,
-      aadCredentials: new DefaultAzureCredential(),
-    });
-  } else {
+  if (!config.connectionString && !config.endpoint) {
     if (!warnedMissingConfig) {
       warnedMissingConfig = true;
       logger?.warn?.(
@@ -124,8 +89,11 @@ export async function getContainer(logger) {
     return null;
   }
 
+  const client = createCosmosClient(config, logger);
+  if (!client) return null;
+
   try {
-    const { database: db } = await client.databases.createIfNotExists({ id: database });
+    const { database: db } = await client.databases.createIfNotExists({ id: config.database });
     const { container: c } = await db.containers.createIfNotExists({
       id: cosmosContainer,
       partitionKey: { paths: ['/deploymentType', '/userId'], kind: 'MultiHash', version: 2 },

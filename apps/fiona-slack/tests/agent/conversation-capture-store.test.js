@@ -253,7 +253,7 @@ describe('conversation-capture-store - production auth guard', () => {
 
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('does not support COSMOS_KEY auth in production'),
+      expect.stringContaining('not supported in production'),
     );
   });
 });

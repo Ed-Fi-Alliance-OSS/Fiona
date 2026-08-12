@@ -3,9 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { CosmosClient } from '@azure/cosmos';
-import { DefaultAzureCredential } from '@azure/identity';
-import { isEmulatorTarget } from './cosmos-utils.js';
+import { createCosmosClient, getCosmosConfig, isEmulatorTarget } from './cosmos-utils.js';
 
 let warnedMissingConfig = false;
 
@@ -15,16 +13,6 @@ let cosmosClient = null;
 /** @type {Promise<import('@azure/cosmos').Container | null> | null} */
 let containerPromise = null;
 
-function getCosmosConfig() {
-  return {
-    endpoint: process.env.COSMOS_ENDPOINT,
-    key: process.env.COSMOS_KEY,
-    connectionString: process.env.COSMOS_CONNECTION_STRING,
-    database: process.env.COSMOS_DATABASE || 'chatbot',
-    usersContainer: process.env.COSMOS_USERS_CONTAINER || 'slack-users',
-  };
-}
-
 function resetContainerCache() {
   containerPromise = null;
   cosmosClient = null;
@@ -32,14 +20,10 @@ function resetContainerCache() {
 
 async function _buildContainer(logger) {
   const config = getCosmosConfig();
+  const usersContainer = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
+
   if (!cosmosClient) {
-    if (config.connectionString) {
-      cosmosClient = new CosmosClient(config.connectionString);
-    } else if (config.endpoint && config.key) {
-      cosmosClient = new CosmosClient({ endpoint: config.endpoint, key: config.key });
-    } else if (config.endpoint) {
-      cosmosClient = new CosmosClient({ endpoint: config.endpoint, aadCredentials: new DefaultAzureCredential() });
-    } else {
+    if (!config.connectionString && !config.endpoint) {
       if (!warnedMissingConfig) {
         warnedMissingConfig = true;
         logger?.warn?.(
@@ -48,8 +32,10 @@ async function _buildContainer(logger) {
       }
       return null;
     }
+    cosmosClient = createCosmosClient(config, logger);
+    if (!cosmosClient) return null;
   }
-  return cosmosClient.database(config.database).container(config.usersContainer);
+  return cosmosClient.database(config.database).container(usersContainer);
 }
 
 /**
