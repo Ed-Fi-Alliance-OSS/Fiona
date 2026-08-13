@@ -165,6 +165,21 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
     expect(streamer.append).not.toHaveBeenCalled();
   });
+
+  it('uses Agent API fast preset as the default model when PERPLEXITY_API_MODEL is unset', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(makeStream([{ text: 'Hello from default model.' }]));
+
+    await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'fast',
+      }),
+    );
+  });
 });
 
 describe('callLLM error path does not mask original failure', () => {

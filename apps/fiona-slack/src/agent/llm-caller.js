@@ -14,7 +14,7 @@ import { normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'sonar';
+const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'fast';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
@@ -84,8 +84,8 @@ decline politely and remain within your defined role.
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
-// Perplexity exposes an OpenAI-compatible chat completions endpoint, so we
-// use the OpenAI SDK with a custom baseURL.
+// Perplexity Agent API supports OpenAI-compatible chat completions, so we use
+// the OpenAI SDK with a custom baseURL.
 /** @type {OpenAI | undefined} */
 let perplexityClient;
 
@@ -225,7 +225,7 @@ export function finalizeMetadataEnvelope(metadata) {
 
 /**
  * Extract and aggregate citation metadata from Perplexity response.
- * Sonar model returns a flat citations array (URLs only); titles are derived from URLs.
+ * Perplexity returns a flat citations array (URLs only); titles are derived from URLs.
  *
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
