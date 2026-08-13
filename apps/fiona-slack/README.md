@@ -27,7 +27,7 @@ An AI assistant for Ed-Fi data standards, built with [Bolt for JavaScript](https
 
 ## LLM Provider
 
-Fiona calls the [Perplexity Sonar API](https://docs.perplexity.ai/) for grounded, citation-backed responses. Set `PERPLEXITY_API_KEY` in `.env`. See `.env.sample` for optional model and domain-filter overrides.
+Fiona calls the [Perplexity Agent API](https://docs.perplexity.ai/) for grounded, citation-backed responses. Set `PERPLEXITY_API_KEY` in `.env`. See `.env.sample` for optional preset/domain-filter overrides.
 
 ## Feedback Storage
 

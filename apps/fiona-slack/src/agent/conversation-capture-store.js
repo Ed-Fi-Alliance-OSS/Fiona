@@ -140,7 +140,7 @@ async function getContainer(logger) {
  * @param {string} capture.botResponse - The full bot response text
  * @param {Array<{role: string, content: string}>} capture.threadHistory - Full thread context sent to LLM
  * @param {string} capture.llmProvider - LLM provider name (e.g. 'perplexity')
- * @param {string} capture.llmModel - LLM model name (e.g. 'sonar')
+ * @param {string} capture.llmModel - LLM model/preset name (e.g. 'fast')
  * @param {string} [capture.systemPromptVersion] - System prompt version identifier
  * @param {Array} [capture.sources] - Citation sources from metadata
  * @param {{ warn?: (msg: string) => void }} [capture.logger] - Optional logger
