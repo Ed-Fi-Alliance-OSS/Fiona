@@ -277,6 +277,29 @@ describe('fionaCommandCallback', () => {
         );
       });
 
+      it('still attaches the feedback block when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({
+            blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|slash_search' })]),
+          }),
+        );
+      });
+
+      it('still records slash_search telemetry when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_search' }),
+        );
+      });
+
       it('calls respond() with response_type ephemeral', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(

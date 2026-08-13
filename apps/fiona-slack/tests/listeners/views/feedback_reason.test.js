@@ -227,14 +227,14 @@ describe('feedbackReasonViewCallback', () => {
       responseType: 'search',
       interactionType: 'assistant_message',
     });
-    mockClient.conversations.history.mockResolvedValueOnce({
+    mockClient.conversations.replies.mockResolvedValueOnce({
       messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
     });
 
     await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.conversations.history).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'C456', latest: '1234567890.000001', inclusive: true, limit: 1 }),
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000001' }),
     );
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -242,6 +242,38 @@ describe('feedbackReasonViewCallback', () => {
         botResponse: fullBotResponse,
         responseType: 'search',
         interactionType: 'assistant_message',
+      }),
+    );
+  });
+
+  it('fetches thread replies (not history) when the rated message is a threaded reply', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000005',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({
+      messages: [
+        { ts: '1234567890.000000', text: 'User question' },
+        { ts: '1234567890.000005', text: fullBotResponse },
+      ],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000000' }),
+    );
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: fullBotResponse,
       }),
     );
   });
@@ -257,7 +289,7 @@ describe('feedbackReasonViewCallback', () => {
       responseType: 'search',
       interactionType: 'assistant_message',
     });
-    mockClient.conversations.history.mockResolvedValueOnce({
+    mockClient.conversations.replies.mockResolvedValueOnce({
       messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
     });
 
@@ -282,7 +314,7 @@ describe('feedbackReasonViewCallback', () => {
       responseType: 'search',
       interactionType: 'assistant_message',
     });
-    mockClient.conversations.history.mockResolvedValueOnce({
+    mockClient.conversations.replies.mockResolvedValueOnce({
       messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
     });
 
@@ -458,10 +490,11 @@ describe('feedbackReasonClosedCallback', () => {
       messageTs: '1234567890.000001',
       userId: 'U123',
       value: 'good-feedback',
+      thread_ts: '1234567890.000001',
       responseType: 'search',
       interactionType: 'assistant_message',
     });
-    mockClient.conversations.history.mockResolvedValueOnce({
+    mockClient.conversations.replies = jest.fn().mockResolvedValueOnce({
       messages: [{ ts: '1234567890.000001', text: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.' }],
     });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');

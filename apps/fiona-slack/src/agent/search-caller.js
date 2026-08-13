@@ -18,6 +18,24 @@ const SEARCH_NO_RESULTS_TEXT = '🔍 No sources found for _"{{query}}"_. Try rep
 // Exported so slash and say()-based handlers can share a single error string.
 export const SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
+// These patterns parse the exact header formats produced by formatSearchResults()
+// above, so they live here as the single source of truth for both feedback.js
+// (click-time capture) and feedback_reason.js (fallback message-text lookup).
+const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n|$)/;
+const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
+
+/**
+ * Extract the original query from a formatted Fiona search response.
+ *
+ * @param {string} messageText
+ * @returns {string|null}
+ */
+export function extractSearchQuery(messageText) {
+  if (typeof messageText !== 'string') return null;
+  const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
+  return match?.[1] ?? null;
+}
+
 // Read snippet max word count from SEARCH_SNIPPET_MAX_WORDS env var.
 // Falls back to 160 when the env var is absent, non-numeric, or not a positive integer.
 const _snippetMaxRaw = Number.parseInt(process.env.SEARCH_SNIPPET_MAX_WORDS ?? '', 10);
@@ -62,6 +80,18 @@ export function escapeMrkdwn(text) {
 }
 
 /**
+ * Percent-encode literal pipe characters in a URL before it's embedded in
+ * Slack's `<url|label>` link syntax, where an unencoded `|` would otherwise
+ * split the URL from its label.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function safeSlackLinkUrl(url) {
+  return typeof url === 'string' ? url.replace(/\|/g, '%7C') : url;
+}
+
+/**
  * Format a list of normalized sources into a Slack Block Kit message with
  * a mrkdwn plain-text fallback. Each result is rendered as a section block
  * (title link) and an optional context block (snippet), separated by dividers.
@@ -74,7 +104,10 @@ export function formatSearchResults(query, sources) {
   const safeQuery = escapeMrkdwn(query);
 
   if (!Array.isArray(sources) || sources.length === 0) {
-    return { text: SEARCH_NO_RESULTS_TEXT.replace('{{query}}', safeQuery), blocks: null };
+    // Split/join instead of String#replace so `$`-sequences in safeQuery (e.g. `$&`)
+    // are inserted literally rather than interpreted as replacement patterns.
+    const [before, after] = SEARCH_NO_RESULTS_TEXT.split('{{query}}');
+    return { text: `${before}${safeQuery}${after}`, blocks: null };
   }
 
   const headerText = `🔍 *Search results for:* _"${safeQuery}"_`;
@@ -84,7 +117,7 @@ export function formatSearchResults(query, sources) {
 
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
-    const link = `*<${source.url}|${escapeMrkdwn(source.title || source.hostname)}>*`;
+    const link = `*<${safeSlackLinkUrl(source.url)}|${escapeMrkdwn(source.title || source.hostname)}>*`;
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `${i + 1}. ${link}` } });
 
     const rawSnippet = truncateSnippet(source.snippet);

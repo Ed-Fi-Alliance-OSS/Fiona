@@ -3,10 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { extractSearchQuery } from '../../agent/search-caller.js';
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
-const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n|$)/;
-const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
 const PRIVATE_METADATA_MAX_CHARS = 3000;
 const PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS = 1000;
 const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
@@ -27,18 +26,6 @@ function getFeedbackBlockId(body, action) {
   return body.message.blocks.find((block) => block?.type === 'context_actions')?.block_id ?? null;
 }
 
-/**
- * Extract the original query from a formatted Fiona search response.
- *
- * @param {string} messageText
- * @returns {string|null}
- */
-function extractSearchQuery(messageText) {
-  if (typeof messageText !== 'string') return null;
-  const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
-  return match?.[1] ?? null;
-}
-
 function compactBotResponse(messageText) {
   if (typeof messageText !== 'string') return null;
   if (messageText.length <= PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS) return messageText;
@@ -51,58 +38,23 @@ function compactSearchQuery(searchQuery) {
   return `${searchQuery.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
 }
 
-function truncateForMetadata(text, maxChars) {
-  if (typeof text !== 'string' || maxChars <= 0) return null;
-  if (text.length <= maxChars) return text;
-  if (maxChars === 1) return '…';
-  return `${text.slice(0, maxChars - 1)}…`;
-}
-
 function buildPrivateMetadata(baseMetadata, searchContext = null) {
   if (!searchContext) {
     return JSON.stringify(baseMetadata);
   }
 
-  let compactedContext = {
-    searchQuery: compactSearchQuery(searchContext.searchQuery),
-    botResponse: compactBotResponse(searchContext.botResponse),
-  };
+  const searchQuery = compactSearchQuery(searchContext.searchQuery);
+  const botResponse = compactBotResponse(searchContext.botResponse);
 
-  let privateMetadata = JSON.stringify({
+  const privateMetadata = JSON.stringify({
     ...baseMetadata,
-    ...(compactedContext.searchQuery ? { searchQuery: compactedContext.searchQuery } : {}),
-    ...(compactedContext.botResponse ? { botResponse: compactedContext.botResponse } : {}),
+    ...(searchQuery ? { searchQuery } : {}),
+    ...(botResponse ? { botResponse } : {}),
   });
 
-  while (
-    privateMetadata.length > PRIVATE_METADATA_MAX_CHARS &&
-    (compactedContext.searchQuery || compactedContext.botResponse)
-  ) {
-    if ((compactedContext.botResponse?.length ?? 0) >= (compactedContext.searchQuery?.length ?? 0)) {
-      compactedContext = {
-        ...compactedContext,
-        botResponse: truncateForMetadata(
-          compactedContext.botResponse,
-          Math.floor((compactedContext.botResponse?.length ?? 0) / 2),
-        ),
-      };
-    } else {
-      compactedContext = {
-        ...compactedContext,
-        searchQuery: truncateForMetadata(
-          compactedContext.searchQuery,
-          Math.floor((compactedContext.searchQuery?.length ?? 0) / 2),
-        ),
-      };
-    }
-
-    privateMetadata = JSON.stringify({
-      ...baseMetadata,
-      ...(compactedContext.searchQuery ? { searchQuery: compactedContext.searchQuery } : {}),
-      ...(compactedContext.botResponse ? { botResponse: compactedContext.botResponse } : {}),
-    });
-  }
-
+  // compactSearchQuery/compactBotResponse already cap combined size well under
+  // PRIVATE_METADATA_MAX_CHARS; this is a guard against Slack's limit in case
+  // those caps are loosened later without re-checking the invariant.
   if (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS) {
     return JSON.stringify(baseMetadata);
   }
@@ -173,7 +125,10 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
             responseType,
             interactionType,
           },
-          responseType === FEEDBACK_RESPONSE_TYPES.SEARCH && interactionType === 'slash_search'
+          // Captured for every search interaction type, not just slash_search: ephemeral
+          // messages (app_mention, assistant_message) can never be re-fetched later via
+          // conversations.history/replies, so click-time is the only chance to store them.
+          responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
             ? {
                 searchQuery: extractSearchQuery(body.message?.text),
                 botResponse: body.message?.text ?? null,

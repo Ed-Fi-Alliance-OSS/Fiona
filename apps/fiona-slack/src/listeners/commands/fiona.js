@@ -6,12 +6,12 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
-import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
+import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
-import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
+  buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
@@ -155,31 +155,10 @@ async function handleSearch({ command, ack, respond, logger }) {
   }
 
   logger?.info?.(`/fiona search: querying for "${query}"`);
-  let text;
-  let blocks;
-  try {
-    const sources = await searchForSources(query, { logger });
-    ({ text, blocks } = formatSearchResults(query, sources));
-  } catch (err) {
-    logger?.error?.(`Failed to search sources for /fiona search: ${err.name}: ${err.message}`);
-    await respond({ response_type: 'ephemeral', text: SEARCH_ERROR_TEXT });
-    return;
-  }
-  const feedbackBlock = createFeedbackBlock({
-    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
-    interactionType: 'slash_search',
-  });
-  const responseBlocks = Array.isArray(blocks)
-    ? [...blocks, { type: 'divider' }, feedbackBlock]
-    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
-
   try {
     await respond({
       response_type: 'ephemeral',
-      text,
-      blocks: responseBlocks,
-      unfurl_links: false,
-      unfurl_media: false,
+      ...(await buildSearchResponse(query, logger, 'slash_search')),
     });
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);

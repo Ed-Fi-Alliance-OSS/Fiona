@@ -195,7 +195,16 @@ export async function routeCommandViaSay(say, logger, cmd, options = {}) {
   }
 }
 
-async function buildSearchResponse(query, logger, interactionType = null) {
+/**
+ * Runs the search + formatting pipeline and attaches a feedback block to the
+ * result. Shared by every /fiona search entry point (slash command, say(),
+ * ephemeral) so error handling and feedback-block placement stay in one place.
+ *
+ * @param {string} query
+ * @param {import('@slack/logger').Logger} logger
+ * @param {string|null} interactionType
+ */
+export async function buildSearchResponse(query, logger, interactionType = null) {
   let text;
   let blocks;
   try {

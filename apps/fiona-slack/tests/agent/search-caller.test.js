@@ -181,6 +181,28 @@ describe('formatSearchResults', () => {
     expect(formatSearchResults('query', undefined).text).toContain('No sources found');
   });
 
+  it('renders a literal query containing $-replacement patterns instead of interpreting them', () => {
+    const { text } = formatSearchResults('$$1$`weird', []);
+    expect(text).toContain('$$1$`weird');
+    expect(text).not.toContain('{{query}}');
+  });
+
+  it('encodes a literal pipe character in a source URL so the Slack link syntax is not broken', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a|b',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: null,
+      },
+    ];
+    const { blocks } = formatSearchResults('query', sources);
+    const link = blocks.find((b) => b.type === 'section' && b.text?.text?.includes('docs.ed-fi.org'));
+    // The URL segment of the <url|label> syntax must not contain a raw '|'.
+    const urlSegment = link.text.text.slice(link.text.text.indexOf('<') + 1, link.text.text.indexOf('|'));
+    expect(urlSegment).not.toContain('|');
+  });
+
   it('numbers each result starting at 1 in text fallback', () => {
     const { text } = formatSearchResults('query', sampleSources);
     expect(text).toMatch(/1\./);

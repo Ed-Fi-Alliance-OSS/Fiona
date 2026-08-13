@@ -189,7 +189,9 @@ describe('feedbackActionCallback', () => {
     expect(meta.botResponse).toBe(mockBody.message.text);
   });
 
-  it('does not store search text context in private_metadata for non-slash search interactions', async () => {
+  it('stores search text context in private_metadata for non-slash search interactions too', async () => {
+    // app_mention/assistant_message search responses are posted ephemerally and can never be
+    // fetched later via conversations.history/replies, so click-time capture is required here.
     mockBody.actions[0].block_id = 'feedback|search|assistant_message';
     mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
 
@@ -197,8 +199,8 @@ describe('feedbackActionCallback', () => {
 
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
-    expect(meta).not.toHaveProperty('searchQuery');
-    expect(meta).not.toHaveProperty('botResponse');
+    expect(meta.searchQuery).toBe('Ed-Fi API');
+    expect(meta.botResponse).toBe(mockBody.message.text);
   });
 
   it('truncates stored search response text in private_metadata to stay compact', async () => {

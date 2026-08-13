@@ -4,21 +4,13 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordFeedback } from '../../agent/feedback-store.js';
+import { extractSearchQuery } from '../../agent/search-caller.js';
 import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
-
-const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n|$)/;
-const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
 
 function normalizeResponseType(responseType) {
   return Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
     ? responseType
     : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
-}
-
-function extractSearchQuery(messageText) {
-  if (typeof messageText !== 'string') return null;
-  const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
-  return match?.[1] ?? null;
 }
 
 /**
@@ -51,29 +43,31 @@ async function fetchThreadContext(client, channelId, threadTs, messageTs) {
 }
 
 /**
- * Retrieve the text of a single Slack message by timestamp.
+ * Retrieve the text of a single Slack message by timestamp. Uses
+ * conversations.replies (not conversations.history) so thread replies are
+ * found too — history only returns top-level channel messages, and
+ * assistant_message/app_mention search responses are posted as thread replies.
+ * threadTs equals messageTs for a top-level message, which conversations.replies
+ * also handles correctly (returning just that single message).
  *
  * @param {import("@slack/web-api").WebClient} client
  * @param {string} channelId
+ * @param {string} threadTs
  * @param {string} messageTs
  * @returns {Promise<string | null>}
  */
-async function fetchMessageText(client, channelId, messageTs) {
-  const { messages } = await client.conversations.history({
-    channel: channelId,
-    latest: messageTs,
-    inclusive: true,
-    limit: 1,
-  });
+async function fetchMessageText(client, channelId, threadTs, messageTs) {
+  const { messages } = await client.conversations.replies({ channel: channelId, ts: threadTs });
   if (!Array.isArray(messages)) {
     return null;
   }
-  return messages?.[0]?.text ?? null;
+  return messages.find((message) => message.ts === messageTs)?.text ?? null;
 }
 
 async function resolveSearchFeedbackContext(
   client,
   channelId,
+  threadTs,
   messageTs,
   interactionType,
   storedSearchQuery,
@@ -86,7 +80,7 @@ async function resolveSearchFeedbackContext(
     };
   }
 
-  const botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, messageTs));
+  const botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, threadTs, messageTs));
   return {
     userMessage: storedSearchQuery ?? extractSearchQuery(botResponse),
     botResponse,
@@ -135,6 +129,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
         ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
           client,
           channelId,
+          thread_ts,
           messageTs,
           interactionType,
           searchQuery,
@@ -196,6 +191,7 @@ export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }
       messageTs,
       userId,
       value,
+      thread_ts,
       responseType,
       interactionType,
       searchQuery,
@@ -211,6 +207,7 @@ export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }
         ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
           client,
           channelId,
+          thread_ts ?? messageTs,
           messageTs,
           interactionType,
           searchQuery,
