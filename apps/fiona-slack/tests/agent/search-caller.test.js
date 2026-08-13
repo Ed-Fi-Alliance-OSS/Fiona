@@ -197,10 +197,10 @@ describe('formatSearchResults', () => {
       },
     ];
     const { blocks } = formatSearchResults('query', sources);
-    const link = blocks.find((b) => b.type === 'section' && b.text?.text?.includes('docs.ed-fi.org'));
-    // The URL segment of the <url|label> syntax must not contain a raw '|'.
-    const urlSegment = link.text.text.slice(link.text.text.indexOf('<') + 1, link.text.text.indexOf('|'));
-    expect(urlSegment).not.toContain('|');
+    // Rendered as `<url|label>`; the raw '|' inside the URL must be percent-encoded
+    // so Slack does not split the link at the wrong character.
+    const link = blocks.find((b) => b.type === 'section' && b.text?.text?.startsWith('1. '));
+    expect(link.text.text).toBe('1. *<https://docs.ed-fi.org/a%7Cb|A>*');
   });
 
   it('numbers each result starting at 1 in text fallback', () => {
