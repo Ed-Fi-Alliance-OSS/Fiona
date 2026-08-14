@@ -203,6 +203,66 @@ describe('formatSearchResults', () => {
     expect(link.text.text).toBe('1. *<https://docs.ed-fi.org/a%7Cb|A>*');
   });
 
+  it('encodes angle brackets in a source URL so it cannot break out of the link syntax', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a><https://evil.example/phish|Sign in>',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: null,
+      },
+    ];
+    const { text, blocks } = formatSearchResults('query', sources);
+    const link = blocks.find((b) => b.type === 'section' && b.text?.text?.startsWith('1. '));
+    // Exactly one link opens and closes: no injected second `<...|...>` construct.
+    expect(link.text.text).toBe(
+      '1. *<https://docs.ed-fi.org/a%3E%3Chttps://evil.example/phish%7CSign in%3E|A>*',
+    );
+    expect(text).not.toContain('|Sign in>');
+  });
+
+  it('escapes mrkdwn in the title in the plain-text fallback', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'Ed-Fi Login <https://evil.example/phish|Sign in>',
+        hostname: 'docs.ed-fi.org',
+        snippet: null,
+      },
+    ];
+    const { text } = formatSearchResults('query', sources);
+    expect(text).toContain('&lt;https://evil.example/phish|Sign in&gt;');
+    expect(text).not.toContain('<https://evil.example/phish|Sign in>');
+  });
+
+  it('escapes mrkdwn in the snippet in the plain-text fallback', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: 'A',
+        hostname: 'docs.ed-fi.org',
+        snippet: 'See <https://evil.example|here> & more',
+      },
+    ];
+    const { text } = formatSearchResults('query', sources);
+    expect(text).toContain('&lt;https://evil.example|here&gt; &amp; more');
+    expect(text).not.toContain('<https://evil.example|here>');
+  });
+
+  it('falls back to the hostname escaped when no title is present', () => {
+    const sources = [
+      {
+        url: 'https://docs.ed-fi.org/a',
+        title: '',
+        hostname: 'docs.ed-fi.org<script>',
+        snippet: null,
+      },
+    ];
+    const { text } = formatSearchResults('query', sources);
+    expect(text).toContain('&lt;script&gt;');
+    expect(text).not.toContain('<script>');
+  });
+
   it('numbers each result starting at 1 in text fallback', () => {
     const { text } = formatSearchResults('query', sampleSources);
     expect(text).toMatch(/1\./);

@@ -79,16 +79,22 @@ export function escapeMrkdwn(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// `<`, `>`, and `|` are the delimiters of Slack's `<url|label>` link syntax, so any
+// of them appearing literally inside a URL can terminate the link early and let the
+// remainder of the URL be read as further mrkdwn (e.g. a second, spoofed link).
+const SLACK_LINK_UNSAFE_CHARS = { '<': '%3C', '>': '%3E', '|': '%7C' };
+
 /**
- * Percent-encode literal pipe characters in a URL before it's embedded in
- * Slack's `<url|label>` link syntax, where an unencoded `|` would otherwise
- * split the URL from its label.
+ * Percent-encode the characters that delimit Slack's `<url|label>` link syntax so a
+ * URL cannot break out of the link it is embedded in. `new URL().href` is not enough
+ * here: the WHATWG path percent-encode set covers `<` and `>` but not `|`.
  *
  * @param {string} url
  * @returns {string}
  */
 function safeSlackLinkUrl(url) {
-  return typeof url === 'string' ? url.replace(/\|/g, '%7C') : url;
+  if (typeof url !== 'string') return url;
+  return url.replace(/[<>|]/g, (char) => SLACK_LINK_UNSAFE_CHARS[char]);
 }
 
 /**
@@ -134,10 +140,15 @@ export function formatSearchResults(query, sources) {
   }
 
   // ── Plain-text fallback (used by Slack notifications / accessibility) ──────
+  // Slack renders this field as mrkdwn too, so titles and snippets are escaped and
+  // URLs are delimiter-encoded here exactly as they are in the Block Kit path above.
+  // Titles/snippets/URLs come from the search API, not from Fiona, so they are
+  // untrusted regardless of how narrow PERPLEXITY_DOMAIN_FILTER currently is.
   const items = sources.map((source, i) => {
     const rawSnippet = truncateSnippet(source.snippet);
-    const snippet = rawSnippet ? `\n${rawSnippet}` : '';
-    return `${i + 1}. ${source.title || source.hostname} — ${source.url}${snippet}`;
+    const snippet = rawSnippet ? `\n${escapeMrkdwn(rawSnippet)}` : '';
+    const title = escapeMrkdwn(source.title || source.hostname);
+    return `${i + 1}. ${title} — ${safeSlackLinkUrl(source.url)}${snippet}`;
   });
   const text = `${headerText}\n\n${items.join('\n\n')}`;
 
