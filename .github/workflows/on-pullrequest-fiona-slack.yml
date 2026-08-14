@@ -23,7 +23,7 @@ permissions: read-all
 jobs:
   scan-actions-bidi:
     name: Scan Actions, scan all files for BIDI Trojan Attacks
-    uses: ed-fi-alliance-oss/ed-fi-actions/.github/workflows/repository-scanner.yml@main
+    uses: ed-fi-alliance-oss/ed-fi-actions/.github/workflows/repository-scanner.yml@535f7b1be20f293e2bab9d8c1889091fe94be725
 
   test-fiona-slack:
     name: Setup - apps/fiona-slack
