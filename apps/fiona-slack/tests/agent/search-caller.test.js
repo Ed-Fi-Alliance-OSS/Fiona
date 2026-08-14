@@ -19,7 +19,7 @@ jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
 
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
-const { searchForSources, formatSearchResults, escapeMrkdwn, SEARCH_ERROR_TEXT } = await import(
+const { searchForSources, formatSearchResults, escapeMrkdwn, extractSearchQuery, SEARCH_ERROR_TEXT } = await import(
   '../../src/agent/search-caller.js'
 );
 
@@ -424,6 +424,41 @@ describe('escapeMrkdwn', () => {
 
   it('leaves plain text unchanged', () => {
     expect(escapeMrkdwn('hello world')).toBe('hello world');
+  });
+});
+
+describe('extractSearchQuery', () => {
+  it('returns null for non-string input', () => {
+    expect(extractSearchQuery(null)).toBeNull();
+    expect(extractSearchQuery(undefined)).toBeNull();
+    expect(extractSearchQuery(42)).toBeNull();
+  });
+
+  it('returns null when the text is not a Fiona search response', () => {
+    expect(extractSearchQuery('just some message')).toBeNull();
+  });
+
+  it('round-trips a query through formatting so feedback stores the original input', () => {
+    const query = 'A & B <tag>';
+    const { text } = formatSearchResults(query, [
+      { url: 'https://docs.ed-fi.org/a', title: 'A', hostname: 'docs.ed-fi.org', snippet: null },
+    ]);
+    // The header carries the mrkdwn-escaped form; the extracted value must be the
+    // user's original text, not `A &amp; B &lt;tag&gt;`.
+    expect(text).toContain('A &amp; B &lt;tag&gt;');
+    expect(extractSearchQuery(text)).toBe(query);
+  });
+
+  it('round-trips a query from the no-results response', () => {
+    const query = 'x > y & z';
+    const { text } = formatSearchResults(query, []);
+    expect(extractSearchQuery(text)).toBe(query);
+  });
+
+  it('does not over-decode a query that literally contained an entity', () => {
+    const query = 'what does &lt; mean';
+    const { text } = formatSearchResults(query, []);
+    expect(extractSearchQuery(text)).toBe(query);
   });
 });
 

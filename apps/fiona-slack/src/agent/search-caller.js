@@ -25,7 +25,21 @@ const SEARCH_QUERY_PATTERN = /^🔍 \*Search results for:\* _"([\s\S]+)"_(?:\n\n
 const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"_\. Try rephrasing your query\.$/;
 
 /**
+ * Reverse `escapeMrkdwn()`. `&lt;`/`&gt;` are decoded before `&amp;` so a query that
+ * literally contained `&lt;` (escaped to `&amp;lt;`) round-trips back to `&lt;`
+ * rather than collapsing all the way to `<`.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function unescapeMrkdwn(text) {
+  return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+/**
  * Extract the original query from a formatted Fiona search response.
+ * The header stores the query mrkdwn-escaped, so the entities are decoded here —
+ * callers (feedback capture) want the user's original input, not the wire form.
  *
  * @param {string} messageText
  * @returns {string|null}
@@ -33,7 +47,7 @@ const SEARCH_NO_RESULTS_QUERY_PATTERN = /^🔍 No sources found for _"([\s\S]+)"
 export function extractSearchQuery(messageText) {
   if (typeof messageText !== 'string') return null;
   const match = messageText.match(SEARCH_QUERY_PATTERN) ?? messageText.match(SEARCH_NO_RESULTS_QUERY_PATTERN);
-  return match?.[1] ?? null;
+  return match?.[1] != null ? unescapeMrkdwn(match[1]) : null;
 }
 
 // Read snippet max word count from SEARCH_SNIPPET_MAX_WORDS env var.
