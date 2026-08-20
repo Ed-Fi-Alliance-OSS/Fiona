@@ -6,15 +6,16 @@
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
+  buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
   HELP_TEXT,
-  SEARCH_NOT_YET_TEXT,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
@@ -36,7 +37,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      await handleSearch({ command, ack, respond, logger });
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
@@ -84,14 +85,16 @@ function hasRequiredFields(command) {
   return Boolean(command.user_id && command.channel_id && command.trigger_id);
 }
 
-function fireAndForgetRecord({ command, logger, interactionType }) {
+function fireAndForgetRecord({ command, logger, interactionType, errorType = null }) {
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping interaction record');
     return;
   }
-  recordInteraction({ ...slashInteractionRecord(command, interactionType), logger }).catch((err) =>
-    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`),
-  );
+  recordInteraction({
+    ...slashInteractionRecord(command, interactionType),
+    ...(errorType ? { status: 'error', errorType } : {}),
+    logger,
+  }).catch((err) => logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`));
 }
 
 async function handleHelp({ command, ack, logger }) {
@@ -114,6 +117,59 @@ async function handleComingSoon({ command, ack, logger, subCommand, text }) {
     return;
   }
   fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
+}
+
+async function handleSearch({ command, ack, respond, logger }) {
+  const rawText = (command.text ?? '').trim();
+  // Extract everything after the leading 'search' token as the query.
+  const query = rawText.slice('search'.length).trim();
+
+  if (!query) {
+    // Empty query: fall back to help (same as /fiona with no sub-command)
+    await handleHelp({ command, ack, logger });
+    return;
+  }
+
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona search: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping search');
+    await respond({ response_type: 'ephemeral', text: SEARCH_ERROR_TEXT });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_search'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_search interaction: ${err.name}`));
+    return;
+  }
+
+  logger?.info?.(`/fiona search: querying for "${query}"`);
+  // buildSearchResponse never throws on search failure — it substitutes an error
+  // message and reports the failure via errorType, so carry that into telemetry.
+  let response;
+  let errorType;
+  try {
+    ({ response, errorType } = await buildSearchResponse(query, logger, 'slash_search'));
+    await respond({ response_type: 'ephemeral', ...response });
+  } catch (err) {
+    logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
+    return;
+  }
+
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_search', errorType });
 }
 
 async function handleUnknown({ command, ack, logger, subCommand }) {
