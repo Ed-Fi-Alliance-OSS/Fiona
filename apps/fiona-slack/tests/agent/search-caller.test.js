@@ -117,7 +117,7 @@ describe('searchForSources', () => {
     );
   });
 
-  it('warns and returns empty array when the SDK throws', async () => {
+  it('warns and rethrows when the SDK throws', async () => {
     mockSearchCreate.mockRejectedValue(new Error('network failure'));
     const logger = { warn: jest.fn() };
     await expect(searchForSources('query', { logger })).rejects.toThrow('network failure');
@@ -298,8 +298,11 @@ describe('formatSearchResults', () => {
 
   it('blocks include a section block with source link for each result', () => {
     const { blocks } = formatSearchResults('query', sampleSources);
-    const sections = blocks.filter((b) => b.type === 'section' && b.text?.text?.includes('docs.ed-fi.org/assessment'));
-    expect(sections.length).toBeGreaterThan(0);
+    // Assert the fully-formed mrkdwn link rather than a URL substring: a substring
+    // match would also pass for a look-alike host such as `evil.com/docs.ed-fi.org/assessment`.
+    const linkTexts = blocks.filter((b) => b.type === 'section').map((b) => b.text?.text);
+    expect(linkTexts).toContain('1. *<https://docs.ed-fi.org/assessment|Assessment API>*');
+    expect(linkTexts).toContain('2. *<https://www.ed-fi.org/guide|API Guide>*');
   });
 
   it('blocks include a context block with snippet for sources with snippets', () => {

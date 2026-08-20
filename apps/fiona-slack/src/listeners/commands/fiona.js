@@ -85,14 +85,16 @@ function hasRequiredFields(command) {
   return Boolean(command.user_id && command.channel_id && command.trigger_id);
 }
 
-function fireAndForgetRecord({ command, logger, interactionType }) {
+function fireAndForgetRecord({ command, logger, interactionType, errorType = null }) {
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping interaction record');
     return;
   }
-  recordInteraction({ ...slashInteractionRecord(command, interactionType), logger }).catch((err) =>
-    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`),
-  );
+  recordInteraction({
+    ...slashInteractionRecord(command, interactionType),
+    ...(errorType ? { status: 'error', errorType } : {}),
+    logger,
+  }).catch((err) => logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`));
 }
 
 async function handleHelp({ command, ack, logger }) {
@@ -155,17 +157,19 @@ async function handleSearch({ command, ack, respond, logger }) {
   }
 
   logger?.info?.(`/fiona search: querying for "${query}"`);
+  // buildSearchResponse never throws on search failure — it substitutes an error
+  // message and reports the failure via errorType, so carry that into telemetry.
+  let response;
+  let errorType;
   try {
-    await respond({
-      response_type: 'ephemeral',
-      ...(await buildSearchResponse(query, logger, 'slash_search')),
-    });
+    ({ response, errorType } = await buildSearchResponse(query, logger, 'slash_search'));
+    await respond({ response_type: 'ephemeral', ...response });
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
     return;
   }
 
-  fireAndForgetRecord({ command, logger, interactionType: 'slash_search' });
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_search', errorType });
 }
 
 async function handleUnknown({ command, ack, logger, subCommand }) {

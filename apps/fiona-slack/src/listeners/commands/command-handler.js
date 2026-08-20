@@ -200,13 +200,19 @@ export async function routeCommandViaSay(say, logger, cmd, options = {}) {
  * result. Shared by every /fiona search entry point (slash command, say(),
  * ephemeral) so error handling and feedback-block placement stay in one place.
  *
+ * The search failure is swallowed so the user still gets a response, so it is
+ * reported back through `errorType` — otherwise callers would record every
+ * substituted error message as a successful interaction.
+ *
  * @param {string} query
  * @param {import('@slack/logger').Logger} logger
  * @param {string|null} interactionType
+ * @returns {Promise<{ response: Object, errorType: string|null }>}
  */
 export async function buildSearchResponse(query, logger, interactionType = null) {
   let text;
   let blocks;
+  let errorType = null;
   try {
     const sources = await searchForSources(query, { logger });
     ({ text, blocks } = formatSearchResults(query, sources));
@@ -214,6 +220,7 @@ export async function buildSearchResponse(query, logger, interactionType = null)
     logger?.error?.(`Failed to search sources: ${err.name}: ${err.message}`);
     text = SEARCH_ERROR_TEXT;
     blocks = null;
+    errorType = 'search_failed';
   }
   const feedbackBlock = createFeedbackBlock({
     responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
@@ -224,10 +231,13 @@ export async function buildSearchResponse(query, logger, interactionType = null)
     : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
 
   return {
-    text,
-    blocks: responseBlocks,
-    unfurl_links: false,
-    unfurl_media: false,
+    response: {
+      text,
+      blocks: responseBlocks,
+      unfurl_links: false,
+      unfurl_media: false,
+    },
+    errorType,
   };
 }
 
@@ -257,7 +267,8 @@ export async function handleHelpViaSay(say, logger) {
  */
 export async function handleSearchViaSay(say, logger, query, { interactionType = null } = {}) {
   try {
-    await say(await buildSearchResponse(query, logger, interactionType));
+    const { response } = await buildSearchResponse(query, logger, interactionType);
+    await say(response);
   } catch (err) {
     logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
   }
@@ -269,11 +280,12 @@ export async function handleSearchEphemeral(
   { userId, channelId, threadTs, query, interactionType = null },
 ) {
   try {
+    const { response } = await buildSearchResponse(query, logger, interactionType);
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
       ...(threadTs ? { thread_ts: threadTs } : {}),
-      ...(await buildSearchResponse(query, logger, interactionType)),
+      ...response,
     });
   } catch (err) {
     logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);

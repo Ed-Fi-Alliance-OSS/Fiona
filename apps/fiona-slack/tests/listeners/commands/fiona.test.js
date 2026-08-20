@@ -300,6 +300,21 @@ describe('fionaCommandCallback', () => {
         );
       });
 
+      it('records status error with errorType search_failed when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            interactionType: 'slash_search',
+            status: 'error',
+            errorType: 'search_failed',
+          }),
+        );
+      });
+
       it('calls respond() with response_type ephemeral', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(
