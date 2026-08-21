@@ -20,13 +20,14 @@ env:
 
 permissions:
   contents: read
-  checks: write
-  pull-requests: write
-  security-events: write
 
 jobs:
   build-and-test:
     uses: ./.github/workflows/on-pullrequest-usage-report.yml
+    permissions:
+      contents: read
+      checks: write
+      security-events: write
     secrets: inherit
 
   deploy:
