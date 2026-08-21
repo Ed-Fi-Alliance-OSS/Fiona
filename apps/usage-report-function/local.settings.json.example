@@ -1,0 +1,23 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "COSMOS_ENDPOINT": "AccountEndpoint=https://YOUR_ACCOUNT.documents.azure.com:443/",
+    "COSMOS_DATABASE": "chatbot",
+    "COSMOS_INTERACTIONS_CONTAINER": "interactions",
+    "COSMOS_FEEDBACK_CONTAINER": "feedback",
+
+    "DEPLOYMENT_TYPE": "local",
+
+    "SLACK_DRY_RUN": "true",
+
+    "KEY_VAULT_URL": "https://YOUR_KEYVAULT.vault.azure.net/",
+    "SLACK_WEBHOOK_KEYVAULT_SECRET_NAME": "slack-fiona-weekly-report-webhook",
+
+    "USAGE_REPORTS_STORAGE_ACCOUNT_URL": "https://YOUR_STORAGE_ACCOUNT.blob.core.windows.net",
+
+    "REPORT_SCHEDULE": "* * * * * *"
+  }
+}

@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
+/**
+ * The `assistant_thread_started` event is sent when a user opens the Assistant container.
+ * This can happen via DM with the app or as a side-container within a channel.
+ *
+ * @param {Object} params
+ * @param {import("@slack/types").AssistantThreadStartedEvent} params.event - The assistant thread started event.
+ * @param {import("@slack/logger").Logger} params.logger - Logger instance.
+ * @param {import("@slack/bolt").SayFn} params.say - Function to send messages.
+ * @param {Function} params.setSuggestedPrompts - Function to set suggested prompts.
+ * @param {Function} params.saveThreadContext - Function to save thread context.
+ *
+ * @see {@link https://docs.slack.dev/reference/events/assistant_thread_started}
+ */
+export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
+  const context = event.assistant_thread?.context ?? {};
+
+  try {
+    /**
+     * Since context is not sent along with individual user messages, it's necessary to keep
+     * track of the context of the conversation to better assist the user. Sending an initial
+     * message to the user with context metadata facilitates this, and allows us to update it
+     * whenever the user changes context (via the `assistant_thread_context_changed` event).
+     * The `say` utility sends this metadata along automatically behind the scenes.
+     * !! Please note: this is only intended for development and demonstrative purposes.
+     */
+    await say(
+      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi, or type `help` to see available commands.",
+    );
+
+    await saveThreadContext();
+
+    /**
+     * Provide the user up to 4 optional, preset prompts to choose from.
+     *
+     * The first `title` prop is an optional label above the prompts that
+     * defaults to 'Try these prompts:' if not provided.
+     *
+     * @see {@link https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts}
+     */
+    if (!context.channel_id) {
+      await setSuggestedPrompts({
+        title: 'Try these prompts:',
+        prompts: [
+          {
+            title: 'Set up ODS/API',
+            message: 'How do I set up ODS/API version 7.3?',
+          },
+          {
+            title: 'Data Standard updates',
+            message: "What's new in Data Standard 6.0?",
+          },
+          {
+            title: 'Configure Admin App',
+            message: 'How do I configure Ed-Fi Admin App?',
+          },
+          {
+            title: 'Student resource fields',
+            message: 'What are the required fields for the Student resource?',
+          },
+        ],
+      });
+    }
+  } catch (e) {
+    logger.error(e);
+  }
+};

@@ -1,0 +1,117 @@
+# Fiona Usage Report Function
+
+An Azure Functions timer trigger that queries Cosmos DB for weekly usage analytics and posts a summary to Slack.
+
+## What it does
+
+Every week it computes these KPIs from the `interactions` and `feedback` Cosmos DB containers and posts them as a formatted Slack message:
+
+- Distinct users and session count (distinct interaction session identifiers)
+- Total interactions, error rate, and rate-limited requests
+- Good/bad feedback counts and response rate
+- Average interactions per user
+
+When a matching executive PDF report is available (generated separately by
+the `generate-usage-report-pdf` GitHub Actions workflow — see
+[DEPLOYMENT.md](DEPLOYMENT.md#usage-report-pdf-pipeline)), the Slack message
+also includes a link to it.
+
+## Local development
+
+### Prerequisites
+
+- Node.js 20+
+- [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local)
+- [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite) — local Azure Storage emulator required by the Functions runtime for timer state
+- A running [Cosmos DB Emulator](../../docs/testing-with-cosmos-emulator.md) **or** access to the shared `insiders` Cosmos DB account (requires `az login`)
+
+#### Install Azure Functions Core Tools
+
+```bash
+winget install Microsoft.Azure.FunctionsCoreTools
+
+# for alternative installation methods, see https://github.com/Azure/azure-functions-core-tools
+```
+
+Verify:
+
+```bash
+func --version
+```
+
+#### Install Azurite
+
+```bash
+npm install -g azurite
+```
+
+### Configure local settings
+
+Copy the example and fill in your values:
+
+```bash
+cp local.settings.json.example local.settings.json
+```
+
+`local.settings.json` is gitignored and never committed. Key values to set:
+
+| Setting           | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `COSMOS_ENDPOINT` | Emulator or your Azure Cosmos endpoint                                   |
+| `SLACK_DRY_RUN`   | Set to `true` to print the report to the log instead of posting to Slack |
+| `REPORT_SCHEDULE` | Use `* * * * * *` locally so the function fires immediately on start     |
+| `USAGE_REPORTS_STORAGE_ACCOUNT_URL` | Optional. Storage account hosting the `usage-reports` container (see [DEPLOYMENT.md](DEPLOYMENT.md#usage-report-pdf-pipeline)). If unset, the Slack message is posted without a report link. |
+
+When `SLACK_DRY_RUN=true`, the function skips Key Vault and the Slack post entirely — no credentials needed and no data leaves the machine.
+
+### Set up the Cosmos DB Emulator containers
+
+If using the local emulator, run this once to create the database and containers:
+
+```pwsh
+cd ../fiona-slack
+$env:NODE_TLS_REJECT_UNAUTHORIZED=0; npm run setup:emulator
+```
+
+### Run the function
+
+Azurite must be running before `func start` — the Functions runtime uses it for timer state management. Start it once in a separate terminal:
+
+```bash
+azurite
+```
+
+Then:
+
+```bash
+npm install
+func start
+```
+
+The function fires on the schedule defined by `REPORT_SCHEDULE`. With `* * * * * *` it triggers every second — watch the terminal for the formatted report output.
+
+To trigger it manually without waiting for the schedule:
+
+```pwsh
+curl -X POST http://localhost:7071/admin/functions/WeeklyReportTrigger `
+  -H "Content-Type: application/json" `
+  -d '{"input": ""}'
+```
+
+> [!TIP]
+> The function host keeps running until you stop it — that's normal Azure Functions local behavior. The timer will
+> keep firing on the schedule.
+>
+> With `"REPORT_SCHEDULE": "* * * * * *"` in your `local.settings.json`, it fires every second. You'll keep getting
+> reports until you hit Ctrl+C. That's intentional for local testing (so you don't have to wait), but you may want to
+> trigger it once and stop — just Ctrl+C after you see the report in the logs.
+
+## Running tests
+
+```bash
+npm test
+```
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Azure infrastructure setup and the GitHub Actions workflow.

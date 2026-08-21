@@ -1,0 +1,435 @@
+{
+  "view": {
+    "number": 65,
+    "title": "build(deps): bump the npm_and_yarn group across 2 directories with 1 update",
+    "state": "MERGED",
+    "headRefName": "dependabot/npm_and_yarn/apps/fiona-slack/npm_and_yarn-3f9fafedb6",
+    "additions": 16,
+    "deletions": 16,
+    "changedFiles": 2,
+    "createdAt": "2026-06-25T17:26:04Z",
+    "mergedAt": "2026-06-26T21:19:41Z",
+    "closedAt": "2026-06-26T21:19:41Z",
+    "author": {
+      "login": "app/dependabot"
+    },
+    "reviews": [
+      {
+        "author": {
+          "login": "human-a"
+        },
+        "authorAssociation": "MEMBER",
+        "state": "APPROVED",
+        "submittedAt": "2026-06-26T21:19:17Z"
+      }
+    ],
+    "comments": [],
+    "commits": [
+      {
+        "oid": "0b5063483a27944d335dd5023d0fd4784992ab53",
+        "messageHeadline": "build(deps): bump the npm_and_yarn group across 2 directories with 1 …",
+        "committedDate": "2026-06-25T17:26:02Z",
+        "authoredDate": "2026-06-25T17:26:02Z"
+      }
+    ],
+    "files": [
+      {
+        "path": "apps/fiona-slack/package-lock.json",
+        "additions": 8,
+        "deletions": 8
+      },
+      {
+        "path": "apps/usage-report-function/package-lock.json",
+        "additions": 8,
+        "deletions": 8
+      }
+    ]
+  },
+  "runs": {
+    "total_count": 2,
+    "workflow_runs": [
+      {
+        "id": 28188368627,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "0b5063483a27944d335dd5023d0fd4784992ab53",
+        "created_at": "2026-06-25T17:26:14Z",
+        "run_started_at": "2026-06-25T17:26:14Z",
+        "updated_at": "2026-06-25T17:27:54Z",
+        "run_attempt": 1
+      },
+      {
+        "id": 28188365244,
+        "name": "Build and Test the Usage Report Function App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "0b5063483a27944d335dd5023d0fd4784992ab53",
+        "created_at": "2026-06-25T17:26:11Z",
+        "run_started_at": "2026-06-25T17:26:11Z",
+        "updated_at": "2026-06-25T17:28:49Z",
+        "run_attempt": 1
+      }
+    ]
+  },
+  "jobs": {
+    "28188365244": {
+      "jobs": [
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:27:34Z",
+          "completed_at": "2026-06-25T17:28:48Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Build and Test",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:27:34Z",
+          "completed_at": "2026-06-25T17:27:55Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node.js",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node.js",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    "28188368627": {
+      "jobs": [
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:27:36Z",
+          "completed_at": "2026-06-25T17:27:53Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:27:41Z",
+          "completed_at": "2026-06-25T17:27:48Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Trojan source detector",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:27:29Z",
+          "completed_at": "2026-06-25T17:27:48Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-06-25T17:26:44Z",
+          "completed_at": "2026-06-25T17:27:53Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

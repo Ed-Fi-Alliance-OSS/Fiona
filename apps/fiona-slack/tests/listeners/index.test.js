@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0
+// Licensed to the Ed-Fi Alliance under one or more agreements.
+// The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+// See the LICENSE and NOTICES files in the project root for more information.
+
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+
+const mockActionsRegister = jest.fn();
+const mockEventsRegister = jest.fn();
+const mockAssistantRegister = jest.fn();
+const mockCommandsRegister = jest.fn();
+const mockViewsRegister = jest.fn();
+
+jest.unstable_mockModule('../../src/listeners/actions/index.js', () => ({
+  register: mockActionsRegister,
+}));
+
+jest.unstable_mockModule('../../src/listeners/events/index.js', () => ({
+  register: mockEventsRegister,
+}));
+
+jest.unstable_mockModule('../../src/listeners/assistant/index.js', () => ({
+  register: mockAssistantRegister,
+}));
+
+jest.unstable_mockModule('../../src/listeners/commands/index.js', () => ({
+  register: mockCommandsRegister,
+}));
+
+jest.unstable_mockModule('../../src/listeners/views/index.js', () => ({
+  register: mockViewsRegister,
+}));
+
+const { registerListeners } = await import('../../src/listeners/index.js');
+
+describe('registerListeners', () => {
+  let mockApp;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockApp = { action: jest.fn(), event: jest.fn(), assistant: jest.fn(), command: jest.fn(), view: jest.fn() };
+  });
+
+  it('calls actions register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockActionsRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls events register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockEventsRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls assistant register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockAssistantRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls commands register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockCommandsRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls views register with the app', () => {
+    registerListeners(mockApp);
+    expect(mockViewsRegister).toHaveBeenCalledWith(mockApp);
+  });
+
+  it('calls all five sub-registrations exactly once', () => {
+    registerListeners(mockApp);
+    expect(mockActionsRegister).toHaveBeenCalledTimes(1);
+    expect(mockEventsRegister).toHaveBeenCalledTimes(1);
+    expect(mockAssistantRegister).toHaveBeenCalledTimes(1);
+    expect(mockCommandsRegister).toHaveBeenCalledTimes(1);
+    expect(mockViewsRegister).toHaveBeenCalledTimes(1);
+  });
+});

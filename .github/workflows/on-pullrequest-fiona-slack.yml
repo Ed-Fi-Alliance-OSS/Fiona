@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Build and Test the Fiona Slack App
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+  workflow_dispatch:
+
+# Adopt standard concurrency pattern
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Set broad read permissions; job-level security-events added where needed
+permissions: read-all
+
+jobs:
+  scan-actions-bidi:
+    name: Scan Actions, scan all files for BIDI Trojan Attacks
+    uses: ed-fi-alliance-oss/ed-fi-actions/.github/workflows/repository-scanner.yml@535f7b1be20f293e2bab9d8c1889091fe94be725
+
+  test-fiona-slack:
+    name: Setup - apps/fiona-slack
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fiona-slack/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Report test results
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: always()
+        with:
+          name: Jest Tests - fiona-slack
+          path: apps/fiona-slack/junit.xml
+          reporter: jest-junit
+          fail-on-error: false
+
+      - name: Report code coverage
+        if: always()
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "## Code Coverage - fiona-slack" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage report not available (tests may have failed before coverage was collected)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          echo "## Code Coverage - fiona-slack" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            const t = data.total;
+            console.log('| Statements | ' + t.statements.pct + '% |');
+            console.log('| Branches | ' + t.branches.pct + '% |');
+            console.log('| Functions | ' + t.functions.pct + '% |');
+            console.log('| Lines | ' + t.lines.pct + '% |');
+          " >> $GITHUB_STEP_SUMMARY
+
+  code_analysis:
+    name: Code Analysis (CodeQL & Dependency Review)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fiona-slack
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dependency Review
+        # dependency-review-action requires PR/merge-group context (base/head refs)
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' || github.event_name == 'merge_group' }}
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fiona-slack/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2

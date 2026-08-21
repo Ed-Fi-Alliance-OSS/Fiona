@@ -1,0 +1,7 @@
+/node_modules
+.DS_Store
+.env*
+!.env.sample
+/coverage
+/junit.xml
+/.claude/settings.local.json
