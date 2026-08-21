@@ -30,6 +30,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 env:
   # Configure these as repository or environment variables so updates can be
   # made in GitHub UI without requiring a code change.

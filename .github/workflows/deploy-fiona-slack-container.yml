@@ -17,6 +17,9 @@ on:
           - insiders
           - production
 
+permissions:
+  contents: read
+
 env:
   RESOURCE_GROUP: edfi-fiona-rg
   CONTAINER_ENV_NAME: fiona-container-env

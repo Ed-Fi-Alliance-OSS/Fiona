@@ -10,7 +10,7 @@ on:
     types: [closed]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
   # actions: read is required to read workflow-run and job-step history, which is
   # where CI failure/skip signal comes from. Without it capture silently records
@@ -27,6 +27,10 @@ jobs:
   capture:
     name: Capture PR post-mortem data
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
     # Only capture MERGED PRs. A closed-but-unmerged PR is often throwaway
     # work whose signal would mislead synthesis, so it never enters the data set.
     if: github.event.pull_request.merged == true
