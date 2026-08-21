@@ -4,6 +4,88 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { recordFeedback } from '../../agent/feedback-store.js';
+import { extractSearchQuery } from '../../agent/search-caller.js';
+import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
+
+function normalizeResponseType(responseType) {
+  return Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
+    ? responseType
+    : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+}
+
+/**
+ * Retrieve thread-based feedback context by locating the rated bot message and
+ * the user message immediately before it.
+ *
+ * @param {import("@slack/web-api").WebClient} client
+ * @param {string} channelId
+ * @param {string} threadTs
+ * @param {string} messageTs
+ * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
+ */
+async function fetchThreadContext(client, channelId, threadTs, messageTs) {
+  const { messages } = await client.conversations.replies({ channel: channelId, ts: threadTs });
+  if (!messages) {
+    return { userMessage: null, botResponse: null };
+  }
+
+  const botIndex = messages.findIndex((message) => message.ts === messageTs);
+  if (botIndex < 0) {
+    return { userMessage: null, botResponse: null };
+  }
+
+  const botResponse = messages[botIndex].text ?? null;
+  const preceding = botIndex > 0 ? messages[botIndex - 1] : null;
+  return {
+    userMessage: preceding?.text ?? null,
+    botResponse,
+  };
+}
+
+/**
+ * Retrieve the text of a single Slack message by timestamp. Uses
+ * conversations.replies (not conversations.history) so thread replies are
+ * found too — history only returns top-level channel messages, and
+ * assistant_message/app_mention search responses are posted as thread replies.
+ * threadTs equals messageTs for a top-level message, which conversations.replies
+ * also handles correctly (returning just that single message).
+ *
+ * @param {import("@slack/web-api").WebClient} client
+ * @param {string} channelId
+ * @param {string} threadTs
+ * @param {string} messageTs
+ * @returns {Promise<string | null>}
+ */
+async function fetchMessageText(client, channelId, threadTs, messageTs) {
+  const { messages } = await client.conversations.replies({ channel: channelId, ts: threadTs });
+  if (!Array.isArray(messages)) {
+    return null;
+  }
+  return messages.find((message) => message.ts === messageTs)?.text ?? null;
+}
+
+async function resolveSearchFeedbackContext(
+  client,
+  channelId,
+  threadTs,
+  messageTs,
+  interactionType,
+  storedSearchQuery,
+  storedBotResponse,
+) {
+  if (interactionType === 'slash_search') {
+    return {
+      userMessage: storedSearchQuery ?? null,
+      botResponse: storedBotResponse ?? null,
+    };
+  }
+
+  const botResponse = storedBotResponse ?? (await fetchMessageText(client, channelId, threadTs, messageTs));
+  return {
+    userMessage: storedSearchQuery ?? extractSearchQuery(botResponse),
+    botResponse,
+  };
+}
 
 /**
  * Handles the `feedback_reason` modal submission. Records the feedback and reason
@@ -17,7 +99,18 @@ import { recordFeedback } from '../../agent/feedback-store.js';
  */
 export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) => {
   try {
-    const { channelId, messageTs, userId, value, thread_ts } = JSON.parse(view.private_metadata);
+    const {
+      channelId,
+      messageTs,
+      userId,
+      value,
+      thread_ts,
+      responseType,
+      interactionType,
+      searchQuery,
+      botResponse: storedBotResponse,
+    } = JSON.parse(view.private_metadata);
+    const normalizedResponseType = normalizeResponseType(responseType);
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
@@ -27,20 +120,24 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     await ack();
-    let userMessage = null;
+    let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null;
     let botResponse = null;
     try {
-      const { messages } = await client.conversations.replies({ channel: channelId, ts: thread_ts });
-      if (messages) {
-        const botIndex = messages.findIndex((m) => m.ts === messageTs);
-        if (botIndex >= 0) {
-          botResponse = messages[botIndex].text ?? null;
-          const preceding = botIndex > 0 ? messages[botIndex - 1] : null;
-          if (preceding?.text) userMessage = preceding.text;
-        }
+      if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {
+        ({ userMessage, botResponse } = await fetchThreadContext(client, channelId, thread_ts, messageTs));
+      } else {
+        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
+          client,
+          channelId,
+          thread_ts,
+          messageTs,
+          interactionType,
+          searchQuery,
+          storedBotResponse,
+        ));
       }
     } catch (e) {
-      logger.error('Failed to fetch thread context:', e);
+      logger.error('Failed to fetch feedback context:', e);
     }
 
     try {
@@ -52,6 +149,8 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
         reason: rawReason,
         userMessage,
         botResponse,
+        responseType: normalizedResponseType,
+        interactionType,
         logger,
       });
     } catch (e) {
@@ -84,19 +183,51 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
  * @param {import("@slack/bolt").ViewOutput} params.view
  * @param {import("@slack/logger").Logger} params.logger
  */
-export const feedbackReasonClosedCallback = async ({ ack, view, logger }) => {
+export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }) => {
   try {
     await ack();
-    const { channelId, messageTs, userId, value } = JSON.parse(view.private_metadata);
+    const {
+      channelId,
+      messageTs,
+      userId,
+      value,
+      thread_ts,
+      responseType,
+      interactionType,
+      searchQuery,
+      botResponse: storedBotResponse,
+    } = JSON.parse(view.private_metadata);
+    const normalizedResponseType = normalizeResponseType(responseType);
     if (value !== 'good-feedback') return;
+    let userMessage = null;
+    let botResponse = null;
+
+    if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+      try {
+        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
+          client,
+          channelId,
+          thread_ts ?? messageTs,
+          messageTs,
+          interactionType,
+          searchQuery,
+          storedBotResponse,
+        ));
+      } catch (e) {
+        logger.error('Failed to fetch feedback context:', e);
+      }
+    }
+
     await recordFeedback({
       userId,
       channelId,
       messageTs,
       value,
       reason: null,
-      userMessage: null,
-      botResponse: null,
+      userMessage,
+      botResponse,
+      responseType: normalizedResponseType,
+      interactionType,
       logger,
     });
   } catch (error) {
