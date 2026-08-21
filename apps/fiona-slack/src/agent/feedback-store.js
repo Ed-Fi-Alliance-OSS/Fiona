@@ -5,6 +5,7 @@
 
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
+import { FEEDBACK_RESPONSE_TYPES } from './feedback-response-types.js';
 
 const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_KEY = process.env.COSMOS_KEY;
@@ -146,6 +147,7 @@ async function getContainer(logger) {
  * @param {string|null} [feedback.reason] - Optional reason for the feedback
  * @param {string|null} feedback.userMessage - The user's message that prompted the response
  * @param {string|null} feedback.botResponse - The bot's response being rated
+ * @param {'synthesis'|'search'|'ask'} [feedback.responseType] - Response category for the feedback
  * @param {string} [feedback.interactionType] - Optional interaction type (e.g., 'slash_escalate')
  * @param {{ warn?: (msg: string) => void }} [feedback.logger] - Optional logger for warnings
  */
@@ -157,11 +159,16 @@ export async function recordFeedback({
   reason,
   userMessage,
   botResponse,
+  responseType,
   interactionType,
   logger,
 }) {
   const c = await getContainer(logger);
   if (!c) return;
+
+  const normalizedResponseType = Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
+    ? responseType
+    : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
 
   const doc = {
     id: `${userId}_${messageTs}`,
@@ -175,6 +182,7 @@ export async function recordFeedback({
     reason: reason?.trim() ? reason.trim() : null,
     userMessage,
     botResponse,
+    responseType: normalizedResponseType,
     ...(interactionType ? { interactionType } : {}),
     deploymentType: process.env.DEPLOYMENT_TYPE || 'local',
     timestamp: new Date().toISOString(),

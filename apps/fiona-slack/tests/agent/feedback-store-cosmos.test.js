@@ -67,6 +67,7 @@ describe('recordFeedback - with connection string', () => {
       value: 'bad-feedback',
       userMessage: 'How do I use the API?',
       botResponse: 'Use the REST API.',
+      responseType: 'search',
     });
 
     const [doc] = mockUpsert.mock.calls[0];
@@ -76,6 +77,7 @@ describe('recordFeedback - with connection string', () => {
     expect(doc.value).toBe('bad-feedback');
     expect(doc.userMessage).toBe('How do I use the API?');
     expect(doc.botResponse).toBe('Use the REST API.');
+    expect(doc.responseType).toBe('search');
   });
 
   it('includes a timestamp in ISO 8601 format', async () => {
@@ -228,5 +230,18 @@ describe('recordFeedback - with connection string', () => {
     });
     const [doc] = mockUpsert.mock.calls[0];
     expect(doc).not.toHaveProperty('interactionType');
+  });
+
+  it('defaults responseType to synthesis when not provided', async () => {
+    await recordFeedback({
+      userId: 'U902',
+      channelId: 'C902',
+      messageTs: '1234567890.000100',
+      value: 'good-feedback',
+      userMessage: null,
+      botResponse: null,
+    });
+    const [doc] = mockUpsert.mock.calls[0];
+    expect(doc.responseType).toBe('synthesis');
   });
 });

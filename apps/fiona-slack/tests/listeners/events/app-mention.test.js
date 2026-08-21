@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
+  searchForSources: jest.fn().mockResolvedValue([]),
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
@@ -93,6 +94,9 @@ describe('appMentionCallback', () => {
         threads: {
           setStatus: jest.fn().mockResolvedValue(undefined),
         },
+      },
+      chat: {
+        postEphemeral: jest.fn().mockResolvedValue(undefined),
       },
       chatStream: jest.fn().mockReturnValue(mockStreamer),
     };
@@ -386,13 +390,37 @@ describe('appMentionCallback', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when mention text starts with "search "', async () => {
+    it('responds with search results when mention text starts with "search "', async () => {
       mockEvent.text = '<@UFIONA> search Data Standard 6.0';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      const payload = mockClient.chat.postEphemeral.mock.calls[0][0];
+      expect(payload).toMatchObject({
+        channel: 'C123',
+        user: 'U456',
+      });
+      expect(payload).not.toHaveProperty('thread_ts');
+      expect(mockSay).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('keeps search results in-thread when the app mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> search Data Standard 6.0';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C123',
+          user: 'U456',
+          thread_ts: '1234567890.000000',
+        }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
     });
 

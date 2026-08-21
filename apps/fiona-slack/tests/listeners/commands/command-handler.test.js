@@ -5,9 +5,24 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
+// Mock search-caller so command-handler tests don't load the LLM client.
+const mockSearchForSources = jest.fn().mockResolvedValue([]);
+const mockFormatSearchResults = jest.fn().mockImplementation((_q, sources) => ({
+  text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+  blocks: null,
+}));
+
+jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
+  searchForSources: mockSearchForSources,
+  formatSearchResults: mockFormatSearchResults,
+  escapeMrkdwn: (t) => t,
+  SEARCH_ERROR_TEXT: ':warning: Search error.',
+}));
+
 const {
   parseCommandKeyword,
   handleHelpViaSay,
+  handleSearchViaSay,
   handleComingSoonViaSay,
   routeCommandViaSay,
   buildCreateTicketBlocks,
@@ -16,7 +31,6 @@ const {
   CREATE_TICKET_ACTION,
   HELP_TEXT,
   ASK_NOT_YET_TEXT,
-  SEARCH_NOT_YET_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } = await import('../../../src/listeners/commands/command-handler.js');
 
@@ -341,6 +355,12 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toMatch('fiona help');
   });
 
+  it('lists search command without "(coming soon)"', () => {
+    expect(HELP_TEXT).toMatch('search <query>');
+    // Only 'ask' remains as coming soon; search is now available
+    expect(HELP_TEXT).not.toMatch(/search.*coming soon/);
+  });
+
   it('advertises one ticket command, described in Ed-Fi terms', () => {
     expect(HELP_TEXT).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
   });
@@ -388,6 +408,85 @@ describe('handleHelpViaSay', () => {
   });
 });
 
+describe('handleSearchViaSay', () => {
+  let mockSay;
+  let mockLogger;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSay = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+    mockSearchForSources.mockResolvedValue([]);
+    mockFormatSearchResults.mockImplementation((_q, sources) => ({
+      text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+      blocks: null,
+    }));
+  });
+
+  it('calls searchForSources with the query and logger', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+    expect(mockSearchForSources).toHaveBeenCalledWith('Ed-Fi API', { logger: mockLogger });
+  });
+
+  it('calls say() with the formatted results', async () => {
+    mockSearchForSources.mockResolvedValueOnce([
+      { url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' },
+    ]);
+    mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '🔍 Found 1 source(s).',
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search' })]),
+      }),
+    );
+  });
+
+  it('calls say() with no-results message when sources are empty', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'unknown query');
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 No sources found.' }));
+  });
+
+  it('calls say() with SEARCH_ERROR_TEXT when searchForSources fails', async () => {
+    mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: ':warning: Search error.',
+      }),
+    );
+  });
+
+  it('disables link unfurls for search results', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ unfurl_links: false, unfurl_media: false }),
+    );
+  });
+
+  it('tags say-based search feedback with the supplied interaction type', async () => {
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API', { interactionType: 'assistant_message' });
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|assistant_message' })]),
+      }),
+    );
+  });
+
+  it('logs error when say() throws', async () => {
+    mockSay.mockRejectedValueOnce(new Error('say error'));
+    await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to send search response'));
+  });
+
+  it('does not throw when say() throws', async () => {
+    mockSay.mockRejectedValueOnce(new Error('say error'));
+    await expect(handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API')).resolves.not.toThrow();
+  });
+});
+
 describe('handleComingSoonViaSay', () => {
   let mockSay;
   let mockLogger;
@@ -400,11 +499,6 @@ describe('handleComingSoonViaSay', () => {
   it('calls say() with ASK_NOT_YET_TEXT for ask sub-command', async () => {
     await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
     expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
-  });
-
-  it('calls say() with SEARCH_NOT_YET_TEXT for search sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'search', SEARCH_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
   });
 
   it('logs error when say() throws', async () => {
@@ -423,10 +517,6 @@ describe('handleComingSoonViaSay', () => {
   it('ASK_NOT_YET_TEXT mentions @fiona ask as alternative', () => {
     expect(ASK_NOT_YET_TEXT).toMatch('@fiona ask');
   });
-
-  it('SEARCH_NOT_YET_TEXT mentions @fiona search as alternative', () => {
-    expect(SEARCH_NOT_YET_TEXT).toMatch('@fiona search');
-  });
 });
 
 describe('routeCommandViaSay', () => {
@@ -434,8 +524,11 @@ describe('routeCommandViaSay', () => {
   let mockLogger;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     mockSay = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+    mockSearchForSources.mockResolvedValue([]);
+    mockFormatSearchResults.mockReturnValue({ text: '🔍 No sources found.', blocks: null });
   });
 
   it('sends HELP_TEXT when keyword is "help"', async () => {
@@ -448,9 +541,17 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
   });
 
-  it('sends SEARCH_NOT_YET_TEXT when keyword is "search"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' });
-    expect(mockSay).toHaveBeenCalledWith(SEARCH_NOT_YET_TEXT);
+  it('calls searchForSources and say() results when keyword is "search"', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' }, { interactionType: 'app_mention' });
+    expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '🔍 No sources found.',
+        unfurl_links: false,
+        unfurl_media: false,
+        blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|app_mention' })]),
+      }),
+    );
   });
 
   it('does not throw when say() throws', async () => {

@@ -27,6 +27,7 @@ describe('feedbackReasonViewCallback', () => {
     mockClient = {
       conversations: {
         replies: jest.fn().mockResolvedValue({ messages: [] }),
+        history: jest.fn().mockResolvedValue({ messages: [] }),
       },
       chat: {
         postEphemeral: jest.fn().mockResolvedValue(undefined),
@@ -39,6 +40,8 @@ describe('feedbackReasonViewCallback', () => {
         userId: 'U123',
         value: 'good-feedback',
         thread_ts: '1234567890.000000',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
       state: {
         values: {
@@ -73,6 +76,8 @@ describe('feedbackReasonViewCallback', () => {
         reason: 'Very helpful answer!',
         userMessage: 'User question',
         botResponse: 'Bot response',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
     );
   });
@@ -184,6 +189,177 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
   });
 
+  it('records search feedback using responseType metadata and fetched message text', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'What is Ed-Fi ODS?',
+      botResponse: 'Stored ephemeral response',
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: 'Stored ephemeral response',
+        responseType: 'search',
+        interactionType: 'slash_search',
+      }),
+    );
+  });
+
+  it('fetches and derives full search context for non-slash search feedback', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result\nThe field is "_etag".';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000001' }),
+    );
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: fullBotResponse,
+        responseType: 'search',
+        interactionType: 'assistant_message',
+      }),
+    );
+  });
+
+  it('fetches thread replies (not history) when the rated message is a threaded reply', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000005',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({
+      messages: [
+        { ts: '1234567890.000000', text: 'User question' },
+        { ts: '1234567890.000005', text: fullBotResponse },
+      ],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000000' }),
+    );
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: fullBotResponse,
+      }),
+    );
+  });
+
+  it('derives multiline search queries from fetched non-slash search responses', async () => {
+    const fullBotResponse = '🔍 *Search results for:* _"line one\nline two"_\n\n1. Result';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'line one\nline two',
+        botResponse: fullBotResponse,
+      }),
+    );
+  });
+
+  it('derives queries from fetched no-results search responses', async () => {
+    const fullBotResponse = '🔍 No sources found for _"missing topic"_. Try rephrasing your query.';
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: fullBotResponse }],
+    });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'missing topic',
+        botResponse: fullBotResponse,
+      }),
+    );
+  });
+
+  it('normalizes invalid responseType metadata before fetching context and storing feedback', async () => {
+    const messages = [
+      { ts: '1234567890.000000', text: 'User question' },
+      { ts: '1234567890.000001', text: 'Bot response' },
+    ];
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+      responseType: 'tampered',
+      interactionType: 'assistant_message',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies.mockResolvedValueOnce({ messages });
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C456', ts: '1234567890.000000' }),
+    );
+    expect(mockClient.conversations.history).not.toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'User question',
+        botResponse: 'Bot response',
+        responseType: 'synthesis',
+      }),
+    );
+  });
+
   it('logs error but does not throw when recordFeedback fails', async () => {
     mockRecordFeedback.mockRejectedValueOnce(new Error('Cosmos error'));
 
@@ -217,12 +393,18 @@ describe('feedbackReasonClosedCallback', () => {
   let mockAck;
   let mockLogger;
   let mockView;
+  let mockClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
     mockAck = jest.fn().mockResolvedValue(undefined);
     mockLogger = { error: jest.fn() };
+    mockClient = {
+      conversations: {
+        history: jest.fn().mockResolvedValue({ messages: [] }),
+      },
+    };
     mockView = {
       private_metadata: JSON.stringify({
         channelId: 'C456',
@@ -230,19 +412,21 @@ describe('feedbackReasonClosedCallback', () => {
         userId: 'U123',
         value: 'good-feedback',
         thread_ts: '1234567890.000000',
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
       }),
     };
   });
 
   it('calls ack', async () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
     expect(mockAck).toHaveBeenCalledTimes(1);
   });
 
   it('records good-feedback with reason null when modal is dismissed', async () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -253,6 +437,76 @@ describe('feedbackReasonClosedCallback', () => {
         reason: null,
         userMessage: null,
         botResponse: null,
+        responseType: 'synthesis',
+        interactionType: 'assistant_message',
+      }),
+    );
+  });
+
+  it('normalizes invalid responseType metadata to synthesis when the modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      responseType: 'tampered',
+      interactionType: 'assistant_message',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ responseType: 'synthesis' }));
+  });
+
+  it('records stored search context for slash-search positive feedback when modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'What is Ed-Fi ODS?',
+      botResponse: '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi ODS?',
+        botResponse: '🔍 *Search results for:* _"What is Ed-Fi ODS?"_\n\n1. Result',
+        responseType: 'search',
+        interactionType: 'slash_search',
+      }),
+    );
+  });
+
+  it('fetches and derives search context for non-slash positive feedback when modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'assistant_message',
+    });
+    mockClient.conversations.replies = jest.fn().mockResolvedValueOnce({
+      messages: [{ ts: '1234567890.000001', text: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.' }],
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'missing topic',
+        botResponse: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.',
+        responseType: 'search',
+        interactionType: 'assistant_message',
       }),
     );
   });
@@ -266,7 +520,7 @@ describe('feedbackReasonClosedCallback', () => {
       thread_ts: '1234567890.000000',
     });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
-    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger });
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).not.toHaveBeenCalled();
   });
@@ -276,7 +530,7 @@ describe('feedbackReasonClosedCallback', () => {
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
     await expect(
-      feedbackReasonClosedCallback({ ack: mockAck, view: mockView, logger: mockLogger }),
+      feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger }),
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalled();
