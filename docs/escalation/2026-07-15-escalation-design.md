@@ -42,13 +42,19 @@ exist for the conversational entry points, which have a genuine `threadTs`.
 
 ## Behavior of `postEscalation`
 
-1. If `ESCALATION_CHANNEL_ID` is unset → record an error interaction and return
+1. If `ESCALATION_ENABLED` is not exactly `true` → log a warning, record
+   **nothing**, and return `{ ok: false, errorType: 'feature_disabled' }`. This
+   check is first, ahead of the channel check, so an operator who switched the
+   feature off is not shown a misleading configuration error. It records no
+   interaction because a feature that is off by decision is not a failure and
+   must not land in the error telemetry alongside genuine post failures.
+2. If `ESCALATION_CHANNEL_ID` is unset → record an error interaction and return
    `{ ok: false, errorType: 'channel_not_configured' }`.
-2. When a `threadTs` is present, run three independent Slack calls concurrently:
+3. When a `threadTs` is present, run three independent Slack calls concurrently:
    fetch the thread transcript (up to 50 replies), and — for non-DM threads —
    look up a permalink to the conversation. The LLM summary depends on the
    transcript, so it chains off it.
-3. Post a Block Kit `section` header to `ESCALATION_CHANNEL_ID` containing: an
+4. Post a Block Kit `section` header to `ESCALATION_CHANNEL_ID` containing: an
    optional user-group ping (`ESCALATION_USERGROUP_ID`), the requester, a
    **Where** link, a timestamp, and the **Summary** when available. DMs show
    `Direct message (no permalink)` instead of a channel link. The context-free
@@ -88,11 +94,26 @@ transcript builder and the summary path strip/rewrite `<!channel>`, `<!here>`,
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `ESCALATION_ENABLED` | `false` | Master switch (AI-217). Escalation is off unless this is exactly `true`; an unset, blank or misspelled value leaves it off. |
 | `ESCALATION_CHANNEL_ID` | (unset) | Channel **ID** where escalation posts are created (bot must be a member). Escalation is disabled when unset. |
 | `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user-group ID to @-mention on escalation. |
 
 The `_ID` suffix on `ESCALATION_CHANNEL_ID` signals the value must be a channel
 ID (e.g. `C0123456789`), not a channel name like `#escalation`.
+
+### What "off" looks like
+
+With `ESCALATION_ENABLED` off the feature **disappears** rather than declining:
+
+- `/fiona escalate` is not routed. It falls through to `handleUnknown`, which
+  acks with the help text and records the turn as `slash_unknown`.
+- `escalate` as a keyword — `@fiona escalate`, or `escalate` in a DM or the
+  assistant panel — stops being recognised by `parseCommandKeyword`, so the
+  message is answered by the LLM as an ordinary question.
+- `postEscalation` refuses regardless of caller, so any future entry point
+  (including automatic escalation) inherits the gate without its own check.
+
+Escalation was never listed in the help text, so nothing has to be removed there.
 
 ## Deferred (not shipped in AI-122)
 

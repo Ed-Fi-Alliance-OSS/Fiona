@@ -201,6 +201,7 @@ treated as disabled and issues are created immediately.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `TICKET_CREATION_ENABLED` | `false` | Master switch (AI-217). The feature is off unless this is exactly `true`; an unset, blank or misspelled value leaves it off. |
 | `GH_ISSUE_REPO` | (unset — required) | The single fixed target repo, `owner/repo` form (e.g. `Ed-Fi-Alliance-OSS/Fiona`). |
 | `GH_ISSUE_TOKEN` | (unset — required) | A fine-grained GitHub PAT with **Issues: write** permission on `GH_ISSUE_REPO`. Never logged. |
 | `GH_ISSUE_SLACK_USER_FIELD_NAME` | `Slack User` | **Name** (not node ID) of the org-level text issue field that records the reporter. Resolved to a node ID from the repository lookup on every create, so it survives the field being deleted and recreated. List the available fields with `GET /orgs/{org}/issue-fields`. |
@@ -210,9 +211,30 @@ treated as disabled and issues are created immediately.
 | `TICKET_APPROVAL_REQUIRED` | `false` | When `true` (and `TICKET_TRIAGE_CHANNEL_ID` is set), gates issue creation behind human approval. |
 | `TICKET_TRIAGE_CHANNEL_ID` | (unset) | Channel **ID** (e.g. `C0123456789`) where approval drafts are posted. The bot must be a member of that channel to post. |
 
-Feature is disabled — and the modal never opens — until both `GH_ISSUE_REPO`
-and `GH_ISSUE_TOKEN` are set (`isGithubConfigured()` /
-`isTicketingEnabled()`).
+### Two gates, two different behaviours
+
+`TICKET_CREATION_ENABLED` and the GitHub configuration are checked separately,
+because "switched off by decision" and "switched on but misconfigured" should not
+look the same to a user.
+
+| State | What the user sees |
+| --- | --- |
+| `TICKET_CREATION_ENABLED` unset or not `true` | The feature **disappears**. `ticket` is dropped from the help text, `/fiona ticket` (and `bug` / `feature`) fall through to `handleUnknown` and reply with help, and the `ticket` / `bug` / `feature` keywords are answered by the LLM as ordinary questions. Nothing hints the feature exists. |
+| Flag `true`, but `GH_ISSUE_REPO` or `GH_ISSUE_TOKEN` missing | The feature stays **visible and declines**: the command is advertised and answers with `TICKET_NOT_CONFIGURED_TEXT`, pointing the user at community.ed-fi.org. This is a recoverable operator error, so it stays loud. |
+| Flag `true` and both set | Fully enabled; the modal opens. |
+
+The predicates that implement this:
+
+- `isTicketingFeatureEnabled()` (`agent/deployment-flags.js`) — the flag alone.
+  Gates the **surfaces**: help text, keyword parsing, slash-command routing.
+- `isTicketingEnabled()` (`agent/ticket-service.js`) — the flag **and**
+  `isGithubConfigured()`. Gates the **action**: opening the modal and creating
+  the issue.
+
+`createTicketNow` carries the flag check independently of `submitTicket`, because
+the Approve button reaches it directly. A draft sitting in the triage channel
+outlives the flag that produced it, so without that check an old draft could
+still be approved into a real issue after the feature was switched off.
 
 The GraphQL endpoint is **not configurable**. It is fixed at
 `https://api.github.com/graphql` because Ed-Fi uses github.com; GitHub Enterprise Server

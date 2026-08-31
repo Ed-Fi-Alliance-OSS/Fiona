@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { isTicketingFeatureEnabled } from './deployment-flags.js';
 import { createIssue, isGithubConfigured } from './github-client.js';
 import { recordInteraction } from './interaction-store.js';
 import { getUser } from './slack-users-store.js';
@@ -17,9 +18,18 @@ import { getUser } from './slack-users-store.js';
 export const TICKET_APPROVE_ACTION = 'ticket_approve';
 export const TICKET_DISCARD_ACTION = 'ticket_discard';
 
-/** True when GitHub is configured (feature enabled). */
+/**
+ * True when the feature is switched on for this deployment AND GitHub is
+ * configured. The flag is checked first and short-circuits: a deployment with
+ * ticketing off must not depend on GitHub config being present or absent.
+ *
+ * Callers that gate a *surface* (help text, keyword parsing, slash routing) want
+ * `isTicketingFeatureEnabled` instead. Flag-on-but-unconfigured is a distinct
+ * state that keeps the surface visible and answers with
+ * TICKET_NOT_CONFIGURED_TEXT; flag-off hides the surface entirely.
+ */
 export function isTicketingEnabled() {
-  return isGithubConfigured();
+  return isTicketingFeatureEnabled() && isGithubConfigured();
 }
 
 /** True when the approval gate is enabled AND a triage channel is configured. */
@@ -176,6 +186,15 @@ function recordTicketInteraction({ status, errorType, userId, teamId, channelId,
  */
 export async function createTicketNow(payload, ctx) {
   const { client, userId, teamId, channelId, triggerId, source, logger } = ctx;
+  // Gated independently of submitTicket. The approval button reaches this
+  // function directly, and a draft sitting in the triage channel outlives the
+  // flag that produced it — without this check an old draft could still be
+  // approved into a real issue after the feature was switched off. Records no
+  // interaction: a feature that is off by decision is not an error.
+  if (!isTicketingFeatureEnabled()) {
+    logger?.warn?.('Ticket creation is disabled (TICKET_CREATION_ENABLED); refusing to create issue.');
+    return { ok: false, key: null, url: null, errorType: 'feature_disabled' };
+  }
   const reporter = await resolveReporter({ userId, client, logger });
   const bodyText = buildBody({
     ticketType: payload.ticketType,

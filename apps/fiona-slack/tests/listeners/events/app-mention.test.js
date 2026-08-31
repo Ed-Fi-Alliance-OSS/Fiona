@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
@@ -354,6 +354,16 @@ describe('appMentionCallback', () => {
   });
 
   describe('keyword command routing', () => {
+    // Escalation defaults to off (AI-217). The escalate cases below cover the
+    // feature-on path; the fall-through case clears the flag itself.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.ESCALATION_ENABLED;
+    });
+
     it('responds with help text when mention text is exactly "help"', async () => {
       mockEvent.text = '<@UFIONA> help';
 
@@ -453,6 +463,18 @@ describe('appMentionCallback', () => {
       expect(mockSay).toHaveBeenCalledTimes(1);
       expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    // AI-217: with escalation off the keyword is no longer a command, so the
+    // mention is answered by the LLM like any other question.
+    it('answers "escalate" with the LLM instead of escalating when escalation is off', async () => {
+      delete process.env.ESCALATION_ENABLED;
+      mockEvent.text = '<@UFIONA> escalate';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalled();
     });
 
     it('escalates via escalateViaSay when mention is exactly "escalate"', async () => {

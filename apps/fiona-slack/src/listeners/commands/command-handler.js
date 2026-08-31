@@ -3,18 +3,40 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { isEscalationEnabled, isTicketingFeatureEnabled } from '../../agent/deployment-flags.js';
 import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 
-export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
+const HELP_COMMAND_LINES = [
+  'help                    Show this help message',
+  'ask <question>          Ask a question about Ed-Fi (coming soon)',
+  'search <query>          Search Ed-Fi documentation',
+];
+
+const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
+
+/**
+ * The help message, built per call because the command list depends on which
+ * features are switched on (AI-217).
+ *
+ * A feature that is off does not appear here at all — help must not advertise a
+ * command that immediately declines. The gate is `isTicketingFeatureEnabled`,
+ * the flag alone, not `isTicketingEnabled`: with the flag on but GitHub
+ * unconfigured the command stays advertised and answers with
+ * TICKET_NOT_CONFIGURED_TEXT, which is a recoverable operator error rather than
+ * a deliberate withdrawal.
+ *
+ * Escalation is not listed either way — it never was.
+ */
+export function buildHelpText() {
+  const commands = [...HELP_COMMAND_LINES];
+  if (isTicketingFeatureEnabled()) commands.push(HELP_TICKET_LINE);
+  return `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
 *Available commands:*
 \`\`\`
-help                    Show this help message
-ask <question>          Ask a question about Ed-Fi (coming soon)
-search <query>          Search Ed-Fi documentation
-ticket                  Create an Ed-Fi support ticket (opens a form)
+${commands.join('\n')}
 \`\`\`
 
 *How to reach Fiona:*
@@ -23,6 +45,7 @@ ticket                  Create an Ed-Fi support ticket (opens a form)
 • *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
+}
 
 export const ASK_NOT_YET_TEXT =
   `*/fiona ask* is not yet available. ` +
@@ -75,7 +98,7 @@ export function normalizeTicketType(value) {
 // LLM-based intent detection is deferred (AI-174).
 //
 // The bare `ticket` / `bug` / `feature` entries mirror the `/fiona ticket` command
-// and its two aliases. Only `ticket` is advertised in HELP_TEXT; the aliases are
+// and its two aliases. Only `ticket` is advertised in the help text; the aliases are
 // deliberately discoverable-but-hidden, so help offers one way to do this while
 // anyone who already types `bug` keeps working. Accepting more than we advertise
 // is safe — the reverse, advertising a word the keyword path rejects, is not.
@@ -157,8 +180,10 @@ export function parseCommandKeyword(text) {
     return { keyword: 'help', rawArgs: '' };
   }
 
+  // Returning null rather than a keyword hands the message to the LLM as an
+  // ordinary question, which is what "the feature disappears" means here (AI-217).
   if (bodyLower === 'escalate') {
-    return { keyword: 'escalate', rawArgs: '' };
+    return isEscalationEnabled() ? { keyword: 'escalate', rawArgs: '' } : null;
   }
 
   for (const kw of ['ask', 'search']) {
@@ -170,7 +195,11 @@ export function parseCommandKeyword(text) {
     }
   }
 
-  if (TICKET_PHRASES.has(bodyLower)) {
+  // Gated on the flag alone, not `isTicketingEnabled`. Flag on but GitHub
+  // unconfigured must keep recognising the phrase so command-dispatch can answer
+  // with TICKET_NOT_CONFIGURED_TEXT; only the flag being off makes the phrases
+  // fall through to the LLM.
+  if (TICKET_PHRASES.has(bodyLower) && isTicketingFeatureEnabled()) {
     return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
@@ -250,7 +279,7 @@ export async function buildSearchResponse(query, logger, interactionType = null)
  */
 export async function handleHelpViaSay(say, logger) {
   try {
-    await say(HELP_TEXT);
+    await say(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to send help response: ${err.name}`);
   }
