@@ -193,6 +193,13 @@ require human review before an issue is created:
    requester the issue number/link.
 3. **Discard** creates nothing.
 
+Either button replaces the draft message, so both buttons are gone once one has
+been pressed. That is why the failure copy in `ticket_approval.js` never says
+"try again": there is nothing left to press. The messages name the category of
+problem in plain language and state that nothing was created — the internal
+`errorType` goes to the log, never to the channel. A failed approval currently
+loses the draft along with the buttons, so the requester has to resubmit.
+
 Both buttons are gated behind `TICKET_APPROVAL_REQUIRED=true` **and** a
 non-empty `TICKET_TRIAGE_CHANNEL_ID` — if either is missing, the gate is
 treated as disabled and issues are created immediately.

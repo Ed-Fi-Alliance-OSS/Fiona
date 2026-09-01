@@ -48,6 +48,8 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
 
+  // Returns before the switch below, so a flagged-off sub-command is handled as
+  // if it were never a sub-command at all.
   if (isDisabledByFeatureFlag(subCommand)) {
     await handleUnknown({ command, ack, logger, subCommand });
     return;

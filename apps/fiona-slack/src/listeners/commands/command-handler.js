@@ -180,10 +180,12 @@ export function parseCommandKeyword(text) {
     return { keyword: 'help', rawArgs: '' };
   }
 
-  // Returning null rather than a keyword hands the message to the LLM as an
-  // ordinary question, which is what "the feature disappears" means here (AI-217).
-  if (bodyLower === 'escalate') {
-    return isEscalationEnabled() ? { keyword: 'escalate', rawArgs: '' } : null;
+  // A flagged-off feature simply fails to match here, so the message falls
+  // through to `return null` at the end of this function and is handed to the LLM
+  // as an ordinary question — which is what "the feature disappears" means
+  // (AI-217). Nothing between here and that return can match a bare `escalate`.
+  if (isEscalationEnabled() && bodyLower === 'escalate') {
+    return { keyword: 'escalate', rawArgs: '' };
   }
 
   for (const kw of ['ask', 'search']) {
@@ -198,8 +200,8 @@ export function parseCommandKeyword(text) {
   // Gated on the flag alone, not `isTicketingEnabled`. Flag on but GitHub
   // unconfigured must keep recognising the phrase so command-dispatch can answer
   // with TICKET_NOT_CONFIGURED_TEXT; only the flag being off makes the phrases
-  // fall through to the LLM.
-  if (TICKET_PHRASES.has(bodyLower) && isTicketingFeatureEnabled()) {
+  // fall through to the LLM. Flag-first, matching the escalate gate above.
+  if (isTicketingFeatureEnabled() && TICKET_PHRASES.has(bodyLower)) {
     return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
