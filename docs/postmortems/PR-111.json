@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 111,
+  "title": "[AI-217] feat: add deployment kill switches for escalation and ticketing",
+  "state": "merged",
+  "jiraKey": "AI-217",
+  "authorKind": "human",
+  "stats": {
+    "additions": 831,
+    "deletions": 49,
+    "changedFiles": 19,
+    "commits": 3,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 2,
+    "timeToMergeMinutes": 1347,
+    "ciRuns": {
+      "total": 4,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "yml": 1,
+      "sample": 1,
+      "js": 14,
+      "md": 2,
+      "bicep": 1
+    },
+    "testToSourceRatio": 1.33,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 2,
+      "feature": 1
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-09-01T15:09:13.020Z"
+}
