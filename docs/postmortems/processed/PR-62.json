@@ -1,0 +1,61 @@
+{
+  "prNumber": 62,
+  "title": "[AI-133][AI-134] Add keyword command routing and help discovery hint",
+  "state": "merged",
+  "jiraKey": "AI-133",
+  "stats": {
+    "additions": 708,
+    "deletions": 64,
+    "changedFiles": 14,
+    "commits": 12,
+    "reviewCycles": 8,
+    "reviewComments": 2,
+    "timeToFirstGreenCiMinutes": 22863,
+    "timeToMergeMinutes": 30316,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 2,
+      "js": 12
+    },
+    "testToSourceRatio": 0.71,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 2,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 4,
+      "feature": 0
+    },
+    "reworkAfterReview": true,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "MEMBER"
+    },
+    {
+      "role": "copilot-bot",
+      "kind": "copilot-bot",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:10:00.113Z"
+}
