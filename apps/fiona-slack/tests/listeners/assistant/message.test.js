@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
@@ -542,6 +542,16 @@ describe('message (assistant thread handler)', () => {
   });
 
   describe('keyword command routing', () => {
+    // Escalation defaults to off (AI-217). The escalate cases below cover the
+    // feature-on path; the fall-through case clears the flag itself.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.ESCALATION_ENABLED;
+    });
+
     it('responds with help text when message is exactly "help"', async () => {
       mockMessage.text = 'help';
 
@@ -695,6 +705,25 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    // AI-217: with escalation off the keyword is no longer a command, so the
+    // message is answered by the LLM like any other question.
+    it('answers "escalate" with the LLM instead of escalating when escalation is off', async () => {
+      delete process.env.ESCALATION_ENABLED;
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalled();
     });
 
     it('escalates via escalateViaSay when message is exactly "escalate"', async () => {

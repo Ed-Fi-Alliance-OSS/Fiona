@@ -79,6 +79,16 @@ param conversationsContainerName string = 'conversations'
 @description('Enable capturing all conversations for human evaluation (default: false)')
 param captureAllConversations bool = false
 
+// AI-217 kill switches. MSDF tech asked that neither escalation nor ticket
+// creation go live until the team has evaluated alternatives, so both default to
+// false here and in the deploy workflow: the feature is off unless a deployment
+// explicitly turns it on.
+@description('Master switch for the escalation feature (/fiona escalate and the escalate keyword). Off by default')
+param escalationEnabled bool = false
+
+@description('Master switch for the ticket-creation feature (/fiona ticket and its aliases). Off by default')
+param ticketCreationEnabled bool = false
+
 @description('Slack channel ID where /fiona escalate posts (bot must be a member)')
 param escalationChannel string = ''
 
@@ -422,6 +432,14 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'COSMOS_INTERACTIONS_CONTAINER'
               value: interactionsContainerName
+            }
+            {
+              name: 'ESCALATION_ENABLED'
+              value: escalationEnabled ? 'true' : 'false'
+            }
+            {
+              name: 'TICKET_CREATION_ENABLED'
+              value: ticketCreationEnabled ? 'true' : 'false'
             }
             {
               name: 'ESCALATION_CHANNEL_ID'
