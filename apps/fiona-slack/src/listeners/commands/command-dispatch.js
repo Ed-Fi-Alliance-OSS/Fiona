@@ -5,7 +5,12 @@
 
 import { escalateViaSay } from '../../agent/escalation.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
-import { buildCreateTicketBlocks, routeCommandViaSay, TICKET_NOT_CONFIGURED_TEXT } from './command-handler.js';
+import {
+  buildCreateTicketBlocks,
+  handleSearchEphemeral,
+  routeCommandViaSay,
+  TICKET_NOT_CONFIGURED_TEXT,
+} from './command-handler.js';
 
 /**
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
@@ -43,6 +48,7 @@ export async function dispatchKeywordViaSay({
   threadTs,
   messageTs,
   source,
+  interactionType,
 }) {
   if (cmd.keyword === 'file_ticket') {
     // Don't offer a button that opens a modal the feature cannot honour — the
@@ -77,5 +83,15 @@ export async function dispatchKeywordViaSay({
     });
     return;
   }
-  await routeCommandViaSay(say, logger, cmd);
+  if (cmd.keyword === 'search' && interactionType === 'app_mention') {
+    await handleSearchEphemeral(client, logger, {
+      userId,
+      channelId,
+      threadTs: threadTs === messageTs ? null : threadTs,
+      query: cmd.rawArgs,
+      interactionType,
+    });
+    return;
+  }
+  await routeCommandViaSay(say, logger, cmd, { interactionType });
 }

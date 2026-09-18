@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 // Mock interaction-store before importing the module under test.
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
@@ -12,12 +12,27 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
   recordInteraction: mockRecordInteraction,
 }));
 
-// Enforce the "no LLM call" requirement by failing if the handler imports llm-caller.
+// Guard: fiona.js must not directly import llm-caller (use search-caller instead).
 // This guard intercepts static imports only; dynamic import() calls would bypass it.
-// Acceptable trade-off: slash command handlers should never dynamically import the LLM.
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
-  throw new Error('llm-caller must not be imported by /fiona slash command handlers');
+  throw new Error('llm-caller must not be directly imported by /fiona slash command handlers');
 });
+
+// Mock search-caller so tests control search results without hitting the LLM.
+const mockSearchForSources = jest.fn().mockResolvedValue([]);
+const mockFormatSearchResults = jest
+  .fn()
+  .mockImplementation((_query, sources) => ({
+    text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+    blocks: null,
+  }));
+const MOCK_SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
+
+jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
+  searchForSources: mockSearchForSources,
+  formatSearchResults: mockFormatSearchResults,
+  SEARCH_ERROR_TEXT: MOCK_SEARCH_ERROR_TEXT,
+}));
 
 const mockPostEscalation = jest.fn().mockResolvedValue({ ok: true, errorType: null });
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
@@ -38,6 +53,13 @@ const { fionaCommandCallback } = await import('../../../src/listeners/commands/f
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
+// The AI-217 flags default to off. Suites needing a feature on set it in their
+// own beforeEach; clearing here keeps suite ordering from being load-bearing.
+afterEach(() => {
+  delete process.env.TICKET_CREATION_ENABLED;
+  delete process.env.ESCALATION_ENABLED;
+});
 
 describe('fionaCommandCallback', () => {
   let mockAck;
@@ -197,31 +219,203 @@ describe('fionaCommandCallback', () => {
   });
 
   describe('search sub-command', () => {
+    let mockRespond;
+
     beforeEach(() => {
-      mockCommand.text = 'search';
+      jest.clearAllMocks();
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockSearchForSources.mockResolvedValue([]);
+      mockFormatSearchResults.mockImplementation((_q, sources) => ({
+        text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+        blocks: null,
+      }));
     });
 
-    it('calls ack() exactly once', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledTimes(1);
+    describe('bare search (no query)', () => {
+      beforeEach(() => {
+        mockCommand.text = 'search';
+      });
+
+      it('falls back to help (ack receives help text)', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+      });
+
+      it('records slash_help when no query is provided', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_help' }),
+        );
+      });
+
+      it('does not call searchForSources when no query is provided', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockSearchForSources).not.toHaveBeenCalled();
+      });
     });
 
-    it('ack() response indicates the feature is not yet available', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringMatching(/not yet available|coming soon/i));
+    describe('search with query', () => {
+      beforeEach(() => {
+        mockCommand.text = 'search Ed-Fi ODS API';
+      });
+
+      it('calls ack() without arguments (deferred response)', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockAck).toHaveBeenCalledTimes(1);
+        expect(mockAck).toHaveBeenCalledWith();
+      });
+
+      it('calls searchForSources with the extracted query', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockSearchForSources).toHaveBeenCalledWith('Ed-Fi ODS API', expect.objectContaining({ logger: mockLogger }));
+      });
+
+      it('responds with SEARCH_ERROR_TEXT when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({
+            response_type: 'ephemeral',
+            text: MOCK_SEARCH_ERROR_TEXT,
+          }),
+        );
+      });
+
+      it('still attaches the feedback block when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({
+            blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|slash_search' })]),
+          }),
+        );
+      });
+
+      it('still records slash_search telemetry when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_search' }),
+        );
+      });
+
+      it('records status error with errorType search_failed when searchForSources fails', async () => {
+        mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            interactionType: 'slash_search',
+            status: 'error',
+            errorType: 'search_failed',
+          }),
+        );
+      });
+
+      it('calls respond() with response_type ephemeral', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({
+            response_type: 'ephemeral',
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: expect.arrayContaining([expect.objectContaining({ block_id: 'feedback|search|slash_search' })]),
+          }),
+        );
+      });
+
+      it('respond() text contains formatted search results', async () => {
+        mockSearchForSources.mockResolvedValueOnce([{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' }]);
+        mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({ text: '🔍 Found 1 source(s).' }),
+        );
+      });
+
+      it('records slash_search telemetry', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_search' }),
+        );
+      });
+
+      it('records slash_search with status success', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'success' }),
+        );
+      });
+
+      it('does not call respond() when ack() rejects', async () => {
+        mockAck.mockRejectedValueOnce(new Error('slack timeout'));
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockRespond).not.toHaveBeenCalled();
+      });
+
+      it('does not throw when respond() rejects', async () => {
+        mockRespond.mockRejectedValueOnce(new Error('respond failed'));
+        await expect(
+          fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger }),
+        ).resolves.toBeUndefined();
+      });
+
+      it('logs an error when respond() rejects', async () => {
+        mockRespond.mockRejectedValueOnce(new Error('respond failed'));
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond'));
+      });
+
+      it('responds with error text when required fields are missing', async () => {
+        const { user_id: _u, ...cmd } = mockCommand;
+        cmd.text = 'search Ed-Fi ODS API';
+        await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({ text: MOCK_SEARCH_ERROR_TEXT }),
+        );
+      });
+
+      it('does not call searchForSources when required fields are missing', async () => {
+        const { user_id: _u, ...cmd } = mockCommand;
+        cmd.text = 'search Ed-Fi ODS API';
+        await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockSearchForSources).not.toHaveBeenCalled();
+      });
     });
 
-    it('ack() response does not show the full help menu', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
-    });
+    describe('search rate limiting', () => {
+      it('responds with rate limit message when rate limited', async () => {
+        const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+        for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH');
+        const cmd = { ...mockCommand, text: 'search Ed-Fi', user_id: 'U_RL_SEARCH' };
+        await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.objectContaining({ text: expect.stringContaining('request limit') }),
+        );
+      });
 
-    it('records slash_search telemetry', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_search' }),
-      );
+      it('records slash_search with rateLimited true when rate limited', async () => {
+        const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+        for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH2');
+        const cmd = { ...mockCommand, text: 'search Ed-Fi', user_id: 'U_RL_SEARCH2' };
+        await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
+        await flushMicrotasks();
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_search', rateLimited: true }),
+        );
+      });
     });
   });
 
@@ -350,6 +544,8 @@ describe('fionaCommandCallback', () => {
 
     beforeEach(() => {
       jest.clearAllMocks();
+      // Escalation defaults to off (AI-217); this suite covers the on path.
+      process.env.ESCALATION_ENABLED = 'true';
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockClient = {};
       mockPostEscalation.mockResolvedValue({ ok: true, errorType: null });
@@ -420,6 +616,8 @@ describe('fionaCommandCallback', () => {
 
     beforeEach(() => {
       jest.clearAllMocks();
+      // Ticketing defaults to off (AI-217); this suite covers the on path.
+      process.env.TICKET_CREATION_ENABLED = 'true';
       mockIsTicketingEnabled.mockReturnValue(true);
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockClient = { views: { open: jest.fn().mockResolvedValue({}) } };
@@ -621,5 +819,94 @@ describe('fionaCommandCallback', () => {
       });
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('ticket'));
     });
+  });
+});
+
+// AI-217. A flagged-off feature disappears: its sub-command stops being routed
+// and falls through to handleUnknown, which acks with the help text (which no
+// longer lists `ticket`) and records the turn as slash_unknown.
+describe('fionaCommandCallback — flagged-off sub-commands', () => {
+  let mockAck;
+  let mockRespond;
+  let mockClient;
+  let mockLogger;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.ESCALATION_ENABLED;
+    delete process.env.TICKET_CREATION_ENABLED;
+    mockIsTicketingEnabled.mockReturnValue(true);
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockRespond = jest.fn().mockResolvedValue(undefined);
+    mockClient = { views: { open: jest.fn().mockResolvedValue({}) } };
+    mockLogger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
+  });
+
+  const cmd = (text) => ({
+    user_id: 'U_FLAG', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1', channel_name: 'general', text,
+  });
+
+  const invoke = (text) =>
+    fionaCommandCallback({
+      command: cmd(text), ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger,
+    });
+
+  it('does not escalate when escalation is off', async () => {
+    await invoke('escalate');
+    expect(mockPostEscalation).not.toHaveBeenCalled();
+  });
+
+  it('acks with the help text instead of escalating', async () => {
+    await invoke('escalate');
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+
+  it('records the flagged-off escalate as slash_unknown', async () => {
+    await invoke('escalate');
+    await flushMicrotasks();
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionType: 'slash_unknown' }),
+    );
+  });
+
+  it.each(['ticket', 'bug', 'feature'])('does not open the modal for "%s" when ticketing is off', async (text) => {
+    await invoke(text);
+    expect(mockClient.views.open).not.toHaveBeenCalled();
+  });
+
+  it.each(['ticket', 'bug', 'feature'])('acks with the help text for "%s" when ticketing is off', async (text) => {
+    await invoke(text);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+
+  // The whole point of routing to handleUnknown: help must not name a command
+  // that is switched off.
+  it('omits the ticket line from the help text it acks with', async () => {
+    await invoke('ticket');
+    expect(mockAck.mock.calls[0][0]).not.toMatch(/^ticket\b/m);
+  });
+
+  it('does not send the not-configured notice — the feature is off, not misconfigured', async () => {
+    await invoke('ticket');
+    expect(mockRespond).not.toHaveBeenCalled();
+  });
+
+  it('still routes escalate once escalation is switched on', async () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    await invoke('escalate');
+    expect(mockPostEscalation).toHaveBeenCalled();
+  });
+
+  it('still opens the modal once ticketing is switched on', async () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    await invoke('bug');
+    expect(mockClient.views.open).toHaveBeenCalled();
+  });
+
+  it('still serves help when both features are off', async () => {
+    await invoke('help');
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
   });
 });

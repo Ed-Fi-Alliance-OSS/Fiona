@@ -23,6 +23,40 @@ async function replaceMessage(client, body, text, logger) {
     .catch((e) => logger?.warn?.(`Failed to update triage message: ${e.message}`));
 }
 
+// Approver-facing copy for a failed approval, keyed by the errorType returned by
+// createTicketNow.
+//
+// Two rules this copy has to obey, both learned from the message it replaces
+// (":warning: Approval failed to create the issue (${result.errorType}). Try
+// again."):
+//
+//  1. Never interpolate errorType. These are internal categories, not English,
+//     and the triage channel is read by people who did not write them. The raw
+//     value still reaches operators via the log line below.
+//  2. Never invite a retry. replaceMessage rewrites the message with a single
+//     section block, so the Approve/Discard buttons are gone by the time anyone
+//     reads the failure — "Try again" points at a button that no longer exists.
+//     `feature_disabled` could not be retried anyway while the flag is off.
+//
+// Every message says nothing was created, because the draft is destroyed by the
+// same update that reports the failure and the request would otherwise look like
+// it might still be in flight.
+const APPROVAL_FAILURE_TEXT = {
+  feature_disabled:
+    ':warning: Ticket creation is currently disabled, so this draft could not be approved. Nothing was created.',
+  github_auth_failed:
+    ':warning: Could not create the issue — GitHub rejected the credentials. Nothing was created; an administrator needs to check the issue-creation token.',
+  github_create_failed:
+    ':warning: Could not create the issue. Nothing was created — check the Fiona logs for the cause.',
+};
+
+const GENERIC_APPROVAL_FAILURE_TEXT = APPROVAL_FAILURE_TEXT.github_create_failed;
+
+/** Safe approver-facing copy for `errorType`, falling back to generic wording. */
+function approvalFailureText(errorType) {
+  return APPROVAL_FAILURE_TEXT[errorType] ?? GENERIC_APPROVAL_FAILURE_TEXT;
+}
+
 /** Approve a drafted ticket: create the issue, update the triage message, notify the requester. */
 export const ticketApproveActionCallback = async ({ ack, body, client, logger }) => {
   await ack();
@@ -58,12 +92,10 @@ export const ticketApproveActionCallback = async ({ ack, body, client, logger })
         .catch((e) => logger?.warn?.(`Failed to notify requester: ${e.message}`));
     }
   } else {
-    await replaceMessage(
-      client,
-      body,
-      `:warning: Approval failed to create the issue (${result.errorType}). Try again.`,
-      logger,
-    );
+    // The approver sees safe copy; operators need the real category, so it goes
+    // to the log instead of the channel.
+    logger?.error?.(`Approval failed to create the issue (${result.errorType}) in ${body.channel.id}`);
+    await replaceMessage(client, body, approvalFailureText(result.errorType), logger);
   }
 };
 

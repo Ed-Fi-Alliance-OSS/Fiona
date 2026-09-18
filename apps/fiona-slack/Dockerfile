@@ -6,7 +6,7 @@
 # Single-stage build for fiona-slack Socket Mode container
 # No TypeScript build step needed -- plain JavaScript ESM
 
-FROM node:22-alpine
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 WORKDIR /app
 
 # Copy package manifests first for layer caching

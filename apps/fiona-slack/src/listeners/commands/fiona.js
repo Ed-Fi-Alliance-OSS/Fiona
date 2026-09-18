@@ -3,21 +3,42 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { isEscalationEnabled, isTicketingFeatureEnabled } from '../../agent/deployment-flags.js';
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
+import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
+  buildHelpText,
+  buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
-  HELP_TEXT,
-  SEARCH_NOT_YET_TEXT,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
+
+const TICKET_SUB_COMMANDS = ['ticket', 'bug', 'feature'];
+
+/**
+ * True when `subCommand` belongs to a feature this deployment has switched off
+ * (AI-217). Such a sub-command is not routed at all: it goes to `handleUnknown`,
+ * which acks with the help text — which no longer lists it either — so the
+ * feature leaves no trace in the slash surface. The word the user typed is still
+ * logged and recorded as `slash_unknown`.
+ *
+ * Ticketing is gated on `isTicketingFeatureEnabled`, the flag alone, not
+ * `isTicketingEnabled`: flag on with GitHub unconfigured must keep routing so
+ * `handleTicket` can answer with TICKET_NOT_CONFIGURED_TEXT.
+ */
+function isDisabledByFeatureFlag(subCommand) {
+  if (subCommand === 'escalate') return !isEscalationEnabled();
+  if (TICKET_SUB_COMMANDS.includes(subCommand)) return !isTicketingFeatureEnabled();
+  return false;
+}
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
@@ -26,6 +47,13 @@ import {
 export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
+
+  // Returns before the switch below, so a flagged-off sub-command is handled as
+  // if it were never a sub-command at all.
+  if (isDisabledByFeatureFlag(subCommand)) {
+    await handleUnknown({ command, ack, logger, subCommand });
+    return;
+  }
 
   switch (subCommand) {
     case 'help':
@@ -36,7 +64,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
       break;
     case 'search':
-      await handleComingSoon({ command, ack, logger, subCommand: 'search', text: SEARCH_NOT_YET_TEXT });
+      await handleSearch({ command, ack, respond, logger });
       break;
     case 'escalate':
       await handleEscalate({ command, ack, respond, client, logger });
@@ -84,20 +112,22 @@ function hasRequiredFields(command) {
   return Boolean(command.user_id && command.channel_id && command.trigger_id);
 }
 
-function fireAndForgetRecord({ command, logger, interactionType }) {
+function fireAndForgetRecord({ command, logger, interactionType, errorType = null }) {
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping interaction record');
     return;
   }
-  recordInteraction({ ...slashInteractionRecord(command, interactionType), logger }).catch((err) =>
-    logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`),
-  );
+  recordInteraction({
+    ...slashInteractionRecord(command, interactionType),
+    ...(errorType ? { status: 'error', errorType } : {}),
+    logger,
+  }).catch((err) => logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`));
 }
 
 async function handleHelp({ command, ack, logger }) {
   try {
     // ack(string) sends an immediate ephemeral response that only the invoking user sees
-    await ack(HELP_TEXT);
+    await ack(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to acknowledge /fiona help: ${err.name}`);
     return;
@@ -116,11 +146,64 @@ async function handleComingSoon({ command, ack, logger, subCommand, text }) {
   fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
 }
 
+async function handleSearch({ command, ack, respond, logger }) {
+  const rawText = (command.text ?? '').trim();
+  // Extract everything after the leading 'search' token as the query.
+  const query = rawText.slice('search'.length).trim();
+
+  if (!query) {
+    // Empty query: fall back to help (same as /fiona with no sub-command)
+    await handleHelp({ command, ack, logger });
+    return;
+  }
+
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona search: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping search');
+    await respond({ response_type: 'ephemeral', text: SEARCH_ERROR_TEXT });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_search'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_search interaction: ${err.name}`));
+    return;
+  }
+
+  logger?.info?.(`/fiona search: querying for "${query}"`);
+  // buildSearchResponse never throws on search failure — it substitutes an error
+  // message and reports the failure via errorType, so carry that into telemetry.
+  let response;
+  let errorType;
+  try {
+    ({ response, errorType } = await buildSearchResponse(query, logger, 'slash_search'));
+    await respond({ response_type: 'ephemeral', ...response });
+  } catch (err) {
+    logger?.error?.(`Failed to respond to /fiona search: ${err.name}`);
+    return;
+  }
+
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_search', errorType });
+}
+
 async function handleUnknown({ command, ack, logger, subCommand }) {
   logger?.warn?.(`Unrecognized /fiona sub-command: "${subCommand}"`);
   try {
     // ack(string) sends an immediate ephemeral response that only the invoking user sees
-    await ack(HELP_TEXT);
+    await ack(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to acknowledge /fiona unknown command: ${err.name}`);
     return;

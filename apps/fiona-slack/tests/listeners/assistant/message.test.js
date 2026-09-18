@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
   finalizeMetadataEnvelope: jest.fn(),
   handleMetadataTimeout: jest.fn(),
+  searchForSources: jest.fn().mockResolvedValue([]),
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
@@ -541,6 +542,16 @@ describe('message (assistant thread handler)', () => {
   });
 
   describe('keyword command routing', () => {
+    // Escalation defaults to off (AI-217). The escalate cases below cover the
+    // feature-on path; the fall-through case clears the flag itself.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.ESCALATION_ENABLED;
+    });
+
     it('responds with help text when message is exactly "help"', async () => {
       mockMessage.text = 'help';
 
@@ -607,7 +618,7 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when message starts with "search "', async () => {
+    it('responds with search results when message starts with "search "', async () => {
       mockMessage.text = 'search Data Standard 6.0';
 
       await messageHandler({
@@ -620,7 +631,9 @@ describe('message (assistant thread handler)', () => {
       });
 
       expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      const sayArg = mockSay.mock.calls[0][0];
+      const sayText = typeof sayArg === 'string' ? sayArg : sayArg?.text ?? '';
+      expect(sayText).toMatch(/search results|No sources found/i);
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -692,6 +705,25 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    // AI-217: with escalation off the keyword is no longer a command, so the
+    // message is answered by the LLM like any other question.
+    it('answers "escalate" with the LLM instead of escalating when escalation is off', async () => {
+      delete process.env.ESCALATION_ENABLED;
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalled();
     });
 
     it('escalates via escalateViaSay when message is exactly "escalate"', async () => {

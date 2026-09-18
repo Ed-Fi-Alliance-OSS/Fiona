@@ -17,7 +17,7 @@ import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
-import { feedbackBlock } from '../views/feedback_block.js';
+import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation
@@ -93,6 +93,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           threadTs: thread_ts,
           messageTs,
           source: 'mention_escalate',
+          interactionType: 'app_mention',
         });
         return;
       }
@@ -136,7 +137,14 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
       }
 
-      await streamer.stop({ blocks: [feedbackBlock] });
+      await streamer.stop({
+        blocks: [
+          createFeedbackBlock({
+            responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
+            interactionType: 'app_mention',
+          }),
+        ],
+      });
       finalizeMetadataEnvelope(metadata);
 
       try {

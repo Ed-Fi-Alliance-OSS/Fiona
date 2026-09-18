@@ -3,15 +3,40 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-export const HELP_TEXT = `*Fiona — your Ed-Fi AI assistant* :wave:
+import { isEscalationEnabled, isTicketingFeatureEnabled } from '../../agent/deployment-flags.js';
+import { formatSearchResults, SEARCH_ERROR_TEXT, searchForSources } from '../../agent/search-caller.js';
+import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
+
+const HELP_COMMAND_LINES = [
+  'help                    Show this help message',
+  'ask <question>          Ask a question about Ed-Fi (coming soon)',
+  'search <query>          Search Ed-Fi documentation',
+];
+
+const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
+
+/**
+ * The help message, built per call because the command list depends on which
+ * features are switched on (AI-217).
+ *
+ * A feature that is off does not appear here at all — help must not advertise a
+ * command that immediately declines. The gate is `isTicketingFeatureEnabled`,
+ * the flag alone, not `isTicketingEnabled`: with the flag on but GitHub
+ * unconfigured the command stays advertised and answers with
+ * TICKET_NOT_CONFIGURED_TEXT, which is a recoverable operator error rather than
+ * a deliberate withdrawal.
+ *
+ * Escalation is not listed either way — it never was.
+ */
+export function buildHelpText() {
+  const commands = [...HELP_COMMAND_LINES];
+  if (isTicketingFeatureEnabled()) commands.push(HELP_TICKET_LINE);
+  return `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
 *Available commands:*
 \`\`\`
-help                    Show this help message
-ask <question>          Ask a question about Ed-Fi (coming soon)
-search <query>          Search Ed-Fi documentation (coming soon)
-ticket                  Create an Ed-Fi support ticket (opens a form)
+${commands.join('\n')}
 \`\`\`
 
 *How to reach Fiona:*
@@ -20,16 +45,12 @@ ticket                  Create an Ed-Fi support ticket (opens a form)
 • *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
+}
 
 export const ASK_NOT_YET_TEXT =
   `*/fiona ask* is not yet available. ` +
   `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
   `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
-
-export const SEARCH_NOT_YET_TEXT =
-  `*/fiona search* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
-  `When available, it will also work as \`@fiona search <query>\` in a thread or the agent panel.`;
 
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
@@ -77,7 +98,7 @@ export function normalizeTicketType(value) {
 // LLM-based intent detection is deferred (AI-174).
 //
 // The bare `ticket` / `bug` / `feature` entries mirror the `/fiona ticket` command
-// and its two aliases. Only `ticket` is advertised in HELP_TEXT; the aliases are
+// and its two aliases. Only `ticket` is advertised in the help text; the aliases are
 // deliberately discoverable-but-hidden, so help offers one way to do this while
 // anyone who already types `bug` keeps working. Accepting more than we advertise
 // is safe — the reverse, advertising a word the keyword path rejects, is not.
@@ -159,7 +180,11 @@ export function parseCommandKeyword(text) {
     return { keyword: 'help', rawArgs: '' };
   }
 
-  if (bodyLower === 'escalate') {
+  // A flagged-off feature simply fails to match here, so the message falls
+  // through to `return null` at the end of this function and is handed to the LLM
+  // as an ordinary question — which is what "the feature disappears" means
+  // (AI-217). Nothing between here and that return can match a bare `escalate`.
+  if (isEscalationEnabled() && bodyLower === 'escalate') {
     return { keyword: 'escalate', rawArgs: '' };
   }
 
@@ -172,17 +197,16 @@ export function parseCommandKeyword(text) {
     }
   }
 
-  if (TICKET_PHRASES.has(bodyLower)) {
+  // Gated on the flag alone, not `isTicketingEnabled`. Flag on but GitHub
+  // unconfigured must keep recognising the phrase so command-dispatch can answer
+  // with TICKET_NOT_CONFIGURED_TEXT; only the flag being off makes the phrases
+  // fall through to the LLM. Flag-first, matching the escalate gate above.
+  if (isTicketingFeatureEnabled() && TICKET_PHRASES.has(bodyLower)) {
     return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
   return null;
 }
-
-const NOT_YET_TEXT = {
-  ask: ASK_NOT_YET_TEXT,
-  search: SEARCH_NOT_YET_TEXT,
-};
 
 /**
  * Dispatches a parsed command to the appropriate say() response.
@@ -192,13 +216,60 @@ const NOT_YET_TEXT = {
  * @param {import('@slack/logger').Logger} logger
  * @param {{ keyword: string, rawArgs: string }} cmd
  */
-export async function routeCommandViaSay(say, logger, cmd) {
+export async function routeCommandViaSay(say, logger, cmd, options = {}) {
   if (cmd.keyword === 'help') {
     await handleHelpViaSay(say, logger);
+  } else if (cmd.keyword === 'search') {
+    await handleSearchViaSay(say, logger, cmd.rawArgs, options);
   } else {
-    const text = NOT_YET_TEXT[cmd.keyword] ?? SEARCH_NOT_YET_TEXT;
-    await handleComingSoonViaSay(say, logger, cmd.keyword, text);
+    await handleComingSoonViaSay(say, logger, cmd.keyword, ASK_NOT_YET_TEXT);
   }
+}
+
+/**
+ * Runs the search + formatting pipeline and attaches a feedback block to the
+ * result. Shared by every /fiona search entry point (slash command, say(),
+ * ephemeral) so error handling and feedback-block placement stay in one place.
+ *
+ * The search failure is swallowed so the user still gets a response, so it is
+ * reported back through `errorType` — otherwise callers would record every
+ * substituted error message as a successful interaction.
+ *
+ * @param {string} query
+ * @param {import('@slack/logger').Logger} logger
+ * @param {string|null} interactionType
+ * @returns {Promise<{ response: Object, errorType: string|null }>}
+ */
+export async function buildSearchResponse(query, logger, interactionType = null) {
+  let text;
+  let blocks;
+  let errorType = null;
+  try {
+    const sources = await searchForSources(query, { logger });
+    ({ text, blocks } = formatSearchResults(query, sources));
+  } catch (err) {
+    logger?.error?.(`Failed to search sources: ${err.name}: ${err.message}`);
+    text = SEARCH_ERROR_TEXT;
+    blocks = null;
+    errorType = 'search_failed';
+  }
+  const feedbackBlock = createFeedbackBlock({
+    responseType: FEEDBACK_RESPONSE_TYPES.SEARCH,
+    interactionType,
+  });
+  const responseBlocks = Array.isArray(blocks)
+    ? [...blocks, { type: 'divider' }, feedbackBlock]
+    : [{ type: 'section', text: { type: 'mrkdwn', text } }, { type: 'divider' }, feedbackBlock];
+
+  return {
+    response: {
+      text,
+      blocks: responseBlocks,
+      unfurl_links: false,
+      unfurl_media: false,
+    },
+    errorType,
+  };
 }
 
 /**
@@ -210,24 +281,60 @@ export async function routeCommandViaSay(say, logger, cmd) {
  */
 export async function handleHelpViaSay(say, logger) {
   try {
-    await say(HELP_TEXT);
+    await say(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to send help response: ${err.name}`);
   }
 }
 
 /**
- * Sends a "coming soon" response via say() for ask/search commands in non-slash contexts.
+ * Performs a source search and sends results via say() — visible to all
+ * thread/channel participants. Used in contexts where slash-command ack()
+ * is not available (threads, agent panel, @-mention).
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
- * @param {string} subCommand - 'ask' or 'search'
+ * @param {string} query - The search query (rawArgs from parseCommandKeyword)
+ */
+export async function handleSearchViaSay(say, logger, query, { interactionType = null } = {}) {
+  try {
+    const { response } = await buildSearchResponse(query, logger, interactionType);
+    await say(response);
+  } catch (err) {
+    logger?.error?.(`Failed to send search response: ${err.name}: ${err.message}`);
+  }
+}
+
+export async function handleSearchEphemeral(
+  client,
+  logger,
+  { userId, channelId, threadTs, query, interactionType = null },
+) {
+  try {
+    const { response } = await buildSearchResponse(query, logger, interactionType);
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+      ...response,
+    });
+  } catch (err) {
+    logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
+  }
+}
+
+/**
+ * Sends a "coming soon" response via say() for ask commands in non-slash contexts.
+ *
+ * @param {Function} say
+ * @param {import('@slack/logger').Logger} logger
+ * @param {string} keyword - The command keyword ('ask')
  * @param {string} text - The coming-soon message text to send.
  */
-export async function handleComingSoonViaSay(say, logger, subCommand, text) {
+export async function handleComingSoonViaSay(say, logger, keyword, text) {
   try {
     await say(text);
   } catch (err) {
-    logger?.error?.(`Failed to send coming-soon response for ${subCommand}: ${err.name}`);
+    logger?.error?.(`Failed to send coming-soon response for ${keyword}: ${err.name}`);
   }
 }
