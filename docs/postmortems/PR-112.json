@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 112,
+  "title": "build(deps): bump the npm_and_yarn group across 2 directories with 4 updates",
+  "state": "merged",
+  "jiraKey": null,
+  "authorKind": "dependabot",
+  "stats": {
+    "additions": 147,
+    "deletions": 143,
+    "changedFiles": 2,
+    "commits": 1,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 16533,
+    "ciRuns": {
+      "total": 3,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "json": 2
+    },
+    "testToSourceRatio": null,
+    "docsTouched": false,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "dependabot",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-09-18T20:22:37.469Z"
+}
