@@ -99,16 +99,77 @@ if (PERPLEXITY_API_KEY) {
   perplexityClient = new Perplexity({ apiKey: PERPLEXITY_API_KEY });
 }
 
+// Retired chat-completions model names, and Agent API preset names. Neither
+// is a valid Agent API `model`, and both are plausible things to paste into
+// PERPLEXITY_API_MODEL, so each gets a targeted error rather than a generic one.
+const RETIRED_SONAR_MODELS = new Set([
+  'sonar',
+  'sonar-pro',
+  'sonar-reasoning',
+  'sonar-reasoning-pro',
+  'sonar-deep-research',
+]);
+const AGENT_PRESET_NAMES = new Set([
+  'fast',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'fast-search',
+  'pro-search',
+  'deep-research',
+  'advanced-deep-research',
+]);
+
+/**
+ * Explain why a configured model value cannot work as an Agent API `model`.
+ *
+ * Deliberately validates the `provider/model` SHAPE rather than checking a
+ * hardcoded slug allowlist: the model catalog drifts often, and a stale
+ * allowlist would reject models that actually work. `GET /v1/models` is the
+ * authoritative catalog.
+ *
+ * @param {string} model - Configured PERPLEXITY_API_MODEL value
+ * @returns {string | null} Error detail, or null when the shape is valid
+ */
+function describeInvalidModel(model) {
+  if (!model || !model.trim()) {
+    return 'it is empty';
+  }
+
+  if (RETIRED_SONAR_MODELS.has(model)) {
+    return `"${model}" is a Sonar chat-completions model, which the Agent API does not accept. Use the Agent API slug "perplexity/sonar" instead`;
+  }
+
+  if (AGENT_PRESET_NAMES.has(model)) {
+    return `"${model}" is an Agent API preset name, not a model. Presets are sent as a separate "preset" request field, so they cannot be used as PERPLEXITY_API_MODEL`;
+  }
+
+  // Agent API slugs are provider-prefixed, e.g. perplexity/sonar, openai/gpt-5.1.
+  if (!/^[^/\s]+\/[^/\s]+$/.test(model)) {
+    return `"${model}" is not in the required provider/model format (for example "perplexity/sonar")`;
+  }
+
+  return null;
+}
+
 /**
  * Assert that the LLM client is configured. Call from the app entrypoint so
- * the process exits at boot if PERPLEXITY_API_KEY is missing, rather than
- * appearing healthy and failing on the first user request.
+ * the process exits at boot if PERPLEXITY_API_KEY is missing or the configured
+ * model cannot work, rather than appearing healthy and failing on the first
+ * user request with an opaque HTTP 400 mid-stream.
  *
- * @throws {Error} when no Perplexity client is configured.
+ * @throws {Error} when no Perplexity client is configured, or the configured
+ *   model is not a usable Agent API slug.
  */
 export function assertLLMConfigured() {
   if (!perplexityClient) {
     throw new Error('PERPLEXITY_API_KEY is not set. Refusing to start without an LLM provider.');
+  }
+
+  const invalidModel = describeInvalidModel(PERPLEXITY_API_MODEL);
+  if (invalidModel) {
+    throw new Error(`PERPLEXITY_API_MODEL is invalid: ${invalidModel}. Refusing to start.`);
   }
 }
 
@@ -379,6 +440,15 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
 // Ed-Fi sources, so the tool is forced via `tool_choice` and carries the
 // domain filter in `filters` (the top-level `search_domain_filter` param from
 // Sonar no longer exists).
+//
+// NOTE: `tool_choice` is absent from @perplexity-ai/perplexity_ai@0.37.0's
+// `ResponsesCreateParams` typings, but the live API does support it — the SDK's
+// typed params lag the API surface. Verified against production: the Agent API
+// runs in strict mode and rejects genuinely unknown fields with
+// `400 unknown field "X"`, yet accepts `tool_choice` and validates its
+// contents semantically (a bogus tool name returns `400 tool_choice named tool
+// "..." is not present in tools`). Do not remove this on the basis of the SDK
+// types alone; doing so would silently degrade grounding to best-effort.
 function buildWebSearchTool() {
   return {
     type: 'web_search',
