@@ -17,7 +17,7 @@ const mockCreate = jest.fn();
 
 jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
   default: jest.fn().mockImplementation(() => ({
-    chat: { completions: { create: mockCreate } },
+    responses: { create: mockCreate },
     search: { create: jest.fn() },
   })),
 }));
@@ -46,10 +46,19 @@ function makeMetadata() {
 }
 
 describe('aggregatePerplexityMetadata', () => {
-  it('adds all citations as sources', () => {
+  it('adds all results from the search_results output item as sources', () => {
     const metadata = makeMetadata();
     aggregatePerplexityMetadata(metadata, {
-      citations: ['https://a.example.com', 'https://b.example.com'],
+      output: [
+        { type: 'message', content: [{ type: 'output_text', text: 'answer' }] },
+        {
+          type: 'search_results',
+          results: [
+            { url: 'https://a.example.com', title: 'A' },
+            { url: 'https://b.example.com', title: 'B' },
+          ],
+        },
+      ],
     });
 
     const urls = metadata.sources.map((s) => s.url);
@@ -57,11 +66,38 @@ describe('aggregatePerplexityMetadata', () => {
     expect(urls).toContain('https://b.example.com');
   });
 
-  it('produces no sources when citations is empty', () => {
+  it('prefers the title supplied by the Agent API over one derived from the URL', () => {
     const metadata = makeMetadata();
-    aggregatePerplexityMetadata(metadata, { citations: [] });
+    aggregatePerplexityMetadata(metadata, {
+      search_results: [{ url: 'https://docs.ed-fi.org/reference/data-exchange', title: 'Data Exchange' }],
+    });
+
+    expect(metadata.sources[0].title).toBe('Data Exchange');
+  });
+
+  it('produces no sources when the search_results item is empty', () => {
+    const metadata = makeMetadata();
+    aggregatePerplexityMetadata(metadata, { output: [{ type: 'search_results', results: [] }] });
 
     expect(metadata.sources).toHaveLength(0);
+  });
+
+  it('produces no sources when the response carries no search_results item', () => {
+    const metadata = makeMetadata();
+    aggregatePerplexityMetadata(metadata, {
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'ungrounded' }] }],
+    });
+
+    expect(metadata.sources).toHaveLength(0);
+  });
+
+  it('ignores results without a URL', () => {
+    const metadata = makeMetadata();
+    aggregatePerplexityMetadata(metadata, {
+      search_results: [{ title: 'No URL here' }, { url: 'https://ok.example.com' }],
+    });
+
+    expect(metadata.sources.map((s) => s.url)).toEqual(['https://ok.example.com']);
   });
 
   it('is a no-op when perplexityResponse is null', () => {
@@ -73,29 +109,49 @@ describe('aggregatePerplexityMetadata', () => {
 
 describe('callPerplexityChat – buffer and linkify', () => {
   /**
-   * Build a fake async-iterable Perplexity streaming response.
-   * Each element may have { text, citations }.
+   * Build a fake async-iterable Agent API event stream.
+   * Each element may have { text, searchResults }, producing the typed SSE
+   * events the Agent API emits (`response.output_text.delta` and
+   * `response.reasoning.search_results`), followed by `response.completed`.
    */
-  function makeStream(chunks) {
+  function makeStream(chunks, { terminal = 'response.completed', finalResults } = {}) {
+    const events = [];
+
+    for (const chunk of chunks) {
+      if (chunk.text !== undefined) {
+        events.push({ type: 'response.output_text.delta', delta: chunk.text });
+      }
+      if (chunk.searchResults !== undefined) {
+        events.push({ type: 'response.reasoning.search_results', results: chunk.searchResults });
+      }
+    }
+
+    if (terminal) {
+      events.push({
+        type: terminal,
+        response: {
+          status: terminal === 'response.completed' ? 'completed' : 'failed',
+          ...(finalResults ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
+          ...(terminal === 'response.failed' ? { error: { message: 'upstream refused' } } : {}),
+          ...(terminal === 'response.incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {}),
+        },
+      });
+    }
+
     return {
       [Symbol.asyncIterator]() {
         let i = 0;
         return {
           async next() {
-            if (i >= chunks.length) return { done: true, value: undefined };
-            const chunk = chunks[i++];
-            return {
-              done: false,
-              value: {
-                citations: chunk.citations,
-                choices: chunk.text !== undefined ? [{ delta: { content: chunk.text } }] : [],
-              },
-            };
+            if (i >= events.length) return { done: true, value: undefined };
+            return { done: false, value: events[i++] };
           },
         };
       },
     };
   }
+
+  const urlsToResults = (urls) => urls.map((url) => ({ url }));
 
   function makeStreamer(metadata) {
     const appended = [];
@@ -112,11 +168,14 @@ describe('callPerplexityChat – buffer and linkify', () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
-    // Simulate: text in two chunks, citations on the last chunk.
+    // Simulate: text in two deltas, search results arriving after them.
     mockCreate.mockResolvedValue(
       makeStream([
         { text: 'See [1] and ' },
-        { text: '[2] for details.', citations: ['https://first.example.com', 'https://second.example.com'] },
+        {
+          text: '[2] for details.',
+          searchResults: urlsToResults(['https://first.example.com', 'https://second.example.com']),
+        },
       ]),
     );
 
@@ -147,7 +206,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
     const streamer = makeStreamer(metadata);
 
     mockCreate.mockResolvedValue(
-      makeStream([{ text: 'Result [1].', citations: ['https://result.example.com'] }]),
+      makeStream([{ text: 'Result [1].', searchResults: urlsToResults(['https://result.example.com']) }]),
     );
 
     const { citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
@@ -159,12 +218,122 @@ describe('callPerplexityChat – buffer and linkify', () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
-    // Only a citations chunk, no text delta.
-    mockCreate.mockResolvedValue(makeStream([{ citations: ['https://only-citation.example.com'] }]));
+    // Only a search-results event, no text delta.
+    mockCreate.mockResolvedValue(
+      makeStream([{ searchResults: urlsToResults(['https://only-citation.example.com']) }]),
+    );
 
     await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
     expect(streamer.append).not.toHaveBeenCalled();
+  });
+
+  it('defaults to the perplexity/sonar model slug when PERPLEXITY_API_MODEL is unset', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(makeStream([{ text: 'Hello from default model.' }]));
+
+    await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'perplexity/sonar',
+      }),
+    );
+  });
+
+  it('sends Agent API request fields and never leftover Sonar params', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(makeStream([{ text: 'hi' }]));
+
+    await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    const body = mockCreate.mock.calls[0][0];
+
+    // Agent API shape: `input` items, domain filter nested under the tool.
+    expect(body.input).toEqual([{ type: 'message', role: 'user', content: 'hello' }]);
+    expect(body.tools).toEqual([
+      { type: 'web_search', filters: { search_domain_filter: ['www.ed-fi.org', 'docs.ed-fi.org'] } },
+    ]);
+    // Grounding is citation-critical for Fiona, so the search is forced.
+    expect(body.tool_choice).toEqual({ type: 'web_search' });
+    expect(body.stream).toBe(true);
+
+    // The Agent API rejects unknown fields with a 400, so no Sonar leftovers.
+    expect(body).not.toHaveProperty('messages');
+    expect(body).not.toHaveProperty('search_domain_filter');
+    expect(body).not.toHaveProperty('max_tokens');
+  });
+
+  it('prefers the search_results output item from the terminal snapshot', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Answer [1].', searchResults: urlsToResults(['https://stale.example.com']) }], {
+        finalResults: urlsToResults(['https://authoritative.example.com']),
+      }),
+    );
+
+    const { citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(citations).toEqual(['https://authoritative.example.com']);
+  });
+
+  it('throws when the run terminates with response.failed over a 200 response', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(makeStream([{ text: 'partial' }], { terminal: 'response.failed' }));
+
+    await expect(callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }])).rejects.toThrow(
+      /response\.failed: upstream refused/,
+    );
+  });
+
+  it('keeps the partial answer and warns when the run terminates as incomplete', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    const logger = { warn: jest.fn() };
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Truncated answer' }], { terminal: 'response.incomplete' }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], logger);
+
+    expect(botText).toBe('Truncated answer');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
+  });
+
+  it('ignores unrecognized event types', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue({
+      [Symbol.asyncIterator]() {
+        const events = [
+          { type: 'response.created' },
+          { type: 'response.unknown' },
+          { type: 'response.output_text.delta', delta: 'ok' },
+          { type: 'response.completed', response: { status: 'completed' } },
+        ];
+        let i = 0;
+        return {
+          async next() {
+            if (i >= events.length) return { done: true, value: undefined };
+            return { done: false, value: events[i++] };
+          },
+        };
+      },
+    });
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe('ok');
   });
 });
 
@@ -179,9 +348,9 @@ describe('callLLM error path does not mask original failure', () => {
 
   it('rethrows the original LLM error when metadata is already DEGRADED_NO_METADATA', async () => {
     const llmError = new Error('upstream LLM exploded');
-    // First chunk transitions to COLLECTING_METADATA via citations; subsequent
-    // throw simulates a streaming failure mid-flight. Then we manually drop
-    // the envelope into DEGRADED_NO_METADATA before the throw bubbles up.
+    // The create call throws to simulate a streaming failure mid-flight. Then
+    // we manually drop the envelope into DEGRADED_NO_METADATA before the throw
+    // bubbles up.
     mockCreate.mockImplementation(async () => {
       throw llmError;
     });
@@ -239,7 +408,8 @@ describe('callLLM returns botText alongside metadata', () => {
     const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
     mockCreate.mockResolvedValueOnce(
       (async function* () {
-        yield { choices: [{ delta: { content: 'Hello world' } }] };
+        yield { type: 'response.output_text.delta', delta: 'Hello world' };
+        yield { type: 'response.completed', response: { status: 'completed' } };
       })(),
     );
 

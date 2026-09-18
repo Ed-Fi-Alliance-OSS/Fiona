@@ -72,9 +72,13 @@ than sending an empty prompt to the LLM.
 
 ### 2.2 LLM Integration
 
-Fiona calls the [Perplexity Sonar API](https://docs.perplexity.ai/) for grounded,
-citation-backed responses. Authentication uses `PERPLEXITY_API_KEY`, injected via
-environment variable.
+Fiona calls the [Perplexity Agent API](https://docs.perplexity.ai/) (`responses.create`)
+for grounded, citation-backed responses. Authentication uses `PERPLEXITY_API_KEY`,
+injected via environment variable.
+
+Grounding is explicit on the Agent API: the `web_search` tool is supplied and forced
+via `tool_choice`, carrying the Ed-Fi domain allowlist in its `filters`. Sources arrive
+as the `search_results` output item rather than a top-level `citations` array.
 
 #### 2.2.1 Streaming
 
@@ -165,7 +169,7 @@ user as task status updates (in-progress, complete, error).
 | Tool                | Purpose                                   | Parameters                               |
 | ------------------- | ----------------------------------------- | ---------------------------------------- |
 | `roll_dice`         | Random number generation / demonstrations | `sides` (default 6), `count` (default 1) |
-| `perplexity_search` | Real-time web search via Perplexity Sonar | `query` (required)                       |
+| `perplexity_search` | Real-time web search via Perplexity Agent API | `query` (required)                       |
 
 The `perplexity_search` tool is only registered when a Perplexity client is
 configured and the primary provider is *not* Perplexity (since Perplexity
@@ -368,7 +372,7 @@ Fiona monitors regular conversation for escalation intent (e.g., the word
 | ---------- | -------------------------------------------------------------- |
 | Runtime    | Node.js 22 (Alpine for containers)                             |
 | Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                        |
-| LLM SDKs   | `openai` 6.x (used as a thin client against the Perplexity Sonar API) |
+| LLM SDKs   | `@perplexity-ai/perplexity_ai` 0.37.x (Agent API `responses` + Search API) |
 | Database   | Azure Cosmos DB (optional, for feedback and interaction analytics) |
 | Auth       | `@azure/identity` (DefaultAzureCredential)                     |
 | Linting    | Biome 2.x                                                      |
