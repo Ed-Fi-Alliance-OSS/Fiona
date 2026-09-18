@@ -14,7 +14,7 @@ import { normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'fast';
+const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
@@ -85,10 +85,10 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
 // A single native Perplexity SDK client handles both capabilities we need:
-// `chat.completions` (Agent API preset, synthesized/streamed answers with
-// citations) and `search` (raw ranked results, no synthesis). Previously
-// `chat.completions` went through the OpenAI SDK pointed at Perplexity's
-// OpenAI-compatible endpoint, while `search` used this Perplexity SDK,
+// `responses` (Agent API, synthesized/streamed answers with search results)
+// and `search` (raw ranked results, no synthesis). Previously the synthesis
+// path went through the OpenAI SDK pointed at Perplexity's OpenAI-compatible
+// `chat.completions` endpoint, while `search` used this Perplexity SDK,
 // because the OpenAI SDK has no concept of Perplexity's `/search` endpoint.
 // The Perplexity SDK exposes both under one client, so the OpenAI SDK
 // dependency was removed and both calls now share `perplexityClient`.
@@ -227,8 +227,34 @@ export function finalizeMetadataEnvelope(metadata) {
 }
 
 /**
- * Extract and aggregate citation metadata from Perplexity response.
- * Perplexity returns a flat citations array (URLs only); titles are derived from URLs.
+ * Extract the `search_results` output item from an Agent API response.
+ *
+ * The Agent API has no top-level `citations` array: sources arrive as the
+ * `output[]` entry with `type: 'search_results'`, whose results carry
+ * `{ url, title, snippet, date }`. Also accepts a bare `{ search_results }`
+ * shape so the streaming path can pass results it collected from
+ * `response.reasoning.search_results` events.
+ *
+ * @param {Object} response - Agent API response, or `{ search_results: [...] }`
+ * @returns {Array<Object>} Search results, or an empty array when absent
+ */
+function extractSearchResults(response) {
+  if (!response) return [];
+
+  if (Array.isArray(response.search_results)) {
+    return response.search_results;
+  }
+
+  const output = Array.isArray(response.output) ? response.output : [];
+  const searchResultsItem = output.find((item) => item?.type === 'search_results');
+
+  return Array.isArray(searchResultsItem?.results) ? searchResultsItem.results : [];
+}
+
+/**
+ * Extract and aggregate citation metadata from an Agent API response.
+ * Results carry real titles and snippets, so titles no longer need deriving
+ * from URLs (`normalizeSource` still falls back to the URL path when absent).
  *
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
@@ -236,9 +262,7 @@ export function finalizeMetadataEnvelope(metadata) {
 export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (!perplexityResponse) return;
 
-  const citations = perplexityResponse.citations || [];
-
-  const rawSources = Array.isArray(citations) ? citations.map((url) => ({ url })) : [];
+  const rawSources = extractSearchResults(perplexityResponse).filter((result) => result?.url);
 
   if (rawSources.length > 0) {
     // Normalize and deduplicate with deterministic first-seen ordering
@@ -277,7 +301,11 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-function promptsToChatMessages(prompts) {
+// Agent API `input` items are `{ type: 'message', role, content }`; the roles
+// (user / assistant / system / developer) carry over from Sonar `messages`
+// unchanged, so the system prompt stays an input item rather than moving to
+// top-level `instructions`.
+function promptsToInputItems(prompts) {
   return prompts
     .map((prompt) => {
       if (!prompt?.role || !prompt?.content) {
@@ -285,7 +313,7 @@ function promptsToChatMessages(prompts) {
       }
 
       if (typeof prompt.content === 'string') {
-        return { role: prompt.role, content: prompt.content };
+        return { type: 'message', role: prompt.role, content: prompt.content };
       }
 
       if (Array.isArray(prompt.content)) {
@@ -298,11 +326,11 @@ function promptsToChatMessages(prompts) {
           })
           .join('');
 
-        return text ? { role: prompt.role, content: text } : null;
+        return text ? { type: 'message', role: prompt.role, content: text } : null;
       }
 
       if (typeof prompt.content === 'object') {
-        return { role: prompt.role, content: JSON.stringify(prompt.content) };
+        return { type: 'message', role: prompt.role, content: JSON.stringify(prompt.content) };
       }
 
       return null;
@@ -346,72 +374,111 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
   });
 }
 
+// Web search is not automatic on the Agent API, and merely offering the tool
+// does not guarantee the model calls it. Fiona's answers must be grounded in
+// Ed-Fi sources, so the tool is forced via `tool_choice` and carries the
+// domain filter in `filters` (the top-level `search_domain_filter` param from
+// Sonar no longer exists).
+function buildWebSearchTool() {
+  return {
+    type: 'web_search',
+    filters: { search_domain_filter: PERPLEXITY_DOMAIN_FILTER },
+  };
+}
+
 /**
- * Call Perplexity chat API (streaming) and collect citations from the final chunk.
- * Perplexity returns `citations` as a top-level field on the last stream chunk.
+ * Call the Perplexity Agent API (streaming) and collect sources from the
+ * `search_results` output item.
+ *
+ * Agent responses stream typed SSE events rather than `choices[0].delta`
+ * chunks: text arrives as `response.output_text.delta`, and search results
+ * arrive as `response.reasoning.search_results` events plus the terminal
+ * snapshot's `search_results` output item.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer
  * @param {Array} prompts
- * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and citation URL strings
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and source URL strings
  */
-export async function callPerplexityChat(streamer, prompts) {
+export async function callPerplexityChat(streamer, prompts, logger) {
   if (!perplexityClient) {
     throw new Error('Perplexity client is not configured. Set PERPLEXITY_API_KEY.');
   }
 
-  const messages = promptsToChatMessages(prompts);
+  const input = promptsToInputItems(prompts);
 
-  if (messages.length === 0) {
+  if (input.length === 0) {
     throw new Error('No usable prompts available for Perplexity call.');
   }
 
-  const response = await perplexityClient.chat.completions.create({
+  const response = await perplexityClient.responses.create({
     model: PERPLEXITY_API_MODEL,
-    messages,
-    search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
+    input,
+    tools: [buildWebSearchTool()],
+    tool_choice: { type: 'web_search' },
     stream: true,
   });
 
-  // Buffer all text chunks during streaming so that citation markers can be
+  // Buffer all text deltas during streaming so that citation markers can be
   // linkified after `source_index_map` has been fully populated.  Emitting
-  // per-chunk would always see an empty map because Perplexity delivers
-  // citations on the *last* chunk, after the text deltas.
-  let citations = [];
+  // per-delta would risk an incomplete map because search results can still
+  // arrive after text deltas have started.
+  let searchResults = [];
   let textBuffer = '';
 
-  for await (const chunk of response) {
-    if (Array.isArray(chunk.citations)) {
-      citations = chunk.citations;
-    }
+  for await (const event of response) {
+    switch (event?.type) {
+      case 'response.output_text.delta':
+        if (typeof event.delta === 'string') {
+          textBuffer += event.delta;
+        }
+        break;
 
-    const delta = chunk?.choices?.[0]?.delta;
-    if (!delta) continue;
+      case 'response.reasoning.search_results':
+        if (Array.isArray(event.results) && event.results.length > 0) {
+          searchResults = event.results;
+        }
+        break;
 
-    let text = '';
+      case 'response.completed': {
+        // The terminal snapshot is authoritative when it carries results.
+        const finalResults = extractSearchResults(event.response);
+        if (finalResults.length > 0) {
+          searchResults = finalResults;
+        }
+        break;
+      }
 
-    if (typeof delta.content === 'string') {
-      text = delta.content;
-    } else if (Array.isArray(delta.content)) {
-      text = delta.content
-        .map((part) => {
-          if (typeof part === 'string') return part;
-          if (typeof part?.text === 'string') return part.text;
-          return '';
-        })
-        .join('');
-    } else if (typeof delta.content === 'object' && delta.content !== null) {
-      text = delta.content.text || '';
-    }
+      case 'response.incomplete':
+        // Usually `incomplete_details.reason === 'max_output_tokens'` (the old
+        // `finish_reason: 'length'`). Keep the partial answer rather than
+        // discarding user-facing output.
+        logger?.warn?.(
+          `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
+        );
+        break;
 
-    if (text) {
-      textBuffer += text;
+      case 'response.failed':
+      case 'response.cancelled':
+      case 'error':
+        // Failed and cancelled runs arrive over a successful HTTP 200, so the
+        // stream terminal is the only signal that the run did not succeed.
+        throw new Error(
+          `Perplexity run ended with ${event.type}: ${
+            event.response?.error?.message || event.error?.message || 'no error detail'
+          }`,
+        );
+
+      default:
+        // Unrecognized event types are ignorable by design (forward-compat).
+        break;
     }
   }
 
-  // Aggregate citations into the metadata envelope so source_index_map is
+  // Aggregate sources into the metadata envelope so source_index_map is
   // fully populated before we linkify.
-  if (citations.length > 0 && streamer?.__citation_metadata) {
-    aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  if (searchResults.length > 0 && streamer?.__citation_metadata) {
+    aggregatePerplexityMetadata(streamer.__citation_metadata, { search_results: searchResults });
   }
 
   // Linkify [n] markers using the now-populated source_index_map, then emit
@@ -424,7 +491,7 @@ export async function callPerplexityChat(streamer, prompts) {
     await streamer.append({ markdown_text: botText });
   }
 
-  return { botText, citations };
+  return { botText, citations: searchResults.map((result) => result?.url).filter(Boolean) };
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────
@@ -454,7 +521,11 @@ export async function callLLM(streamer, prompts, logger) {
 
   let botText = '';
   try {
-    ({ botText } = await callPerplexityChat(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts]));
+    ({ botText } = await callPerplexityChat(
+      streamer,
+      [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts],
+      logger,
+    ));
 
     // Gate finalization: transition to READY_TO_FINALIZE from any pre-finalize state once
     // the LLM call has completed synchronously.
@@ -559,15 +630,27 @@ export async function summarizeForEscalation(transcriptText, logger) {
   if (!transcriptText || !transcriptText.trim()) return null;
 
   try {
-    const response = await perplexityClient.chat.completions.create({
+    // No `tools` here: this summarizes a transcript we already have, so web
+    // search would add cost and latency without grounding anything.
+    const response = await perplexityClient.responses.create({
       model: PERPLEXITY_API_MODEL,
-      messages: [
-        { role: 'system', content: ESCALATION_SUMMARY_SYSTEM_PROMPT },
-        { role: 'user', content: transcriptText },
-      ],
+      instructions: ESCALATION_SUMMARY_SYSTEM_PROMPT,
+      input: [{ type: 'message', role: 'user', content: transcriptText }],
       stream: false,
     });
-    const summary = response?.choices?.[0]?.message?.content;
+
+    // Failed and cancelled runs arrive over HTTP 200 with a populated `error`,
+    // so the resolved promise alone does not mean the run succeeded.
+    if (response?.status && response.status !== 'completed' && response.status !== 'incomplete') {
+      logger?.warn?.(
+        `Failed to generate escalation summary: run ended with ${response.status}: ${
+          response.error?.message || 'no error detail'
+        }`,
+      );
+      return null;
+    }
+
+    const summary = response?.output_text;
     return typeof summary === 'string' && summary.trim() ? summary.trim() : null;
   } catch (error) {
     logger?.warn?.(`Failed to generate escalation summary: ${error.message}`);
