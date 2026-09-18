@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 86,
+  "title": "[AI-188] feat: post-mortem improvement loop (PR capture + Copilot synthesis)",
+  "state": "merged",
+  "jiraKey": "AI-188",
+  "authorKind": "human",
+  "stats": {
+    "additions": 6306,
+    "deletions": 0,
+    "changedFiles": 19,
+    "commits": 31,
+    "reviewCycles": 1,
+    "reviewComments": 2,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 9719,
+    "ciRuns": {
+      "total": 15,
+      "failed": 0,
+      "cancelled": 1
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 5,
+      "yml": 3,
+      "husky/pre-commit": 1,
+      "gitkeep": 2,
+      "js": 3,
+      "json": 5
+    },
+    "testToSourceRatio": 2,
+    "docsTouched": true,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 1,
+      "rework": 1
+    },
+    "followupCommits": {
+      "fix": 10,
+      "feature": 11
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-07-31T14:34:37.851Z"
+}

@@ -1,0 +1,65 @@
+{
+  "prNumber": 63,
+  "title": "[AI-122] - escalate a conversation to a human",
+  "state": "merged",
+  "jiraKey": "AI-122",
+  "stats": {
+    "additions": 1182,
+    "deletions": 32,
+    "changedFiles": 27,
+    "commits": 43,
+    "reviewCycles": 5,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 33133,
+    "timeToMergeMinutes": 33174,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "yml": 1,
+      "sample": 1,
+      "json": 1,
+      "js": 21,
+      "md": 2,
+      "bicep": 1
+    },
+    "testToSourceRatio": 0.75,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 10,
+      "feature": 5
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "copilot-bot",
+      "kind": "copilot-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "MEMBER"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:09:57.739Z"
+}
