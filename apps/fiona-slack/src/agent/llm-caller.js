@@ -150,6 +150,53 @@ function describeInvalidModel(model) {
     return `"${model}" is not in the required provider/model format (for example "perplexity/sonar")`;
   }
 
+  // Anthropic models reject any request without max_output_tokens, and neither
+  // call site in this module sends one (answer length is governed by the
+  // prompt). Verified against production: omitting it returns
+  // `400 max_output_tokens is required when using Anthropic models`.
+  if (model.startsWith('anthropic/')) {
+    return `"${model}" requires max_output_tokens on every request, which Fiona does not send. Use a model that does not require it, such as "perplexity/sonar"`;
+  }
+
+  return null;
+}
+
+/**
+ * Explain why the configured domain filter cannot work.
+ *
+ * Whitespace is already trimmed when PERPLEXITY_DOMAIN_FILTER is parsed, but a
+ * scheme-prefixed entry is a natural mistake (pasting a URL) and is rejected by
+ * the API at request time rather than at boot. Verified against production:
+ * `https://docs.ed-fi.org` returns `400 domains must not include a URL scheme`.
+ *
+ * @param {Array<string>} domains - Parsed PERPLEXITY_DOMAIN_FILTER entries
+ * @returns {string | null} Error detail, or null when the filter is valid
+ */
+function describeInvalidDomainFilter(domains) {
+  if (!Array.isArray(domains) || domains.length === 0) {
+    return 'it is empty';
+  }
+
+  // The web_search tool accepts at most 20 entries, each at most 253 chars.
+  if (domains.length > 20) {
+    return `it has ${domains.length} entries, but at most 20 are allowed`;
+  }
+
+  const withScheme = domains.find((domain) => /:\/\//.test(domain));
+  if (withScheme) {
+    return `"${withScheme}" includes a URL scheme; pass the hostname only (for example "docs.ed-fi.org")`;
+  }
+
+  const tooLong = domains.find((domain) => domain.length > 253);
+  if (tooLong) {
+    return `"${tooLong.slice(0, 40)}…" exceeds the 253 character limit`;
+  }
+
+  const empty = domains.some((domain) => !domain);
+  if (empty) {
+    return 'it contains an empty entry (check for a stray comma)';
+  }
+
   return null;
 }
 
@@ -170,6 +217,11 @@ export function assertLLMConfigured() {
   const invalidModel = describeInvalidModel(PERPLEXITY_API_MODEL);
   if (invalidModel) {
     throw new Error(`PERPLEXITY_API_MODEL is invalid: ${invalidModel}. Refusing to start.`);
+  }
+
+  const invalidDomainFilter = describeInvalidDomainFilter(PERPLEXITY_DOMAIN_FILTER);
+  if (invalidDomainFilter) {
+    throw new Error(`PERPLEXITY_DOMAIN_FILTER is invalid: ${invalidDomainFilter}. Refusing to start.`);
   }
 }
 
@@ -448,7 +500,9 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
 // `400 unknown field "X"`, yet accepts `tool_choice` and validates its
 // contents semantically (a bogus tool name returns `400 tool_choice named tool
 // "..." is not present in tools`). Do not remove this on the basis of the SDK
-// types alone; doing so would silently degrade grounding to best-effort.
+// types alone: measured against production, omitting `tool_choice` while still
+// offering the tool grounded only 2 of 4 runs (zero sources on the other two),
+// whereas forcing it grounded 4 of 4.
 function buildWebSearchTool() {
   return {
     type: 'web_search',
