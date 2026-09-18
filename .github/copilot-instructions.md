@@ -68,6 +68,11 @@ For Standard changes, additionally:
 1. **Plan first.** Post a scoped plan to the PR before implementing:
    files/modules expected to change, why each is in scope, patterns to
    preserve, the test strategy, and the feasibility score.
+1. **Validate test intent.** Before implementing, read the failing tests and
+   confirm they encode the ticket's stated intent. Revise if misaligned (up to
+   three passes); if still misaligned, stop and document the gap with a
+   recommended ticket clarification. (The full protocol is in
+   `coding-agent.agent.md`.)
 1. **Scope-drift check.** Before opening the PR, compare changed files against
    the plan; justify or revert anything unexpected.
 1. **PR body.** Include the summary, the plan and feasibility score, the test
