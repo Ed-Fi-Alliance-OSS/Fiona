@@ -618,6 +618,23 @@ describe('message (assistant thread handler)', () => {
       expect(mockSay).not.toHaveBeenCalled();
     });
 
+    it('skips a duplicate ask retry before calling the LLM', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+      mockMessage.text = 'ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
+    });
+
     it('strips the "ask" keyword before prompting the LLM', async () => {
       mockMessage.text = 'ask how do I set up ODS?';
 

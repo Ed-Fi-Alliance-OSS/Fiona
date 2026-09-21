@@ -156,7 +156,7 @@ export async function buildAskResponse({
     return {
       response: {
         text: ASK_ERROR_TEXT,
-        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: ASK_ERROR_TEXT } }],
+        blocks: buildAskBlocks(ASK_ERROR_TEXT, interactionType),
         unfurl_links: false,
         unfurl_media: false,
       },

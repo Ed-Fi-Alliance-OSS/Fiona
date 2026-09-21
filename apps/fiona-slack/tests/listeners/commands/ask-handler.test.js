@@ -215,6 +215,22 @@ describe('buildAskResponse', () => {
       expect(errorType).toBe('llm_failed');
     });
 
+    it('includes the divider and feedback buttons in the fallback response', async () => {
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'app_mention',
+        ...ids,
+      });
+
+      expect(response.blocks[0]).toMatchObject({
+        type: 'section',
+        text: { type: 'mrkdwn', text: ASK_ERROR_TEXT },
+      });
+      expect(response.blocks[1]).toEqual({ type: 'divider' });
+      expect(response.blocks[2].block_id).toBe('feedback|ask|app_mention');
+    });
+
     it('does not capture a conversation', async () => {
       await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
       expect(mockCaptureConversation).not.toHaveBeenCalled();

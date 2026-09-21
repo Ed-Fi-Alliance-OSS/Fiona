@@ -403,6 +403,16 @@ describe('appMentionCallback', () => {
       expect(mockSay).not.toHaveBeenCalled();
     });
 
+    it('skips a duplicate ask retry before calling the LLM', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+    });
+
     it('strips the "ask" keyword before prompting the LLM', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
 

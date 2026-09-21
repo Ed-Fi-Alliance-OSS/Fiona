@@ -87,6 +87,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           logger,
           markInteractionRecorded,
           markInteractionError,
+          claimResponseId,
           client,
           userId: user,
           teamId: team,

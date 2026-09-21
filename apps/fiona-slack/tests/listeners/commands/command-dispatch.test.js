@@ -21,6 +21,15 @@ jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () =>
   streamAskResponse: mockStreamAskResponse,
 }));
 
+const mockGenerateResponseId = jest.fn().mockReturnValue('C1:123.45:123.45');
+const mockShouldFinalize = jest.fn().mockReturnValue(true);
+const mockRollbackFinalization = jest.fn();
+jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
+  generateResponseId: mockGenerateResponseId,
+  shouldFinalize: mockShouldFinalize,
+  rollbackFinalization: mockRollbackFinalization,
+}));
+
 const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
 const { CREATE_TICKET_ACTION, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
@@ -34,6 +43,7 @@ const ctx = (cmd, say) => ({
   logger,
   markInteractionRecorded: jest.fn(),
   markInteractionError: jest.fn(),
+  claimResponseId: jest.fn(),
   client: {},
   userId: 'U1',
   teamId: 'T1',
@@ -49,6 +59,7 @@ beforeEach(() => {
   // does not drain queued once-values, and an implicit default hides which
   // branch a test is exercising.
   mockIsTicketingEnabled.mockReturnValue(true);
+  mockShouldFinalize.mockReturnValue(true);
   mockBuildAskResponse.mockResolvedValue({
     response: { text: 'answer', blocks: [{ type: 'section' }], unfurl_links: false, unfurl_media: false },
     errorType: null,
@@ -79,11 +90,26 @@ describe('dispatchKeywordViaSay — ask', () => {
   });
 
   it('passes the question through without the keyword', async () => {
-    await dispatchKeywordViaSay(askCtx());
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
 
     expect(mockBuildAskResponse).toHaveBeenCalledWith(
       expect.objectContaining({ question: 'how do I set up ODS?', interactionType: 'app_mention' }),
     );
+    expect(mockGenerateResponseId).toHaveBeenCalledWith('C1', '123.45', '123.45');
+    expect(params.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
+    expect(mockShouldFinalize).toHaveBeenCalledWith('C1:123.45:123.45', logger);
+  });
+
+  it('skips duplicate retries before generating or delivering an answer', async () => {
+    mockShouldFinalize.mockReturnValueOnce(false);
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
+
+    expect(mockBuildAskResponse).not.toHaveBeenCalled();
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
   it('uses the top-level mention timestamp for capture identity but omits it from delivery', async () => {
@@ -114,6 +140,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
     expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+    expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
   });
 

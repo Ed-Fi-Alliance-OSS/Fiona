@@ -5,6 +5,7 @@
 
 import { escalateViaSay } from '../../agent/escalation.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
+import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { buildAskResponse, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
@@ -32,6 +33,8 @@ import {
  *   wrapper's turn record for escalate (postEscalation records it exactly once).
  * @param {(errorType: string) => void} params.markInteractionError - Records a
  *   handled failure without triggering the telemetry wrapper's public warning.
+ * @param {(responseId: string) => void} params.claimResponseId - Registers the
+ *   claimed response so the telemetry wrapper can release it if an error escapes.
  * @param {import("@slack/web-api").WebClient} params.client
  * @param {string} params.userId
  * @param {string} [params.teamId]
@@ -46,6 +49,7 @@ export async function dispatchKeywordViaSay({
   logger,
   markInteractionRecorded,
   markInteractionError,
+  claimResponseId,
   client,
   userId,
   teamId,
@@ -93,6 +97,12 @@ export async function dispatchKeywordViaSay({
     // capture record. For an @-mention, the question is already visible to the
     // channel but the answer is ephemeral. In the private assistant panel, the
     // answer streams into the thread like any other response.
+    const responseId = generateResponseId(channelId, threadTs, messageTs);
+    claimResponseId(responseId);
+    if (!shouldFinalize(responseId, logger)) {
+      return;
+    }
+
     if (interactionType === 'app_mention') {
       const { response, errorType } = await buildAskResponse({
         question: cmd.rawArgs,
@@ -113,6 +123,7 @@ export async function dispatchKeywordViaSay({
           ...response,
         });
       } catch (err) {
+        rollbackFinalization(responseId);
         markInteractionError('post_failed');
         logger?.error?.(`Failed to send ephemeral ask response: ${err.name}: ${err.message}`);
       }

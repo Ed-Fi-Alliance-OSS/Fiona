@@ -107,6 +107,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           logger,
           markInteractionRecorded,
           markInteractionError,
+          claimResponseId,
           client,
           userId,
           teamId,
