@@ -24,4 +24,11 @@ if git diff --cached --name-only | grep -q "^apps/usage-report-function/"; then
   cd "$REPO_ROOT"
 fi
 
+if git diff --cached --name-only | grep -q "^scripts/postmortem/"; then
+  echo "Changes detected in scripts/postmortem — running tests..."
+  cd "$REPO_ROOT/scripts/postmortem"
+  npm test
+  cd "$REPO_ROOT"
+fi
+
 echo "Pre-commit checks passed."

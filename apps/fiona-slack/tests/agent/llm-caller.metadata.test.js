@@ -6,8 +6,8 @@
 import { describe, it, expect, jest } from '@jest/globals';
 
 // Mock all external dependencies before importing the module under test.
-jest.unstable_mockModule('openai', () => ({
-  OpenAI: jest.fn(),
+jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
+  default: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../src/agent/utils/source-normalizer.js', () => ({

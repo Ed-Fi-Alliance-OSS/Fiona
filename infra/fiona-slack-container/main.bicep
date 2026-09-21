@@ -79,11 +79,52 @@ param conversationsContainerName string = 'conversations'
 @description('Enable capturing all conversations for human evaluation (default: false)')
 param captureAllConversations bool = false
 
+// AI-217 kill switches. MSDF tech asked that neither escalation nor ticket
+// creation go live until the team has evaluated alternatives, so both default to
+// false here and in the deploy workflow: the feature is off unless a deployment
+// explicitly turns it on.
+@description('Master switch for the escalation feature (/fiona escalate and the escalate keyword). Off by default')
+param escalationEnabled bool = false
+
+@description('Master switch for the ticket-creation feature (/fiona ticket and its aliases). Off by default')
+param ticketCreationEnabled bool = false
+
 @description('Slack channel ID where /fiona escalate posts (bot must be a member)')
 param escalationChannel string = ''
 
 @description('Optional Slack user group ID to @-mention on escalation')
 param escalationUsergroupId string = ''
+
+// GitHub issue creation (/fiona ticket). Ticketing stays disabled unless BOTH the
+// repo and the token are set — isGithubConfigured() requires both, so a partial
+// configuration silently turns the feature off rather than failing loudly.
+@description('Fine-grained GitHub PAT used to create issues via the GraphQL API')
+@secure()
+param ghIssueToken string = ''
+
+@description('GitHub repo (owner/name) where /fiona ticket issues are created')
+param ghIssueRepo string = ''
+
+@description('GitHub issue type name for bug reports (must already exist in the org)')
+param ghIssueBugTypeName string = 'Bug'
+
+@description('GitHub issue type name for feature requests (must already exist in the org)')
+param ghIssueFeatureTypeName string = 'Feature'
+
+@description('Org-level GitHub issue field name for the reporting Slack user (optional)')
+param ghIssueSlackUserFieldName string = ''
+
+@description('Org-level GitHub issue field name for ticket priority (optional)')
+param ghIssuePriorityFieldName string = ''
+
+@description('Comma-separated Priority option names, in dropdown order. Must match the GitHub single-select field options exactly (optional)')
+param ghIssuePriorityOptionNames string = ''
+
+@description('Require Approve/Discard triage before creating a GitHub issue')
+param ticketApprovalRequired bool = false
+
+@description('Slack channel ID where ticket drafts are posted for triage approval (bot must be a member)')
+param ticketTriageChannelId string = ''
 
 // --- Reference shared resources ---
 
@@ -393,12 +434,56 @@ resource slackContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
               value: interactionsContainerName
             }
             {
+              name: 'ESCALATION_ENABLED'
+              value: escalationEnabled ? 'true' : 'false'
+            }
+            {
+              name: 'TICKET_CREATION_ENABLED'
+              value: ticketCreationEnabled ? 'true' : 'false'
+            }
+            {
               name: 'ESCALATION_CHANNEL_ID'
               value: escalationChannel
             }
             {
               name: 'ESCALATION_USERGROUP_ID'
               value: escalationUsergroupId
+            }
+            {
+              name: 'GH_ISSUE_TOKEN'
+              value: ghIssueToken
+            }
+            {
+              name: 'GH_ISSUE_REPO'
+              value: ghIssueRepo
+            }
+            {
+              name: 'GH_ISSUE_BUG_TYPE_NAME'
+              value: ghIssueBugTypeName
+            }
+            {
+              name: 'GH_ISSUE_FEATURE_TYPE_NAME'
+              value: ghIssueFeatureTypeName
+            }
+            {
+              name: 'GH_ISSUE_SLACK_USER_FIELD_NAME'
+              value: ghIssueSlackUserFieldName
+            }
+            {
+              name: 'GH_ISSUE_PRIORITY_FIELD_NAME'
+              value: ghIssuePriorityFieldName
+            }
+            {
+              name: 'GH_ISSUE_PRIORITY_OPTION_NAMES'
+              value: ghIssuePriorityOptionNames
+            }
+            {
+              name: 'TICKET_APPROVAL_REQUIRED'
+              value: ticketApprovalRequired ? 'true' : 'false'
+            }
+            {
+              name: 'TICKET_TRIAGE_CHANNEL_ID'
+              value: ticketTriageChannelId
             }
           ]
           // No probes -- no ingress port for HTTP health checks

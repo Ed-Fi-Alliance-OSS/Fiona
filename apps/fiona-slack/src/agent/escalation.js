@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } from '../listeners/commands/command-handler.js';
+import { isEscalationEnabled } from './deployment-flags.js';
 import { recordFeedback } from './feedback-store.js';
 import { recordInteraction } from './interaction-store.js';
 import { summarizeForEscalation } from './llm-caller.js';
@@ -93,6 +94,16 @@ export async function postEscalation({
   isDm = false,
   logger,
 }) {
+  // AI-217 kill switch, checked before anything else so that every entry point
+  // inherits it from here and no network call is made for a feature that is off.
+  // Deliberately ahead of the ESCALATION_CHANNEL_ID check: "off by decision"
+  // must not be reported as a configuration error. Records no interaction, for
+  // the same reason.
+  if (!isEscalationEnabled()) {
+    logger?.warn?.('Escalation is disabled (ESCALATION_ENABLED); not posting escalation.');
+    return { ok: false, errorType: 'feature_disabled' };
+  }
+
   const targetChannel = process.env.ESCALATION_CHANNEL_ID;
   if (!targetChannel) {
     logger?.warn?.('ESCALATION_CHANNEL_ID is not configured; cannot post escalation.');

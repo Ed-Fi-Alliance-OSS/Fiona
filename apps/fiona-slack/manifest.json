@@ -35,8 +35,11 @@
                 "channels:history",
                 "channels:join",
                 "chat:write",
+                "commands",
                 "im:history",
-                "groups:history"
+                "groups:history",
+                "users:read",
+                "users:read.email"
             ]
         }
     },

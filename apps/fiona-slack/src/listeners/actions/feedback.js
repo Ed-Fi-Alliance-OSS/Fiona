@@ -3,6 +3,65 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { extractSearchQuery } from '../../agent/search-caller.js';
+import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
+
+const PRIVATE_METADATA_MAX_CHARS = 3000;
+const PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS = 1000;
+const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
+
+/**
+ * Resolve the contextual feedback block id from the action payload.
+ *
+ * @param {import("@slack/bolt").SlackAction} body
+ * @param {Record<string, any>} action
+ * @returns {string|null}
+ */
+function getFeedbackBlockId(body, action) {
+  if (typeof action?.block_id === 'string' && action.block_id.length > 0) {
+    return action.block_id;
+  }
+
+  if (!Array.isArray(body?.message?.blocks)) return null;
+  return body.message.blocks.find((block) => block?.type === 'context_actions')?.block_id ?? null;
+}
+
+function compactBotResponse(messageText) {
+  if (typeof messageText !== 'string') return null;
+  if (messageText.length <= PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS) return messageText;
+  return `${messageText.slice(0, PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS - 1)}…`;
+}
+
+function compactSearchQuery(searchQuery) {
+  if (typeof searchQuery !== 'string') return null;
+  if (searchQuery.length <= PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS) return searchQuery;
+  return `${searchQuery.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
+}
+
+function buildPrivateMetadata(baseMetadata, searchContext = null) {
+  if (!searchContext) {
+    return JSON.stringify(baseMetadata);
+  }
+
+  const searchQuery = compactSearchQuery(searchContext.searchQuery);
+  const botResponse = compactBotResponse(searchContext.botResponse);
+
+  const privateMetadata = JSON.stringify({
+    ...baseMetadata,
+    ...(searchQuery ? { searchQuery } : {}),
+    ...(botResponse ? { botResponse } : {}),
+  });
+
+  // compactSearchQuery/compactBotResponse already cap combined size well under
+  // PRIVATE_METADATA_MAX_CHARS; this is a guard against Slack's limit in case
+  // those caps are loosened later without re-checking the invariant.
+  if (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS) {
+    return JSON.stringify(baseMetadata);
+  }
+
+  return privateMetadata;
+}
+
 /**
  * The `feedbackActionCallback` action responds to the `feedbackBlock` that displays
  * positive and negative feedback icons. This block is attached to the bottom of LLM
@@ -34,6 +93,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
     const channel_id = body.channel.id;
     const user_id = body.user.id;
     const value = action.value;
+    const { responseType, interactionType } = parseFeedbackBlockId(getFeedbackBlockId(body, action));
 
     if (value !== 'good-feedback' && value !== 'bad-feedback') {
       logger.warn('Received unexpected feedback value', { value, channel_id, user_id, message_ts });
@@ -55,13 +115,26 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
         },
         submit: { type: 'plain_text', text: 'Submit' },
         close: { type: 'plain_text', text: isGoodFeedback ? 'Skip' : 'Cancel' },
-        private_metadata: JSON.stringify({
-          channelId: channel_id,
-          messageTs: message_ts,
-          userId: user_id,
-          value,
-          thread_ts,
-        }),
+        private_metadata: buildPrivateMetadata(
+          {
+            channelId: channel_id,
+            messageTs: message_ts,
+            userId: user_id,
+            value,
+            thread_ts,
+            responseType,
+            interactionType,
+          },
+          // Captured for every search interaction type, not just slash_search: ephemeral
+          // messages (app_mention, assistant_message) can never be re-fetched later via
+          // conversations.history/replies, so click-time is the only chance to store them.
+          responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
+            ? {
+                searchQuery: extractSearchQuery(body.message?.text),
+                botResponse: body.message?.text ?? null,
+              }
+            : null,
+        ),
         blocks: [
           {
             type: 'input',

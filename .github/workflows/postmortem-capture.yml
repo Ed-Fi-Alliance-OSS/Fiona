@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+name: Post-Mortem Capture
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  # actions: read is required to read workflow-run and job-step history, which is
+  # where CI failure/skip signal comes from. Without it capture silently records
+  # zero CI failures for every PR.
+  actions: read
+
+# The data branch is a single shared writer. Two PRs merging together would
+# otherwise race on checkout/commit/push and lose a record.
+concurrency:
+  group: postmortem-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Capture PR post-mortem data
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+    # Only capture MERGED PRs. A closed-but-unmerged PR is often throwaway
+    # work whose signal would mislead synthesis, so it never enters the data set.
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Capture PR data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/postmortem/capture.js "${{ github.event.pull_request.number }}"
+
+      - name: Commit to postmortem-data branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Move the freshly-written record aside, switch to the data branch, restore it.
+          RECORD="docs/postmortems/PR-${PR_NUMBER}.json"
+          cp "${RECORD}" "/tmp/PR-${PR_NUMBER}.json"
+          git fetch origin postmortem-data || true
+          if git rev-parse --verify --quiet origin/postmortem-data; then
+            git checkout -B postmortem-data origin/postmortem-data
+          else
+            git checkout --orphan postmortem-data
+            git rm -rf --cached . >/dev/null 2>&1 || true
+            git clean -fd >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$(dirname "${RECORD}")"
+          cp "/tmp/PR-${PR_NUMBER}.json" "${RECORD}"
+          git add "${RECORD}"
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(postmortem): capture PR #${PR_NUMBER} data [skip ci]"
+          git push origin postmortem-data

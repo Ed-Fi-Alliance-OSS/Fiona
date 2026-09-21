@@ -17,7 +17,7 @@ import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
-import { feedbackBlock } from '../views/feedback_block.js';
+import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -113,6 +113,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           threadTs: thread_ts,
           messageTs,
           source: 'assistant_escalate',
+          interactionType: 'assistant_message',
         });
         return;
       }
@@ -211,7 +212,12 @@ export const message = async ({ client, context, logger, message, say, setStatus
               text: 'The crowd appears to be astounded and applauds :popcorn:',
             },
           ],
-          blocks: [feedbackBlock],
+          blocks: [
+            createFeedbackBlock({
+              responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
+              interactionType: 'assistant_message',
+            }),
+          ],
         });
       } else {
         // This second example shows a generated text response for the provided prompt
@@ -253,7 +259,14 @@ export const message = async ({ client, context, logger, message, say, setStatus
           logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
         }
 
-        await streamer.stop({ blocks: [feedbackBlock] });
+        await streamer.stop({
+          blocks: [
+            createFeedbackBlock({
+              responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
+              interactionType: 'assistant_message',
+            }),
+          ],
+        });
         finalizeMetadataEnvelope(metadata);
 
         try {

@@ -1,0 +1,1233 @@
+{
+  "view": {
+    "number": 92,
+    "title": "[AI-184] feat: add selectable coding-agent custom agent with live Jira ticket as source of truth",
+    "state": "MERGED",
+    "headRefName": "pr-89",
+    "additions": 198,
+    "deletions": 171,
+    "changedFiles": 5,
+    "createdAt": "2026-07-27T18:24:42Z",
+    "mergedAt": "2026-07-28T19:24:38Z",
+    "closedAt": "2026-07-28T19:24:38Z",
+    "author": {
+      "login": "human-a"
+    },
+    "reviews": [
+      {
+        "author": {
+          "login": "human-a"
+        },
+        "authorAssociation": "MEMBER",
+        "state": "COMMENTED",
+        "submittedAt": "2026-07-27T20:55:15Z"
+      },
+      {
+        "author": {
+          "login": "human-c"
+        },
+        "authorAssociation": "MEMBER",
+        "state": "APPROVED",
+        "submittedAt": "2026-07-28T19:24:32Z"
+      }
+    ],
+    "comments": [
+      {
+        "author": {
+          "login": "human-a"
+        },
+        "authorAssociation": "MEMBER",
+        "body": "nit: formatting",
+        "createdAt": "2026-07-28T14:53:34Z"
+      }
+    ],
+    "commits": [
+      {
+        "oid": "f7f98a5263a9233a8c0a54d4ee76c8c3d156fda8",
+        "messageHeadline": "feat: add selectable coding-agent custom agent for Copilot cloud agent",
+        "committedDate": "2026-07-24T22:34:30Z",
+        "authoredDate": "2026-07-24T22:34:30Z"
+      },
+      {
+        "oid": "e1fa3023dae89c8fab3f8d1ce7393e398f64fa0d",
+        "messageHeadline": "docs: point copilot-instructions at the coding-agent; lean off automa…",
+        "committedDate": "2026-07-24T22:46:38Z",
+        "authoredDate": "2026-07-24T22:46:38Z"
+      },
+      {
+        "oid": "509b02826b6b5583d58823e1aadc4f240a63efdd",
+        "messageHeadline": "docs: design spec for Jira-source-of-truth coding agent (read-only)",
+        "committedDate": "2026-07-27T17:54:45Z",
+        "authoredDate": "2026-07-27T17:41:41Z"
+      },
+      {
+        "oid": "9c3eb725a76314cde1d1d8313e07cd692159fced",
+        "messageHeadline": "docs: implementation plan for Jira-source-of-truth coding agent",
+        "committedDate": "2026-07-27T17:57:32Z",
+        "authoredDate": "2026-07-27T17:57:32Z"
+      },
+      {
+        "oid": "b419daf3e66020a79c28205391c22c6048e8c0cf",
+        "messageHeadline": "feat: add read-only Atlassian MCP server for local Jira access",
+        "committedDate": "2026-07-27T18:02:13Z",
+        "authoredDate": "2026-07-27T18:02:13Z"
+      },
+      {
+        "oid": "2e858b2a80c1a54062ab9439ece9b3e9c4e26e9a",
+        "messageHeadline": "docs: rewrite coding-agent trigger contract for Jira source of truth",
+        "committedDate": "2026-07-27T18:04:25Z",
+        "authoredDate": "2026-07-27T18:04:25Z"
+      },
+      {
+        "oid": "1812e0776484bb6c49f1069bc8fe614b4f95c702",
+        "messageHeadline": "docs: baseline copilot-instructions to Jira source of truth (read-only)",
+        "committedDate": "2026-07-27T18:06:24Z",
+        "authoredDate": "2026-07-27T18:06:24Z"
+      },
+      {
+        "oid": "bc1c166bbc08c13e97f130fe1beb445c6d357e7d",
+        "messageHeadline": "feat: coding-agent reads live Jira ticket (read-only), marks PR ready…",
+        "committedDate": "2026-07-27T18:08:27Z",
+        "authoredDate": "2026-07-27T18:08:27Z"
+      },
+      {
+        "oid": "3ce8ad04a869a43fd65b840d9e67e0ce5ec405c1",
+        "messageHeadline": "fix: align coding-agent intro with Jira source-of-truth / draft-PR model",
+        "committedDate": "2026-07-27T18:10:45Z",
+        "authoredDate": "2026-07-27T18:10:45Z"
+      },
+      {
+        "oid": "9cc6c1b9b3553687c8af71fc8d1eede86f0cd03d",
+        "messageHeadline": "docs: automate-bug-fix reads live Jira ticket (read-only), notify on …",
+        "committedDate": "2026-07-27T18:12:59Z",
+        "authoredDate": "2026-07-27T18:12:59Z"
+      },
+      {
+        "oid": "6578bf52b4941cdb9f2934edc3c7d6dc4141d639",
+        "messageHeadline": "fix: remove stale issue-comment and reviewable-issues wording from au…",
+        "committedDate": "2026-07-27T18:18:02Z",
+        "authoredDate": "2026-07-27T18:18:02Z"
+      },
+      {
+        "oid": "cd866276fe609967d55580c115c96f26f24792cf",
+        "messageHeadline": "Merge branch 'main' into pr-89",
+        "committedDate": "2026-07-27T19:25:19Z",
+        "authoredDate": "2026-07-27T19:25:19Z"
+      },
+      {
+        "oid": "a60246a8483b1ae2646215dca748741b9aef29f0",
+        "messageHeadline": "docs: remove Superpowers spec/plan from PR",
+        "committedDate": "2026-07-27T19:29:07Z",
+        "authoredDate": "2026-07-27T19:27:15Z"
+      },
+      {
+        "oid": "b9a4cf76649da1803435626006c3f1973c4927c4",
+        "messageHeadline": "docs: remove superseded automate-bug-fix skill",
+        "committedDate": "2026-07-27T19:32:53Z",
+        "authoredDate": "2026-07-27T19:32:53Z"
+      }
+    ],
+    "files": [
+      {
+        "path": ".github/agents/coding-agent.agent.md",
+        "additions": 109,
+        "deletions": 0
+      },
+      {
+        "path": ".github/copilot-instructions.md",
+        "additions": 28,
+        "deletions": 15
+      },
+      {
+        "path": ".github/skills/automate-bug-fix/SKILL.md",
+        "additions": 0,
+        "deletions": 144
+      },
+      {
+        "path": ".vscode/mcp.json",
+        "additions": 4,
+        "deletions": 0
+      },
+      {
+        "path": "docs/agents/coding-agent.md",
+        "additions": 57,
+        "deletions": 12
+      }
+    ]
+  },
+  "runs": {
+    "total_count": 5,
+    "workflow_runs": [
+      {
+        "id": 30298721940,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "b9a4cf76649da1803435626006c3f1973c4927c4",
+        "created_at": "2026-07-27T19:33:02Z",
+        "run_started_at": "2026-07-27T19:33:02Z",
+        "updated_at": "2026-07-27T19:34:53Z",
+        "run_attempt": 1
+      },
+      {
+        "id": 30298460083,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "head_sha": "a60246a8483b1ae2646215dca748741b9aef29f0",
+        "created_at": "2026-07-27T19:29:29Z",
+        "run_started_at": "2026-07-27T19:29:29Z",
+        "updated_at": "2026-07-27T19:33:06Z",
+        "run_attempt": 1
+      },
+      {
+        "id": 30298170737,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "head_sha": "cd866276fe609967d55580c115c96f26f24792cf",
+        "created_at": "2026-07-27T19:25:25Z",
+        "run_started_at": "2026-07-27T19:25:25Z",
+        "updated_at": "2026-07-27T19:29:30Z",
+        "run_attempt": 1
+      },
+      {
+        "id": 30293641506,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "6578bf52b4941cdb9f2934edc3c7d6dc4141d639",
+        "created_at": "2026-07-27T18:24:47Z",
+        "run_started_at": "2026-07-27T18:24:47Z",
+        "updated_at": "2026-07-27T18:29:06Z",
+        "run_attempt": 1
+      },
+      {
+        "id": 30293039248,
+        "name": "Build and Test the Fiona Slack App",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "9cc6c1b9b3553687c8af71fc8d1eede86f0cd03d",
+        "created_at": "2026-07-27T18:16:40Z",
+        "run_started_at": "2026-07-27T18:16:40Z",
+        "updated_at": "2026-07-27T18:17:55Z",
+        "run_attempt": 1
+      }
+    ]
+  },
+  "jobs": {
+    "30293039248": {
+      "jobs": [
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:16:50Z",
+          "completed_at": "2026-07-27T18:17:07Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:16:49Z",
+          "completed_at": "2026-07-27T18:17:55Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:16:45Z",
+          "completed_at": "2026-07-27T18:17:03Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:16:44Z",
+          "completed_at": "2026-07-27T18:16:49Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Trojan source detector",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    "30293641506": {
+      "jobs": [
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:27:29Z",
+          "completed_at": "2026-07-27T18:27:51Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:28:07Z",
+          "completed_at": "2026-07-27T18:29:05Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:27:02Z",
+          "completed_at": "2026-07-27T18:27:09Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Trojan source detector",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "success",
+          "started_at": "2026-07-27T18:27:07Z",
+          "completed_at": "2026-07-27T18:27:24Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    "30298170737": {
+      "jobs": [
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:26:40Z",
+          "completed_at": "2026-07-27T19:27:08Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:28:03Z",
+          "completed_at": "2026-07-27T19:29:25Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:25:46Z",
+          "completed_at": "2026-07-27T19:26:09Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "cancelled",
+          "started_at": "2026-07-27T19:25:25Z",
+          "completed_at": "2026-07-27T19:29:29Z",
+          "steps": []
+        }
+      ]
+    },
+    "30298460083": {
+      "jobs": [
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "cancelled",
+          "started_at": "2026-07-27T19:29:30Z",
+          "completed_at": "2026-07-27T19:33:02Z",
+          "steps": []
+        },
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:31:49Z",
+          "completed_at": "2026-07-27T19:32:12Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:30:44Z",
+          "completed_at": "2026-07-27T19:30:51Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Trojan source detector",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "cancelled",
+          "started_at": "2026-07-27T19:32:49Z",
+          "completed_at": "2026-07-27T19:33:04Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "cancelled"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    "30298721940": {
+      "jobs": [
+        {
+          "name": "Code Analysis (CodeQL & Dependency Review)",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:33:39Z",
+          "completed_at": "2026-07-27T19:34:52Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Dependency Review",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Initialize CodeQL",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Perform CodeQL Analysis",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Perform CodeQL Analysis",
+              "number": 11,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Initialize CodeQL",
+              "number": 12,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 13,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 14,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 15,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / bidi-scanner",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:33:59Z",
+          "completed_at": "2026-07-27T19:34:06Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Trojan source detector",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Setup - apps/fiona-slack",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:33:35Z",
+          "completed_at": "2026-07-27T19:34:02Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Setup Node (from .nvmrc)",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Install dependencies (ci)",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Lint code",
+              "number": 5,
+              "conclusion": "success"
+            },
+            {
+              "name": "Run tests",
+              "number": 6,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report test results",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Report code coverage",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Setup Node (from .nvmrc)",
+              "number": 15,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout",
+              "number": 16,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 17,
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "name": "Scan Actions, scan all files for BIDI Trojan Attacks / action-allowedlist",
+          "conclusion": "success",
+          "started_at": "2026-07-27T19:33:59Z",
+          "completed_at": "2026-07-27T19:34:15Z",
+          "steps": [
+            {
+              "name": "Set up job",
+              "number": 1,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the Actions repo",
+              "number": 2,
+              "conclusion": "success"
+            },
+            {
+              "name": "Checkout the repo to Scan",
+              "number": 3,
+              "conclusion": "success"
+            },
+            {
+              "name": "Scan used actions",
+              "number": 4,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the repo to Scan",
+              "number": 7,
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Checkout the Actions repo",
+              "number": 8,
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "number": 9,
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

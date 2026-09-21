@@ -1,0 +1,9 @@
+{
+  "name": "postmortem-capture",
+  "private": true,
+  "type": "module",
+  "description": "PR post-mortem data capture (Phase A). No runtime dependencies.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

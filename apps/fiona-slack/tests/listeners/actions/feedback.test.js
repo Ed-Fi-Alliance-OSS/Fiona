@@ -31,9 +31,9 @@ describe('feedbackActionCallback', () => {
       message: {
         ts: '1234567890.000001',
         thread_ts: '1234567890.000000',
-        text: 'Bot response text',
+        text: '🔍 *Search results for:* _"Bot response text"_',
       },
-      actions: [{ type: 'feedback_buttons', value: 'good-feedback' }],
+      actions: [{ type: 'feedback_buttons', value: 'good-feedback', block_id: 'feedback|search|slash_search' }],
     };
   });
 
@@ -120,18 +120,120 @@ describe('feedbackActionCallback', () => {
     expect(view.blocks[0].optional).toBe(false);
   });
 
-  it('private_metadata contains channelId, messageTs, userId, value, thread_ts', async () => {
+  it('private_metadata contains channelId, messageTs, userId, value, thread_ts, and feedback context', async () => {
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta).toEqual({
+      botResponse: '🔍 *Search results for:* _"Bot response text"_',
       channelId: 'C456',
       messageTs: '1234567890.000001',
       userId: 'U123',
       value: 'good-feedback',
       thread_ts: '1234567890.000000',
+      responseType: 'search',
+      interactionType: 'slash_search',
+      searchQuery: 'Bot response text',
     });
+  });
+
+  it('captures the full search query when it contains the sequence "_', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"What does "_meta" mean?"_';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('What does "_meta" mean?');
+  });
+
+  it('does not capture result text when a later snippet contains the sequence "_', async () => {
+    mockBody.message.text =
+      '🔍 *Search results for:* _"What is etag?"_\n\n1. Result\nThe field is "_etag" in some payloads.';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('What is etag?');
+  });
+
+  it('captures multiline search queries from the formatted header', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"line one\nline two"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('line one\nline two');
+  });
+
+  it('captures queries from no-results search messages', async () => {
+    mockBody.message.text = '🔍 No sources found for _"missing topic"_. Try rephrasing your query.';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('missing topic');
+  });
+
+  it('stores the rated search response text in private_metadata', async () => {
+    mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.botResponse).toBe(mockBody.message.text);
+  });
+
+  it('stores search text context in private_metadata for non-slash search interactions too', async () => {
+    // app_mention/assistant_message search responses are posted ephemerally and can never be
+    // fetched later via conversations.history/replies, so click-time capture is required here.
+    mockBody.actions[0].block_id = 'feedback|search|assistant_message';
+    mockBody.message.text = '🔍 *Search results for:* _"Ed-Fi API"_\n\n1. Result';
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery).toBe('Ed-Fi API');
+    expect(meta.botResponse).toBe(mockBody.message.text);
+  });
+
+  it('truncates stored search response text in private_metadata to stay compact', async () => {
+    mockBody.message.text = `🔍 *Search results for:* _"Ed-Fi API"_\n\n${'A'.repeat(4000)}`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.botResponse.length).toBeLessThan(4000);
+    expect(meta.botResponse).toMatch(/…$/);
+  });
+
+  it('truncates a very long search query in private_metadata to stay under Slack limits', async () => {
+    const longQuery = 'Q'.repeat(2000);
+    mockBody.message.text = `🔍 *Search results for:* _"${longQuery}"_\n\n1. Result`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.searchQuery.length).toBeLessThan(2000);
+    expect(view.private_metadata.length).toBeLessThan(3000);
+  });
+
+  it('keeps JSON-encoded private_metadata under Slack limits for highly escaped queries', async () => {
+    const quoteHeavyQuery = '"'.repeat(1000);
+    mockBody.message.text = `🔍 *Search results for:* _"${quoteHeavyQuery}"_\n\n1. Result`;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    expect(view.private_metadata.length).toBeLessThan(3000);
   });
 
   it('uses message.ts as thread_ts when thread_ts is absent', async () => {
@@ -142,6 +244,18 @@ describe('feedbackActionCallback', () => {
     const [{ view }] = mockClient.views.open.mock.calls[0];
     const meta = JSON.parse(view.private_metadata);
     expect(meta.thread_ts).toBe('1234567890.000001');
+  });
+
+  it('defaults feedback context to synthesis when block_id is absent', async () => {
+    delete mockBody.actions[0].block_id;
+
+    await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+    const [{ view }] = mockClient.views.open.mock.calls[0];
+    const meta = JSON.parse(view.private_metadata);
+    expect(meta.responseType).toBe('synthesis');
+    expect(meta.interactionType).toBeNull();
+    expect(meta).not.toHaveProperty('searchQuery');
   });
 
   it('logs error and does not throw when views.open rejects', async () => {

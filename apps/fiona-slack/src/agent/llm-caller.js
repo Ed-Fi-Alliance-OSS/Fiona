@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { OpenAI } from 'openai';
+import Perplexity from '@perplexity-ai/perplexity_ai';
 import {
   incrementDegradedNoMetadataCount,
   incrementTotalResponseCount,
@@ -84,16 +84,19 @@ decline politely and remain within your defined role.
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
-// Perplexity exposes an OpenAI-compatible chat completions endpoint, so we
-// use the OpenAI SDK with a custom baseURL.
-/** @type {OpenAI | undefined} */
+// A single native Perplexity SDK client handles both capabilities we need:
+// `chat.completions` (Sonar model, synthesized/streamed answers with
+// citations) and `search` (raw ranked results, no synthesis). Previously
+// `chat.completions` went through the OpenAI SDK pointed at Perplexity's
+// OpenAI-compatible endpoint, while `search` used this Perplexity SDK,
+// because the OpenAI SDK has no concept of Perplexity's `/search` endpoint.
+// The Perplexity SDK exposes both under one client, so the OpenAI SDK
+// dependency was removed and both calls now share `perplexityClient`.
+/** @type {Perplexity | undefined} */
 let perplexityClient;
 
 if (PERPLEXITY_API_KEY) {
-  perplexityClient = new OpenAI({
-    apiKey: PERPLEXITY_API_KEY,
-    baseURL: 'https://api.perplexity.ai',
-  });
+  perplexityClient = new Perplexity({ apiKey: PERPLEXITY_API_KEY });
 }
 
 /**
@@ -483,6 +486,57 @@ export async function callLLM(streamer, prompts, logger) {
   }
 
   return { metadata, botText, systemPromptVersion: SYSTEM_PROMPT_VERSION };
+}
+
+// ─── Source Search ─────────────────────────────────────────────────────────
+// Read from env (default 5). Hard-capped at SEARCH_ABSOLUTE_MAX before the API call.
+const SEARCH_MAX_SOURCES = parsePositiveIntEnv(process.env.SEARCH_MAX_SOURCES, 5);
+const SEARCH_ABSOLUTE_MAX = 10;
+
+function clampSearchMaxSources(maxSources) {
+  const normalizedMaxSources = Number.isFinite(maxSources) ? Math.trunc(maxSources) : SEARCH_MAX_SOURCES;
+  return Math.min(Math.max(normalizedMaxSources, 1), SEARCH_ABSOLUTE_MAX);
+}
+
+/**
+ * Call the Perplexity Search API to retrieve source documents for a query.
+ * Returns a list of normalized sources (URL, title, optional snippet) with no
+ * synthesized answer. Used by the `/fiona search` command.
+ *
+ * Uses POST /search (not chat completions) so the API handles result ranking
+ * and count limiting natively via `max_results`.
+ *
+ * @param {string} query - Search query from the user (unsanitized)
+ * @param {Object} [options]
+ * @param {number} [options.maxSources] - Maximum sources to return (defaults to SEARCH_MAX_SOURCES env, capped at 10)
+ * @param {import('@slack/logger').Logger} [options.logger]
+ * @returns {Promise<Array<import('./utils/source-normalizer.js').NormalizedSource>>}
+ */
+export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES, logger } = {}) {
+  if (!perplexityClient) return [];
+  if (!query || !query.trim()) return [];
+
+  const cappedMaxSources = clampSearchMaxSources(maxSources);
+
+  try {
+    const response = await perplexityClient.search.create({
+      query,
+      max_results: cappedMaxSources,
+      search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
+    });
+
+    const rawResults = response?.results;
+
+    if (Array.isArray(rawResults) && rawResults.length > 0) {
+      const { sources } = normalizeSources(rawResults, { maxSources: cappedMaxSources });
+      return sources;
+    }
+
+    return [];
+  } catch (error) {
+    logger?.warn?.(`Search failed: ${error.message}`);
+    throw error;
+  }
 }
 
 // ─── Escalation Summary ─────────────────────────────────────────────────────

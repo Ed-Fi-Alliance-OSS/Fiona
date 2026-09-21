@@ -26,7 +26,7 @@
     "@azure/identity": "^4.0.0",
     "@azure/keyvault-secrets": "^4.8.0",
     "@azure/storage-blob": "^12.29.0",
-    "axios": "^1.16.0",
+    "axios": "^1.18.0",
     "chart.js": "^4.5.1",
     "puppeteer": "^25.3.0"
   },
