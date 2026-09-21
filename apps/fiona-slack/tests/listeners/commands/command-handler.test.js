@@ -24,13 +24,11 @@ const {
   buildHelpText,
   handleHelpViaSay,
   handleSearchViaSay,
-  handleComingSoonViaSay,
   routeCommandViaSay,
   buildCreateTicketBlocks,
   normalizeTicketType,
   TICKET_TYPES,
   CREATE_TICKET_ACTION,
-  ASK_NOT_YET_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } = await import('../../../src/listeners/commands/command-handler.js');
 
@@ -520,38 +518,6 @@ describe('handleSearchViaSay', () => {
   });
 });
 
-describe('handleComingSoonViaSay', () => {
-  let mockSay;
-  let mockLogger;
-
-  beforeEach(() => {
-    mockSay = jest.fn().mockResolvedValue(undefined);
-    mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
-  });
-
-  it('calls say() with ASK_NOT_YET_TEXT for ask sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
-  });
-
-  it('logs error when say() throws', async () => {
-    mockSay.mockRejectedValueOnce(new Error('timeout'));
-    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
-    expect(mockLogger.error).toHaveBeenCalled();
-  });
-
-  it('does not throw when say() throws', async () => {
-    mockSay.mockRejectedValueOnce(new Error('timeout'));
-    await expect(
-      handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT),
-    ).resolves.not.toThrow();
-  });
-
-  it('ASK_NOT_YET_TEXT mentions @fiona ask as alternative', () => {
-    expect(ASK_NOT_YET_TEXT).toMatch('@fiona ask');
-  });
-});
-
 describe('routeCommandViaSay', () => {
   let mockSay;
   let mockLogger;
@@ -569,9 +535,19 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('sends ASK_NOT_YET_TEXT when keyword is "ask"', async () => {
+  it('falls back to the help text for a keyword command-dispatch did not claim', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
+    expect(mockSay).toHaveBeenCalledWith(buildHelpText());
+  });
+
+  it('warns when it has to fall back, so an unrouted keyword is visible in logs', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('ask'));
+  });
+
+  it('does not warn on the ordinary help route', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
   it('calls searchForSources and say() results when keyword is "search"', async () => {

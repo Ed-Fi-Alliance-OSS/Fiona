@@ -242,13 +242,18 @@ describe('fionaCommandCallback', () => {
   describe('ask sub-command — with a question invokes the LLM', () => {
     let mockRespond;
     let mockClient;
-    let mockStreamer;
 
     beforeEach(() => {
       mockCommand.text = 'ask What is the Ed-Fi Data Standard?';
+      // Own user id: the rate limiter is real and its per-user budget is shared
+      // across suites, so spending U12345's on this suite starves the later ones.
+      mockCommand.user_id = 'U_ASK_SUITE';
       mockRespond = jest.fn().mockResolvedValue(undefined);
-      mockStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) };
-      mockClient = { chatStream: jest.fn().mockReturnValue(mockStreamer) };
+      mockClient = { chatStream: jest.fn() };
+      mockCallLLM.mockImplementation(async (sink) => {
+        await sink.append({ markdown_text: 'test response' });
+        return { metadata: null, botText: 'test response', systemPromptVersion: 'v1' };
+      });
     });
 
     it('calls ack() exactly once with no text argument', async () => {
@@ -257,13 +262,16 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith();
     });
 
-    it('streams to the invoking user only (no thread_ts, recipient_user_id set)', async () => {
+    it('answers ephemerally so the exchange stays private in a public channel', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
-      expect(mockClient.chatStream).toHaveBeenCalledWith({
-        channel: mockCommand.channel_id,
-        recipient_team_id: mockCommand.team_id,
-        recipient_user_id: mockCommand.user_id,
-      });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: 'test response' }),
+      );
+    });
+
+    it('never posts the answer into the channel via chatStream', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
     });
 
     it('calls callLLM with the question as a standalone prompt', async () => {
@@ -273,11 +281,11 @@ describe('fionaCommandCallback', () => {
       expect(prompts).toEqual([{ role: 'user', content: 'What is the Ed-Fi Data Standard?' }]);
     });
 
-    it('stops the streamer with a feedback block after callLLM resolves', async () => {
+    it('attaches the feedback block to the ephemeral answer', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
-      expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
-      const [{ blocks }] = mockStreamer.stop.mock.calls[0];
-      expect(blocks[0].block_id).toBe('feedback|synthesis|slash_ask');
+      const [{ blocks }] = mockRespond.mock.calls[0];
+      expect(blocks.at(-1).block_id).toBe('feedback|synthesis|slash_ask');
+      expect(blocks[0]).toMatchObject({ type: 'section', text: { type: 'mrkdwn', text: 'test response' } });
     });
 
     it('captures the conversation with entryPoint slash_ask', async () => {
@@ -307,8 +315,14 @@ describe('fionaCommandCallback', () => {
         expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining(':warning:') }),
       );
       expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_ask', status: 'error' }),
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'llm_failed' }),
       );
+    });
+
+    it('does not capture a conversation when the LLM fails', async () => {
+      mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
     });
 
     it('sends an ephemeral rate-limit message and records rate-limited telemetry', async () => {

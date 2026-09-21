@@ -3,23 +3,14 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { captureConversation } from '../../agent/conversation-capture-store.js';
 import { isEscalationEnabled, isTicketingFeatureEnabled } from '../../agent/deployment-flags.js';
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
-import { waitForMetadataReady } from '../../agent/interaction-telemetry.js';
-import {
-  CITATION_POLICY,
-  callLLM,
-  finalizeMetadataEnvelope,
-  LLM_MODEL,
-  SYSTEM_PROMPT_VERSION,
-} from '../../agent/llm-caller.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
-import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
+import { ASK_ERROR_TEXT, buildAskResponse } from './ask-handler.js';
 import {
   buildHelpText,
   buildSearchResponse,
@@ -70,7 +61,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleHelp({ command, ack, logger });
       break;
     case 'ask':
-      await handleAsk({ command, ack, respond, client, logger });
+      await handleAsk({ command, ack, respond, logger });
       break;
     case 'search':
       await handleSearch({ command, ack, respond, logger });
@@ -146,10 +137,15 @@ async function handleHelp({ command, ack, logger }) {
 
 /**
  * Handles the `/fiona ask <question>` sub-command.
- * Streams an ephemeral LLM response visible only to the invoking user.
+ *
+ * Answers privately: `respond()` with response_type ephemeral, so the question
+ * and the answer stay between Fiona and the person who asked even when the
+ * command is typed in a public channel. The answer itself comes from
+ * buildAskResponse, shared with the `ask` keyword path.
+ *
  * Falls back to the help response when no question is provided.
  */
-async function handleAsk({ command, ack, respond, client, logger }) {
+async function handleAsk({ command, ack, respond, logger }) {
   const question = (command.text ?? '').trim().slice('ask'.length).trim();
 
   // Empty question: fall back to help (same as /fiona with no sub-command)
@@ -158,7 +154,6 @@ async function handleAsk({ command, ack, respond, client, logger }) {
     return;
   }
 
-  // Acknowledge the slash command immediately (Slack requires ack within 3 seconds)
   try {
     await ack();
   } catch (err) {
@@ -167,7 +162,8 @@ async function handleAsk({ command, ack, respond, client, logger }) {
   }
 
   if (!hasRequiredFields(command)) {
-    logger?.warn?.('Missing required slash command fields; skipping /fiona ask');
+    logger?.warn?.('Missing required slash command fields; skipping ask');
+    await respond({ response_type: 'ephemeral', text: ASK_ERROR_TEXT });
     return;
   }
 
@@ -184,72 +180,28 @@ async function handleAsk({ command, ack, respond, client, logger }) {
     return;
   }
 
-  // Stream the LLM response as an ephemeral message visible only to the invoking user
+  // buildAskResponse never throws on LLM failure — it substitutes an error
+  // message and reports the failure via errorType, so carry that into telemetry.
+  let response;
+  let errorType;
   try {
-    const streamer = client.chatStream({
-      channel: command.channel_id,
-      recipient_team_id: command.team_id,
-      recipient_user_id: command.user_id,
-    });
-
-    const prompts = [{ role: 'user', content: question }];
-    const { metadata, botText, systemPromptVersion } = await callLLM(streamer, prompts, logger);
-
-    // Wait for metadata to be ready before finalizing
-    await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
-
-    // Telemetry: log finalize_state and source count for observability.
-    if (metadata) {
-      logger?.info?.(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
-    }
-
-    await streamer.stop({
-      blocks: [
-        createFeedbackBlock({
-          responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
-          interactionType: 'slash_ask',
-        }),
-      ],
-    });
-    finalizeMetadataEnvelope(metadata);
-
-    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask' });
-
-    try {
-      await captureConversation({
-        userId: command.user_id,
-        teamId: command.team_id,
-        channelId: command.channel_id,
-        threadTs: command.trigger_id,
-        messageTs: command.trigger_id,
-        entryPoint: 'slash_ask',
-        userMessage: question,
-        botResponse: botText,
-        threadHistory: prompts,
-        llmProvider: metadata?.provider ?? 'perplexity',
-        llmModel: LLM_MODEL,
-        systemPromptVersion: systemPromptVersion ?? SYSTEM_PROMPT_VERSION,
-        sources: metadata?.sources,
-        logger,
-      });
-    } catch (err) {
-      logger?.warn?.(`Failed to capture conversation: ${err.message}`);
-    }
-  } catch (err) {
-    logger?.error?.(`Failed to handle /fiona ask: ${err.name}`, err);
-    try {
-      await respond({ response_type: 'ephemeral', text: ':warning: Something went wrong! Please try again later.' });
-    } catch (respondErr) {
-      logger?.warn?.(`Failed to send error response for /fiona ask: ${respondErr.name}`);
-    }
-    recordInteraction({
-      ...slashInteractionRecord(command, 'slash_ask'),
-      status: 'error',
-      errorType: 'unknown',
-      rateLimited: false,
+    ({ response, errorType } = await buildAskResponse({
+      question,
       logger,
-    }).catch((recErr) => logger?.warn?.(`Failed to record slash_ask interaction: ${recErr.name}`));
+      interactionType: 'slash_ask',
+      userId: command.user_id,
+      teamId: command.team_id,
+      channelId: command.channel_id,
+      threadTs: command.trigger_id,
+      messageTs: command.trigger_id,
+    }));
+    await respond({ response_type: 'ephemeral', ...response });
+  } catch (err) {
+    logger?.error?.(`Failed to respond to /fiona ask: ${err.name}`);
+    return;
   }
+
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
 }
 
 async function handleSearch({ command, ack, respond, logger }) {

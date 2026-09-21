@@ -390,14 +390,37 @@ describe('appMentionCallback', () => {
       expect(callLLM).toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when mention text starts with "ask "', async () => {
+    it('answers "ask <question>" ephemerally, not in the channel', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
-      expect(callLLM).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C123', user: 'U456' }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
+    });
+
+    it('strips the "ask" keyword before prompting the LLM', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
+    });
+
+    it('keeps the ask answer in-thread when the mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ thread_ts: '1234567890.000000' }),
+      );
     });
 
     it('responds with search results when mention text starts with "search "', async () => {
@@ -455,14 +478,14 @@ describe('appMentionCallback', () => {
       // is covered in tests/agent/interaction-telemetry.test.js.
     });
 
-    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+    it('answers "@fiona fiona ask <question>" ephemerally too', async () => {
       mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
-      expect(callLLM).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     // AI-217: with escalation off the keyword is no longer a command, so the

@@ -123,7 +123,8 @@ Also worth reporting even though it's not a failure:
 - Bare `search` with no query is not intercepted as a command; it's treated as a question for
   the LLM. Deliberate — `search` alone is ambiguous with someone asking "how do I search for
   X."
-- `/fiona ask` still replies "not yet available." Different feature, not in scope here.
+- `/fiona ask` is a different feature, not in scope here. (It was still stubbed out when
+  this plan was written; AI-182 has since implemented it.)
 - No synthesized answer, ever — just a source list. That's the point of `/fiona search` versus
   the normal `@fiona` Q&A path.
 

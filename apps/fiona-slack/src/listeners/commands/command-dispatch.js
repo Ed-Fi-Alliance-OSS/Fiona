@@ -5,6 +5,7 @@
 
 import { escalateViaSay } from '../../agent/escalation.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
+import { buildAskResponse, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
   handleSearchEphemeral,
@@ -16,7 +17,8 @@ import {
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
  * @-mention event or the assistant panel). The `escalate` keyword needs the
  * conversation context (client, ids, thread) and routes to `escalateViaSay`;
- * `help`/`ask`/`search` fall through to `routeCommandViaSay`.
+ * `ask` and `search` answer through their own pipelines; `help` falls through
+ * to `routeCommandViaSay`.
  *
  * Shared by the app_mention and assistant message listeners so the
  * escalate-vs-route branch — and the "record the escalate turn exactly once"
@@ -80,6 +82,46 @@ export async function dispatchKeywordViaSay({
       isDm: (channelId || '').startsWith('D'),
       say,
       logger,
+    });
+    return;
+  }
+  if (cmd.keyword === 'ask') {
+    // Held in lock step with the slash command: same prompt, same feedback block,
+    // same capture record, and the same privacy. In a channel the answer goes back
+    // ephemerally — a question typed as `@fiona ask …` is no more public than the
+    // same question typed as `/fiona ask …`. In the assistant panel the thread is
+    // already private, so it streams there instead and reads like any other answer.
+    if (interactionType === 'app_mention') {
+      const { response } = await buildAskResponse({
+        question: cmd.rawArgs,
+        logger,
+        interactionType,
+        userId,
+        teamId,
+        channelId,
+        threadTs: threadTs === messageTs ? null : threadTs,
+        messageTs,
+      });
+      await client.chat
+        .postEphemeral({
+          channel: channelId,
+          user: userId,
+          ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
+          ...response,
+        })
+        .catch((err) => logger?.error?.(`Failed to send ephemeral ask response: ${err.name}: ${err.message}`));
+      return;
+    }
+    await streamAskResponse({
+      client,
+      logger,
+      question: cmd.rawArgs,
+      interactionType,
+      userId,
+      teamId,
+      channelId,
+      threadTs,
+      messageTs,
     });
     return;
   }

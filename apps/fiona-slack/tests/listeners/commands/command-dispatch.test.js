@@ -13,12 +13,20 @@ jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({
   isTicketingEnabled: mockIsTicketingEnabled,
 }));
 
+const mockBuildAskResponse = jest.fn();
+const mockStreamAskResponse = jest.fn().mockResolvedValue(undefined);
+jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () => ({
+  ASK_ERROR_TEXT: ':warning: ask failed',
+  buildAskResponse: mockBuildAskResponse,
+  streamAskResponse: mockStreamAskResponse,
+}));
+
 const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
 const { CREATE_TICKET_ACTION, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
 );
 
-const logger = { warn: jest.fn(), error: jest.fn() };
+const logger = { warn: jest.fn(), error: jest.fn(), info: jest.fn() };
 
 const ctx = (cmd, say) => ({
   cmd,
@@ -40,6 +48,93 @@ beforeEach(() => {
   // does not drain queued once-values, and an implicit default hides which
   // branch a test is exercising.
   mockIsTicketingEnabled.mockReturnValue(true);
+  mockBuildAskResponse.mockResolvedValue({
+    response: { text: 'answer', blocks: [{ type: 'section' }], unfurl_links: false, unfurl_media: false },
+    errorType: null,
+  });
+});
+
+// AI-182. The keyword path answers `ask` for real and holds the same privacy
+// promise as /fiona ask: in a channel the reply is ephemeral, in the already
+// private assistant panel it streams like any other answer.
+describe('dispatchKeywordViaSay — ask', () => {
+  const askCtx = (over = {}) => ({
+    ...ctx({ keyword: 'ask', rawArgs: 'how do I set up ODS?' }, jest.fn().mockResolvedValue(undefined)),
+    client: { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } },
+    interactionType: 'app_mention',
+    ...over,
+  });
+
+  it('answers an @-mention ephemerally, never with say()', async () => {
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C1', user: 'U1', text: 'answer' }),
+    );
+    expect(params.say).not.toHaveBeenCalled();
+  });
+
+  it('passes the question through without the keyword', async () => {
+    await dispatchKeywordViaSay(askCtx());
+
+    expect(mockBuildAskResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ question: 'how do I set up ODS?', interactionType: 'app_mention' }),
+    );
+  });
+
+  it('omits thread_ts for a top-level mention', async () => {
+    // threadTs === messageTs means the mention started the thread rather than
+    // landing in one, and an ephemeral reply to a non-thread must not claim one.
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral.mock.calls[0][0]).not.toHaveProperty('thread_ts');
+  });
+
+  it('keeps the reply in-thread for a mention inside a thread', async () => {
+    const params = askCtx({ threadTs: '100.00', messageTs: '200.00' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: '100.00' }),
+    );
+  });
+
+  it('logs rather than throws when the ephemeral post fails', async () => {
+    const params = askCtx();
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
+  });
+
+  it('streams in the assistant panel instead of posting ephemerally', async () => {
+    const params = askCtx({ interactionType: 'assistant_message' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(mockStreamAskResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ question: 'how do I set up ODS?', interactionType: 'assistant_message' }),
+    );
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(mockBuildAskResponse).not.toHaveBeenCalled();
+  });
+
+  it('does not escalate or record the turn itself', async () => {
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
+
+    expect(mockEscalateViaSay).not.toHaveBeenCalled();
+    // The telemetry wrapper records app_mention/assistant_message turns; the ask
+    // branch must not suppress that the way escalate does.
+    expect(params.markInteractionRecorded).not.toHaveBeenCalled();
+  });
 });
 
 describe('dispatchKeywordViaSay — file_ticket', () => {

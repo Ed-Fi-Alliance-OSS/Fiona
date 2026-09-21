@@ -47,11 +47,6 @@ ${commands.join('\n')}
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 }
 
-export const ASK_NOT_YET_TEXT =
-  `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
-  `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
-
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
 export const ESCALATE_CONFIRM_TEXT = '✅ Your conversation has been escalated. A team member will follow up shortly.';
@@ -217,13 +212,16 @@ export function parseCommandKeyword(text) {
  * @param {{ keyword: string, rawArgs: string }} cmd
  */
 export async function routeCommandViaSay(say, logger, cmd, options = {}) {
-  if (cmd.keyword === 'help') {
-    await handleHelpViaSay(say, logger);
-  } else if (cmd.keyword === 'search') {
+  if (cmd.keyword === 'search') {
     await handleSearchViaSay(say, logger, cmd.rawArgs, options);
-  } else {
-    await handleComingSoonViaSay(say, logger, cmd.keyword, ASK_NOT_YET_TEXT);
+    return;
   }
+  // `help` and anything command-dispatch did not claim: the help text is the
+  // safe answer, and it is what an unrecognised sub-command already gets.
+  if (cmd.keyword !== 'help') {
+    logger?.warn?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
+  }
+  await handleHelpViaSay(say, logger);
 }
 
 /**
@@ -320,21 +318,5 @@ export async function handleSearchEphemeral(
     });
   } catch (err) {
     logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
-  }
-}
-
-/**
- * Sends a "coming soon" response via say() for ask commands in non-slash contexts.
- *
- * @param {Function} say
- * @param {import('@slack/logger').Logger} logger
- * @param {string} keyword - The command keyword ('ask')
- * @param {string} text - The coming-soon message text to send.
- */
-export async function handleComingSoonViaSay(say, logger, keyword, text) {
-  try {
-    await say(text);
-  } catch (err) {
-    logger?.error?.(`Failed to send coming-soon response for ${keyword}: ${err.name}`);
   }
 }
