@@ -33,6 +33,7 @@ const ctx = (cmd, say) => ({
   say,
   logger,
   markInteractionRecorded: jest.fn(),
+  markInteractionError: jest.fn(),
   client: {},
   userId: 'U1',
   teamId: 'T1',
@@ -54,9 +55,9 @@ beforeEach(() => {
   });
 });
 
-// AI-182. The keyword path answers `ask` for real and holds the same privacy
-// promise as /fiona ask: in a channel the reply is ephemeral, in the already
-// private assistant panel it streams like any other answer.
+// AI-182. The keyword path answers `ask` for real. In a channel the mention is
+// visible but the reply is ephemeral; in the private assistant panel it streams
+// like any other answer.
 describe('dispatchKeywordViaSay — ask', () => {
   const askCtx = (over = {}) => ({
     ...ctx({ keyword: 'ask', rawArgs: 'how do I set up ODS?' }, jest.fn().mockResolvedValue(undefined)),
@@ -85,13 +86,15 @@ describe('dispatchKeywordViaSay — ask', () => {
     );
   });
 
-  it('omits thread_ts for a top-level mention', async () => {
+  it('uses the top-level mention timestamp for capture identity but omits it from delivery', async () => {
     // threadTs === messageTs means the mention started the thread rather than
-    // landing in one, and an ephemeral reply to a non-thread must not claim one.
+    // landing in one. Capture still needs that timestamp as its conversation
+    // identity, while an ephemeral reply to a non-thread must not claim one.
     const params = askCtx();
 
     await dispatchKeywordViaSay(params);
 
+    expect(mockBuildAskResponse).toHaveBeenCalledWith(expect.objectContaining({ threadTs: '123.45' }));
     expect(params.client.chat.postEphemeral.mock.calls[0][0]).not.toHaveProperty('thread_ts');
   });
 
@@ -105,12 +108,27 @@ describe('dispatchKeywordViaSay — ask', () => {
     );
   });
 
-  it('logs rather than throws when the ephemeral post fails', async () => {
+  it('marks and logs an ephemeral post failure without throwing', async () => {
     const params = askCtx();
     params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
+  });
+
+  it('marks a handled ask-generation failure from buildAskResponse', async () => {
+    mockBuildAskResponse.mockResolvedValueOnce({
+      response: { text: ':warning: ask failed', blocks: [], unfurl_links: false, unfurl_media: false },
+      errorType: 'llm_failed',
+    });
+    const params = askCtx();
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.markInteractionError).toHaveBeenCalledWith('llm_failed');
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+    expect(params.say).not.toHaveBeenCalled();
   });
 
   it('streams in the assistant panel instead of posting ephemerally', async () => {

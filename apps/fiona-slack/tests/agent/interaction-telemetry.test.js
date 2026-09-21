@@ -102,6 +102,7 @@ describe('handleInteractionWithTelemetry', () => {
       expect(typeof ctx.claimResponseId).toBe('function');
       expect(typeof ctx.markRateLimited).toBe('function');
       expect(typeof ctx.markInteractionRecorded).toBe('function');
+      expect(typeof ctx.markInteractionError).toBe('function');
 
       expect(recordInteraction).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -109,6 +110,36 @@ describe('handleInteractionWithTelemetry', () => {
           rateLimited: true,
         }),
       );
+    });
+
+    it('records a handled interaction error without sending the public warning', async () => {
+      const handler = jest.fn(async (ctx) => {
+        expect(typeof ctx.markInteractionError).toBe('function');
+        ctx.markInteractionError('llm_failed');
+      });
+
+      await handleInteractionWithTelemetry(
+        {
+          userId: 'U123',
+          teamId: 'T123',
+          channelId: 'C123',
+          threadTs: '1712345678.001',
+          messageTs: '1712345678.123',
+          interactionType: 'app_mention',
+          logger,
+          say,
+        },
+        handler,
+      );
+
+      expect(recordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'error',
+          errorType: 'llm_failed',
+        }),
+      );
+      expect(say).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 

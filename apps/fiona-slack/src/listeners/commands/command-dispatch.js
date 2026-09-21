@@ -30,6 +30,8 @@ import {
  * @param {import("@slack/logger").Logger} [params.logger]
  * @param {() => void} params.markInteractionRecorded - Suppresses the telemetry
  *   wrapper's turn record for escalate (postEscalation records it exactly once).
+ * @param {(errorType: string) => void} params.markInteractionError - Records a
+ *   handled failure without triggering the telemetry wrapper's public warning.
  * @param {import("@slack/web-api").WebClient} params.client
  * @param {string} params.userId
  * @param {string} [params.teamId]
@@ -43,6 +45,7 @@ export async function dispatchKeywordViaSay({
   say,
   logger,
   markInteractionRecorded,
+  markInteractionError,
   client,
   userId,
   teamId,
@@ -86,30 +89,33 @@ export async function dispatchKeywordViaSay({
     return;
   }
   if (cmd.keyword === 'ask') {
-    // Held in lock step with the slash command: same prompt, same feedback block,
-    // same capture record, and the same privacy. In a channel the answer goes back
-    // ephemerally — a question typed as `@fiona ask …` is no more public than the
-    // same question typed as `/fiona ask …`. In the assistant panel the thread is
-    // already private, so it streams there instead and reads like any other answer.
+    // Held in lock step with the slash command: same prompt, feedback block, and
+    // capture record. For an @-mention, the question is already visible to the
+    // channel but the answer is ephemeral. In the private assistant panel, the
+    // answer streams into the thread like any other response.
     if (interactionType === 'app_mention') {
-      const { response } = await buildAskResponse({
+      const { response, errorType } = await buildAskResponse({
         question: cmd.rawArgs,
         logger,
         interactionType,
         userId,
         teamId,
         channelId,
-        threadTs: threadTs === messageTs ? null : threadTs,
+        threadTs,
         messageTs,
       });
-      await client.chat
-        .postEphemeral({
+      if (errorType) markInteractionError(errorType);
+      try {
+        await client.chat.postEphemeral({
           channel: channelId,
           user: userId,
           ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
           ...response,
-        })
-        .catch((err) => logger?.error?.(`Failed to send ephemeral ask response: ${err.name}: ${err.message}`));
+        });
+      } catch (err) {
+        markInteractionError('post_failed');
+        logger?.error?.(`Failed to send ephemeral ask response: ${err.name}: ${err.message}`);
+      }
       return;
     }
     await streamAskResponse({

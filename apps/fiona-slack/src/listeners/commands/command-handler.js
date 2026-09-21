@@ -9,7 +9,7 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi privately',
+  'ask <question>          Ask a question about Ed-Fi (see privacy below)',
   'search <query>          Search Ed-Fi documentation',
 ];
 
@@ -43,6 +43,11 @@ ${commands.join('\n')}
 • *Slash command* (\`/fiona …\`) — in any channel
 • *@-mention* (\`@fiona …\`) — in a channel or thread
 • *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
+
+*Question privacy:*
+• *Slash command* — your question and answer are private
+• *DM or agent panel* — your question and answer are private
+• *@-mention* — your question is visible to the channel; Fiona's answer is private
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 }

@@ -604,6 +604,14 @@ describe('buildHelpText — ticket line is flag-gated', () => {
   it('keeps the reach-Fiona guidance regardless of the flag', () => {
     expect(buildHelpText()).toMatch('fiona help');
   });
+
+  it('states which ask entry points expose the question to the channel', () => {
+    const text = buildHelpText();
+
+    expect(text).toMatch(/slash command.*question and answer are private/i);
+    expect(text).toMatch(/DM.*question and answer are private/i);
+    expect(text).toMatch(/@-mention.*question is visible to the channel.*answer is private/i);
+  });
 });
 
 describe('parseCommandKeyword — escalate is flag-gated', () => {
