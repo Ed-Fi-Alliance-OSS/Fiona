@@ -102,7 +102,11 @@ async function resolveSearchFeedbackContext(
  */
 async function resolveAskFeedbackContext(client, channelId, threadTs, messageTs, interactionType, storedBotResponse) {
   if (interactionType === 'assistant_message') {
-    return fetchThreadContext(client, channelId, threadTs, messageTs);
+    const fetched = await fetchThreadContext(client, channelId, threadTs, messageTs);
+    // fetchThreadContext resolves with nulls rather than throwing when the
+    // streamed message is gone or the thread was truncated; the copy stored at
+    // click time is then the only surviving record of the answer.
+    return { userMessage: fetched.userMessage, botResponse: fetched.botResponse ?? storedBotResponse ?? null };
   }
   return { userMessage: null, botResponse: storedBotResponse ?? null };
 }

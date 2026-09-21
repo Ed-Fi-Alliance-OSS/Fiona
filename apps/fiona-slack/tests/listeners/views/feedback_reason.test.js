@@ -485,6 +485,25 @@ describe('feedbackReasonViewCallback — ask response type', () => {
       expect.objectContaining({ botResponse: 'The Ed-Fi Data Standard is a specification…' }),
     );
   });
+
+  it('keeps the stored answer when the streamed response is no longer in the thread', async () => {
+    // fetchThreadContext resolves with nulls rather than throwing when the
+    // message has aged out or the thread was truncated.
+    mockClient.conversations.replies.mockResolvedValue({
+      messages: [{ ts: '9999999999.000000', text: 'some other message' }],
+    });
+
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ interactionType: 'assistant_message' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+    );
+  });
 });
 
 describe('feedbackReasonClosedCallback', () => {

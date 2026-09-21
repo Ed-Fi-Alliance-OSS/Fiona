@@ -129,7 +129,7 @@ export async function dispatchKeywordViaSay({
       }
       return;
     }
-    await streamAskResponse({
+    const streamResult = await streamAskResponse({
       client,
       logger,
       question: cmd.rawArgs,
@@ -140,6 +140,7 @@ export async function dispatchKeywordViaSay({
       threadTs,
       messageTs,
     });
+    if (streamResult?.errorType) markInteractionError(streamResult.errorType);
     return;
   }
   if (cmd.keyword === 'search' && interactionType === 'app_mention') {

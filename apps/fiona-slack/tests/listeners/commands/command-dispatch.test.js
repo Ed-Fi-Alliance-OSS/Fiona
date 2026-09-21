@@ -170,6 +170,15 @@ describe('dispatchKeywordViaSay — ask', () => {
     expect(mockBuildAskResponse).not.toHaveBeenCalled();
   });
 
+  it('marks a handled failure reported by the streaming path', async () => {
+    mockStreamAskResponse.mockResolvedValueOnce({ errorType: 'llm_empty' });
+    const params = askCtx({ interactionType: 'assistant_message' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.markInteractionError).toHaveBeenCalledWith('llm_empty');
+  });
+
   it('does not escalate or record the turn itself', async () => {
     const params = askCtx();
 

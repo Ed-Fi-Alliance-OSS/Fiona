@@ -68,6 +68,29 @@ function buildAskBlocks(text, interactionType) {
   ];
 }
 
+/** The substituted failure message, in the shape every ask delivery path expects. */
+function buildAskErrorResponse(interactionType, errorType) {
+  return {
+    response: {
+      text: ASK_ERROR_TEXT,
+      blocks: buildAskBlocks(ASK_ERROR_TEXT, interactionType),
+      unfurl_links: false,
+      unfurl_media: false,
+    },
+    errorType,
+  };
+}
+
+/**
+ * An Agent response can complete with no text at all — `callPerplexityChat`
+ * returns `botText: ''` and appends nothing. That is a failed generation, not an
+ * answer: delivering it would post an empty section block (which Slack rejects)
+ * and capture an empty response as a successful interaction.
+ */
+function isEmptyAnswer(botText) {
+  return !botText || !botText.trim();
+}
+
 /**
  * Runs the LLM and settles the citation metadata envelope.
  *
@@ -153,19 +176,16 @@ export async function buildAskResponse({
     result = await generateAnswer(collector, question, logger);
   } catch (err) {
     logger?.error?.(`Failed to answer ask question: ${err.name}: ${err.message}`);
-    return {
-      response: {
-        text: ASK_ERROR_TEXT,
-        blocks: buildAskBlocks(ASK_ERROR_TEXT, interactionType),
-        unfurl_links: false,
-        unfurl_media: false,
-      },
-      errorType: 'llm_failed',
-    };
+    return buildAskErrorResponse(interactionType, 'llm_failed');
   }
 
   const { metadata, botText, systemPromptVersion, prompts } = result;
   finalizeMetadataEnvelope(metadata);
+
+  if (isEmptyAnswer(botText)) {
+    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
+    return buildAskErrorResponse(interactionType, 'llm_empty');
+  }
 
   await captureAsk({
     userId,
@@ -202,6 +222,10 @@ export async function buildAskResponse({
  *
  * Errors propagate: the assistant listener runs inside
  * `handleInteractionWithTelemetry`, which classifies them and tells the user.
+ * An empty generation is not an error to propagate — the stream is already open,
+ * so it is closed with the failure copy and reported back through `errorType`.
+ *
+ * @returns {Promise<{ errorType: string|null }>}
  */
 export async function streamAskResponse({
   client,
@@ -223,10 +247,22 @@ export async function streamAskResponse({
 
   const { metadata, botText, systemPromptVersion, prompts } = await generateAnswer(streamer, question, logger);
 
+  // Nothing was appended when the answer came back empty, so the stream would
+  // otherwise stop on a message carrying only feedback buttons.
+  const empty = isEmptyAnswer(botText);
+  if (empty) {
+    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
+    await streamer.append({ markdown_text: ASK_ERROR_TEXT });
+  }
+
   await streamer.stop({
     blocks: [createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType })],
   });
   finalizeMetadataEnvelope(metadata);
+
+  if (empty) {
+    return { errorType: 'llm_empty' };
+  }
 
   await captureAsk({
     userId,
@@ -242,4 +278,6 @@ export async function streamAskResponse({
     systemPromptVersion,
     logger,
   });
+
+  return { errorType: null };
 }

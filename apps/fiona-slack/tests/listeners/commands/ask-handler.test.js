@@ -319,3 +319,99 @@ describe('streamAskResponse', () => {
     ).rejects.toThrow('perplexity exploded');
   });
 });
+
+// callPerplexityChat returns `botText: ''` without appending anything when the
+// Agent response carries no text. That is a failed generation, not an answer.
+function answersWithNothing(text = '') {
+  return async () => ({ metadata: null, botText: text, systemPromptVersion: 'v1' });
+}
+
+describe('when the LLM returns an empty answer', () => {
+  it('substitutes the error copy instead of delivering an empty section', async () => {
+    mockCallLLM.mockImplementation(answersWithNothing());
+
+    const { response } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
+
+    expect(response.text).toBe(ASK_ERROR_TEXT);
+    expect(response.blocks[0]).toMatchObject({ type: 'section', text: { text: ASK_ERROR_TEXT } });
+    expect(response.blocks[2].block_id).toBe('feedback|ask|slash_ask');
+  });
+
+  it('treats a whitespace-only answer the same way', async () => {
+    mockCallLLM.mockImplementation(answersWithNothing('   \n  '));
+
+    const { response, errorType } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
+
+    expect(response.text).toBe(ASK_ERROR_TEXT);
+    expect(errorType).toBe('llm_empty');
+  });
+
+  it('reports the failure through errorType so telemetry is not recorded as success', async () => {
+    mockCallLLM.mockImplementation(answersWithNothing());
+
+    const { errorType } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
+
+    expect(errorType).toBe('llm_empty');
+  });
+
+  it('does not capture an empty answer as a successful conversation', async () => {
+    mockCallLLM.mockImplementation(answersWithNothing());
+
+    await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+    expect(mockCaptureConversation).not.toHaveBeenCalled();
+  });
+
+  describe('on the streaming path', () => {
+    let mockStreamer;
+    let mockClient;
+
+    beforeEach(() => {
+      mockStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) };
+      mockClient = { chatStream: jest.fn().mockReturnValue(mockStreamer) };
+      mockCallLLM.mockImplementation(answersWithNothing());
+    });
+
+    it('streams the error copy rather than stopping on an empty message', async () => {
+      await streamAskResponse({
+        client: mockClient,
+        logger: mockLogger,
+        question: 'q',
+        interactionType: 'assistant_message',
+        ...ids,
+      });
+
+      expect(mockStreamer.append).toHaveBeenCalledWith({ markdown_text: ASK_ERROR_TEXT });
+      const [{ blocks }] = mockStreamer.stop.mock.calls[0];
+      expect(blocks[0].block_id).toBe('feedback|ask|assistant_message');
+    });
+
+    it('reports the failure and captures nothing', async () => {
+      const { errorType } = await streamAskResponse({
+        client: mockClient,
+        logger: mockLogger,
+        question: 'q',
+        interactionType: 'assistant_message',
+        ...ids,
+      });
+
+      expect(errorType).toBe('llm_empty');
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+  });
+});
