@@ -88,6 +88,59 @@ async function resolveSearchFeedbackContext(
 }
 
 /**
+ * Recovers the question and answer behind an `ask` rating.
+ *
+ * In the assistant panel the answer is an ordinary thread message, so the thread
+ * lookup recovers both sides. Everywhere else the answer was delivered
+ * ephemerally to keep the exchange private, and an ephemeral message cannot be
+ * re-fetched — the copy stored in private_metadata when the button was clicked is
+ * the only one. The question is not recoverable there at all: an answer does not
+ * quote it the way a search result quotes its query, so userMessage is honestly
+ * null rather than guessed at.
+ *
+ * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
+ */
+async function resolveAskFeedbackContext(client, channelId, threadTs, messageTs, interactionType, storedBotResponse) {
+  if (interactionType === 'assistant_message') {
+    return fetchThreadContext(client, channelId, threadTs, messageTs);
+  }
+  return { userMessage: null, botResponse: storedBotResponse ?? null };
+}
+
+/**
+ * Routes to the context strategy the response type calls for. Synthesis answers
+ * live in a thread and can be read back; search and ask cannot always be.
+ *
+ * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
+ */
+async function resolveFeedbackContext({
+  client,
+  responseType,
+  channelId,
+  threadTs,
+  messageTs,
+  interactionType,
+  searchQuery,
+  storedBotResponse,
+}) {
+  if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+    return resolveSearchFeedbackContext(
+      client,
+      channelId,
+      threadTs,
+      messageTs,
+      interactionType,
+      searchQuery,
+      storedBotResponse,
+    );
+  }
+  if (responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
+    return resolveAskFeedbackContext(client, channelId, threadTs, messageTs, interactionType, storedBotResponse);
+  }
+  return fetchThreadContext(client, channelId, threadTs, messageTs);
+}
+
+/**
  * Handles the `feedback_reason` modal submission. Records the feedback and reason
  * to Cosmos DB, then posts a confirmation ephemeral to the originating channel.
  *
@@ -120,22 +173,21 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     await ack();
+    // Seeded before the lookup so a failed fetch still records what we already
+    // hold, rather than discarding it along with the error.
     let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null;
-    let botResponse = null;
+    let botResponse = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK ? (storedBotResponse ?? null) : null;
     try {
-      if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SYNTHESIS) {
-        ({ userMessage, botResponse } = await fetchThreadContext(client, channelId, thread_ts, messageTs));
-      } else {
-        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
-          client,
-          channelId,
-          thread_ts,
-          messageTs,
-          interactionType,
-          searchQuery,
-          storedBotResponse,
-        ));
-      }
+      ({ userMessage, botResponse } = await resolveFeedbackContext({
+        client,
+        responseType: normalizedResponseType,
+        channelId,
+        threadTs: thread_ts,
+        messageTs,
+        interactionType,
+        searchQuery,
+        storedBotResponse,
+      }));
     } catch (e) {
       logger.error('Failed to fetch feedback context:', e);
     }
@@ -202,17 +254,25 @@ export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }
     let userMessage = null;
     let botResponse = null;
 
-    if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+    // Synthesis is left alone here, as it always has been: a dismissed thumbs-up
+    // does not justify a conversations.replies call for context nobody asked for.
+    // Search and ask carry theirs cheaply — ask's is already in private_metadata.
+    if (
+      normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ||
+      normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK
+    ) {
+      if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK) botResponse = storedBotResponse ?? null;
       try {
-        ({ userMessage, botResponse } = await resolveSearchFeedbackContext(
+        ({ userMessage, botResponse } = await resolveFeedbackContext({
           client,
+          responseType: normalizedResponseType,
           channelId,
-          thread_ts ?? messageTs,
+          threadTs: thread_ts ?? messageTs,
           messageTs,
           interactionType,
           searchQuery,
           storedBotResponse,
-        ));
+        }));
       } catch (e) {
         logger.error('Failed to fetch feedback context:', e);
       }

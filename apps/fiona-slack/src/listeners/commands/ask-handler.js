@@ -64,7 +64,7 @@ function buildAskBlocks(text, interactionType) {
   return [
     ...chunkForSections(text).map((chunk) => ({ type: 'section', text: { type: 'mrkdwn', text: chunk } })),
     { type: 'divider' },
-    createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType }),
+    createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
   ];
 }
 
@@ -224,7 +224,7 @@ export async function streamAskResponse({
   const { metadata, botText, systemPromptVersion, prompts } = await generateAnswer(streamer, question, logger);
 
   await streamer.stop({
-    blocks: [createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS, interactionType })],
+    blocks: [createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType })],
   });
   finalizeMetadataEnvelope(metadata);
 

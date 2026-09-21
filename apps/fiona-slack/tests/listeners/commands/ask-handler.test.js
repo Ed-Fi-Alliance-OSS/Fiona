@@ -90,7 +90,7 @@ describe('buildAskResponse', () => {
 
     expect(response.blocks[0]).toMatchObject({ type: 'section', text: { type: 'mrkdwn', text: 'answer' } });
     expect(response.blocks[1]).toEqual({ type: 'divider' });
-    expect(response.blocks[2].block_id).toBe('feedback|synthesis|app_mention');
+    expect(response.blocks[2].block_id).toBe('feedback|ask|app_mention');
   });
 
   it('suppresses link unfurling so a cited answer does not explode into previews', async () => {
@@ -272,7 +272,7 @@ describe('streamAskResponse', () => {
     });
 
     const [{ blocks }] = mockStreamer.stop.mock.calls[0];
-    expect(blocks[0].block_id).toBe('feedback|synthesis|assistant_message');
+    expect(blocks[0].block_id).toBe('feedback|ask|assistant_message');
   });
 
   it('captures the conversation like the ephemeral path does', async () => {

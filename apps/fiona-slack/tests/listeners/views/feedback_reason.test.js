@@ -389,6 +389,104 @@ describe('feedbackReasonViewCallback', () => {
   });
 });
 
+
+// AI-182. Before `ask` had its own branch it fell through to the search path,
+// which would have run extractSearchQuery over an LLM answer and invented a
+// question out of prose.
+describe('feedbackReasonViewCallback — ask response type', () => {
+  let mockAck;
+  let mockLogger;
+  let mockClient;
+
+  const askView = (over = {}) => ({
+    private_metadata: JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000000',
+      responseType: 'ask',
+      interactionType: 'slash_ask',
+      botResponse: 'The Ed-Fi Data Standard is a specification…',
+      ...over,
+    }),
+    state: { values: { reason_block: { reason_input: { value: 'Clear answer' } } } },
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn() };
+    mockClient = {
+      conversations: { replies: jest.fn().mockResolvedValue({ messages: [] }) },
+      chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) },
+    };
+  });
+
+  it('records the answer stored at click time', async () => {
+    await feedbackReasonViewCallback({ ack: mockAck, view: askView(), client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseType: 'ask',
+        interactionType: 'slash_ask',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
+    );
+  });
+
+  it('records a null question rather than guessing one from the answer', async () => {
+    await feedbackReasonViewCallback({ ack: mockAck, view: askView(), client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: null }));
+  });
+
+  it('does not call conversations.replies for an ephemeral answer that cannot be re-fetched', async () => {
+    await feedbackReasonViewCallback({ ack: mockAck, view: askView(), client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+  });
+
+  it('reads both sides from the thread in the assistant panel, where the answer is a real message', async () => {
+    mockClient.conversations.replies.mockResolvedValue({
+      messages: [
+        { ts: '1234567890.000000', text: 'ask how do I set up ODS?' },
+        { ts: '1234567890.000001', text: 'Start with the Docker quickstart…' },
+      ],
+    });
+
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ interactionType: 'assistant_message' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'ask how do I set up ODS?',
+        botResponse: 'Start with the Docker quickstart…',
+      }),
+    );
+  });
+
+  it('keeps the stored answer when the thread lookup fails', async () => {
+    mockClient.conversations.replies.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ interactionType: 'assistant_message' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockLogger.error).toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+    );
+  });
+});
+
 describe('feedbackReasonClosedCallback', () => {
   let mockAck;
   let mockLogger;
@@ -534,5 +632,57 @@ describe('feedbackReasonClosedCallback', () => {
     ).resolves.toBeUndefined();
 
     expect(mockLogger.error).toHaveBeenCalled();
+  });
+});
+
+describe('feedbackReasonClosedCallback — ask response type', () => {
+  let mockAck;
+  let mockLogger;
+  let mockClient;
+  let mockView;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockLogger = { error: jest.fn() };
+    mockClient = { conversations: { replies: jest.fn().mockResolvedValue({ messages: [] }) } };
+    mockView = {
+      private_metadata: JSON.stringify({
+        channelId: 'C456',
+        messageTs: '1234567890.000001',
+        userId: 'U123',
+        value: 'good-feedback',
+        thread_ts: '1234567890.000000',
+        responseType: 'ask',
+        interactionType: 'slash_ask',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
+    };
+  });
+
+  it('keeps the answer when a thumbs-up modal is dismissed', async () => {
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseType: 'ask',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+        reason: null,
+      }),
+    );
+  });
+
+  it('still ignores a dismissed thumbs-down', async () => {
+    mockView.private_metadata = JSON.stringify({
+      ...JSON.parse(mockView.private_metadata),
+      value: 'bad-feedback',
+    });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).not.toHaveBeenCalled();
   });
 });
