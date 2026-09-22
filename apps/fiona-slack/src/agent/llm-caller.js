@@ -14,7 +14,10 @@ import { normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'perplexity/sonar';
+// Nullish (not `||`) so an explicitly empty PERPLEXITY_API_MODEL reaches
+// describeInvalidModel() and fails fast at boot, rather than being silently
+// replaced by the default and hiding a broken deployment setting.
+const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER

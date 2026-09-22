@@ -95,6 +95,14 @@ describe('assertLLMConfigured – model validation at boot', () => {
     expect(() => assertLLMConfigured()).toThrow(/is empty/);
   });
 
+  it('rejects an explicitly empty string rather than falling back to the default', async () => {
+    // Guards the `??` in the PERPLEXITY_API_MODEL default: with `||`, an empty
+    // deployment setting would be silently replaced by the default and boot
+    // successfully instead of reporting the broken configuration.
+    const assertLLMConfigured = await assertWithModel('');
+    expect(() => assertLLMConfigured()).toThrow(/is empty/);
+  });
+
   it('rejects anthropic models, which require a max_output_tokens this app never sends', async () => {
     const assertLLMConfigured = await assertWithModel('anthropic/claude-sonnet-4-5');
     expect(() => assertLLMConfigured()).toThrow(/requires max_output_tokens/);

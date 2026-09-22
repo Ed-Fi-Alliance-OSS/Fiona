@@ -101,6 +101,7 @@ function buildTitleFromUrlPath(url) {
  *
  * @typedef {Object} NormalizedSource
  * @property {string} url - The source URL
+ * @property {number} [id] - Agent API search-result id, when the API supplied one
  * @property {string} title - Display title (from metadata or hostname)
  * @property {string} hostname - Domain hostname
  * @property {string} [date] - Optional publication/access date
@@ -112,6 +113,7 @@ function buildTitleFromUrlPath(url) {
  *
  * @param {Object} source - Raw source object from API
  * @param {string} source.url - Required: source URL
+ * @param {number} [source.id] - Optional: Agent API search-result id (the number inline [n] markers refer to)
  * @param {string} [source.title] - Optional: source title
  * @param {string} [source.published_date] - Optional: publication date
  * @param {string} [source.snippet] - Optional: evidence snippet
@@ -141,8 +143,14 @@ export function normalizeSource(source) {
   const { hostname, domain } = parseUrlHostname(url);
   const fallbackTitle = buildTitleFromUrlPath(url) || domain;
 
+  // Agent API search results carry a numeric `id`; inline [n] markers refer to
+  // it. Preserve it so buildSourceIndexMap can key on the API's own numbering
+  // instead of array position, which dedup and the display cap can shift.
+  const id = Number.isInteger(source.id) && source.id > 0 ? source.id : undefined;
+
   return {
     url,
+    id,
     title: source.title?.trim() || fallbackTitle,
     hostname,
     date: source.published_date || source.date || undefined,
@@ -185,13 +193,24 @@ export function capSources(sources, maxSources = 10) {
 /**
  * Build a stable index map: URL -> citation index (1-indexed).
  *
+ * Prefers the Agent API's own `id` for every source, because that is the number
+ * the model's inline [n] markers refer to. Measured against production the ids
+ * are contiguous 1..N and therefore equal to array position, but dedup and the
+ * display cap can drop entries, and using position after a drop would link a
+ * marker to the wrong URL. Falls back to array position when the ids are
+ * missing, partial, or non-unique (the Search API path supplies no ids), so
+ * behaviour is unchanged for non-Agent sources.
+ *
  * @param {Array<NormalizedSource>} sources - Normalized and deduplicated sources
  * @returns {Object} Map of URL -> index
  */
 export function buildSourceIndexMap(sources) {
+  const ids = sources.map((source) => source.id);
+  const useApiIds = ids.every((id) => Number.isInteger(id) && id > 0) && new Set(ids).size === ids.length;
+
   const map = Object.create(null);
   sources.forEach((source, idx) => {
-    map[source.url] = idx + 1; // 1-indexed
+    map[source.url] = useApiIds ? source.id : idx + 1; // 1-indexed
   });
   return map;
 }

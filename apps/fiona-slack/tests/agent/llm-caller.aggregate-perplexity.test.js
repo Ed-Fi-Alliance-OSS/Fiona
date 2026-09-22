@@ -66,6 +66,24 @@ describe('aggregatePerplexityMetadata', () => {
     expect(urls).toContain('https://b.example.com');
   });
 
+  it('maps inline markers to the Agent API result id, not the post-dedup position', () => {
+    // Measured against production the ids are contiguous 1..N, so id equals
+    // position on the happy path. Dedup is what breaks that: dropping the
+    // repeat of id 1 shifts id 3 into position 2, and positional numbering
+    // would then link the model's [3] to the id-2 URL.
+    const metadata = makeMetadata();
+    aggregatePerplexityMetadata(metadata, {
+      search_results: [
+        { id: 1, url: 'https://a.example.com', title: 'A' },
+        { id: 2, url: 'https://a.example.com', title: 'A again' },
+        { id: 3, url: 'https://c.example.com', title: 'C' },
+      ],
+    });
+
+    expect(metadata.source_index_map['https://a.example.com']).toBe(1);
+    expect(metadata.source_index_map['https://c.example.com']).toBe(3);
+  });
+
   it('prefers the title supplied by the Agent API over one derived from the URL', () => {
     const metadata = makeMetadata();
     aggregatePerplexityMetadata(metadata, {
