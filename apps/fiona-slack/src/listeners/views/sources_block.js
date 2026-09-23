@@ -21,7 +21,6 @@ const SOURCES_HEADING = '*Sources*';
 const CITED_HEADING = '*Cited in this answer*';
 const RETRIEVED_HEADING = '*Also retrieved*';
 const MAX_TITLE_LENGTH = 150;
-const MAX_DATE_LENGTH = 40;
 // Longest entry that still fits in a section after the longest heading, since
 // a heading is always packed together with the entry that follows it.
 const MAX_LINE_LENGTH = SLACK_SECTION_TEXT_LIMIT - CITED_HEADING.length - 1;
@@ -78,11 +77,12 @@ function formatMarkers(markers) {
   return parts.join(', ');
 }
 
+// Publication dates are deliberately not shown: the dates on search results
+// are not currently reliable. The normalized source still carries `date`.
 function entryParts({ markers, url, source }) {
   return {
     label: `*[${formatMarkers(markers)}]*`,
     title: escapeMrkdwn(truncate(source?.title || url, MAX_TITLE_LENGTH)),
-    date: source?.date ? ` · ${escapeMrkdwn(truncate(String(source.date), MAX_DATE_LENGTH))}` : '',
   };
 }
 
@@ -92,15 +92,15 @@ function entryParts({ markers, url, source }) {
  * so no entry can push a section past Slack's limit.
  */
 function formatCompactLine(entry) {
-  const { label, title, date } = entryParts(entry);
+  const { label, title } = entryParts(entry);
   const host = escapeMrkdwn(truncate(hostnameOf(entry.url), MAX_TITLE_LENGTH));
-  return truncate(`${label} ${title} (${host})${date}`, MAX_LINE_LENGTH);
+  return truncate(`${label} ${title} (${host})`, MAX_LINE_LENGTH);
 }
 
 /** Linked form, falling back to the compact form when it would not fit. */
 function formatSourceLine(entry) {
-  const { label, title, date } = entryParts(entry);
-  const linked = `${label} <${entry.url}|${title}>${date}`;
+  const { label, title } = entryParts(entry);
+  const linked = `${label} <${entry.url}|${title}>`;
   return linked.length <= MAX_LINE_LENGTH ? linked : formatCompactLine(entry);
 }
 
