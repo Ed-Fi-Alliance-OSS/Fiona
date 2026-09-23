@@ -5,7 +5,11 @@
 
 import { describe, expect, it } from '@jest/globals';
 import { MetadataLifecycleState } from '../../../src/agent/llm-caller.js';
-import { createSourcesBlocks, SLACK_SECTION_TEXT_LIMIT } from '../../../src/listeners/views/sources_block.js';
+import {
+  createSourcesBlocks,
+  SLACK_SECTION_TEXT_LIMIT,
+  SOURCES_BLOCK_BUDGET,
+} from '../../../src/listeners/views/sources_block.js';
 
 function makeMetadata(sources, citationIndex, finalizeState = MetadataLifecycleState.READY_TO_FINALIZE) {
   return { finalize_state: finalizeState, sources, citation_index: citationIndex };
@@ -122,6 +126,42 @@ describe('createSourcesBlocks', () => {
       expect(text).toContain(`*[${n}]* `);
     }
     expect(text.match(/\*Sources\*/g)).toHaveLength(1);
+  });
+
+  it('keeps a source whose linked entry alone exceeds the section limit, unlinked', () => {
+    const url = `https://docs.ed-fi.org/${'a'.repeat(3100)}`;
+
+    const blocks = createSourcesBlocks(makeMetadata([{ url, title: 'Huge', date: '2025-04-01' }], { 1: url }));
+
+    for (const block of blocks) {
+      expect(block.text.text.length).toBeLessThanOrEqual(SLACK_SECTION_TEXT_LIMIT);
+    }
+    expect(textOf(blocks)).toContain('*[1]* Huge (docs.ed-fi.org) · 2025-04-01');
+  });
+
+  it('stays within the block budget when entries cannot be packed, noting what is left out', () => {
+    // Each ~1,600-character entry needs its own section, so 60 of them would
+    // be 60 blocks without a budget, past Slack's 50-block message limit.
+    const sources = Array.from({ length: 60 }, (_, i) => ({
+      url: `https://docs.ed-fi.org/${String(i + 1).padStart(1600, 'x')}`,
+      title: `Page ${i + 1}`,
+    }));
+    const citationIndex = Object.fromEntries(sources.map((s, i) => [i + 1, s.url]));
+
+    const blocks = createSourcesBlocks(makeMetadata(sources, citationIndex));
+
+    expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+    for (const block of blocks) {
+      expect(block.text.text.length).toBeLessThanOrEqual(SLACK_SECTION_TEXT_LIMIT);
+    }
+    const listed = textOf(blocks).match(/\*\[\d+\]\* /g).length;
+    expect(blocks.at(-1).text.text).toBe(`_+${60 - listed} more sources, linked inline in the answer above_`);
+  });
+
+  it('adds no overflow note when every source fits the budget', () => {
+    const { sources, citationIndex } = pages(15);
+
+    expect(textOf(createSourcesBlocks(makeMetadata(sources, citationIndex)))).not.toContain('more sources');
   });
 
   it('renders nothing when there are no resolvable sources', () => {
