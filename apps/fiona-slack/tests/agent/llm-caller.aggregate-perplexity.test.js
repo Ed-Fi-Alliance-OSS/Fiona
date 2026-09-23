@@ -328,11 +328,10 @@ describe('callPerplexityChat – buffer and linkify', () => {
   });
 
   it('still takes sources from the terminal snapshot when the run is incomplete', async () => {
-    // Each `response.reasoning.search_results` event REPLACES the running list,
-    // so on a multi-round search the per-round events hold only the last round.
-    // An incomplete run keeps its partial answer, and those [n] markers can
-    // only linkify if the terminal snapshot is read here too, exactly as it is
-    // for a completed run.
+    // The terminal snapshot's results take precedence over the streamed
+    // `response.reasoning.search_results` events. An incomplete run keeps its
+    // partial answer, and those [n] markers can only linkify if the terminal
+    // snapshot is read here too, exactly as it is for a completed run.
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
     const logger = { warn: jest.fn() };
@@ -349,6 +348,31 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://authoritative.example.com']);
     expect(botText).toBe('Truncated [[1]](https://authoritative.example.com).');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
+  });
+
+  it('linkifies markers whose result id falls beyond the display cap', async () => {
+    // A multi-round search can return more than 10 results, and the model
+    // cites them by their Agent API id. The former 10-source cap ran before
+    // source_index_map was built and left [12] and [14] as bare text in
+    // production.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    const finalResults = Array.from({ length: 15 }, (_, i) => ({
+      id: i + 1,
+      url: `https://docs.ed-fi.org/page-${i + 1}`,
+    }));
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'First [2]. Later [12]. Last [14].' }], { finalResults }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe(
+      'First [[2]](https://docs.ed-fi.org/page-2). ' +
+        'Later [[12]](https://docs.ed-fi.org/page-12). ' +
+        'Last [[14]](https://docs.ed-fi.org/page-14).',
+    );
   });
 
   it('ignores unrecognized event types', async () => {

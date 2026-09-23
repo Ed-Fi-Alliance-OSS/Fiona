@@ -217,14 +217,17 @@ export function buildSourceIndexMap(sources) {
 
 /**
  * Normalize and freeze a list of sources with deterministic ordering.
- * Returns normalized sources, deduplicated, capped, and indexed.
+ * Returns normalized sources, deduplicated, optionally capped, and indexed.
+ *
+ * Uncapped by default: Agent API citations reference result ids across the
+ * whole response, so a cap would leave markers for dropped results unlinked.
  *
  * @param {Array<Object>} rawSources - Raw sources from API
  * @param {Object} [options]
- * @param {number} [options.maxSources=10] - Maximum sources to include
+ * @param {number} [options.maxSources] - Maximum sources to include (omit for no cap)
  * @returns {{sources: Array<NormalizedSource>, sourceIndexMap: Object}}
  */
-export function normalizeSources(rawSources, { maxSources = 10 } = {}) {
+export function normalizeSources(rawSources, { maxSources } = {}) {
   if (!Array.isArray(rawSources)) {
     return { sources: [], sourceIndexMap: {} };
   }
@@ -232,7 +235,9 @@ export function normalizeSources(rawSources, { maxSources = 10 } = {}) {
   let normalized = rawSources.map(normalizeSource).filter(Boolean);
 
   normalized = deduplicateSources(normalized);
-  normalized = capSources(normalized, maxSources);
+  if (maxSources !== undefined) {
+    normalized = capSources(normalized, maxSources);
+  }
 
   const sourceIndexMap = buildSourceIndexMap(normalized);
 

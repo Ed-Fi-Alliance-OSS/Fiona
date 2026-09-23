@@ -30,7 +30,7 @@ export const METADATA_CONTRACT_VERSION = 'v1';
 /**
  * Safely parse an environment variable into a positive integer.
  * Falls back to `defaultValue` when the value is missing, non-numeric, NaN,
- * or not a positive integer (e.g. CITATION_MAX_SOURCES=abc → 10).
+ * or not a positive integer (e.g. CITATION_METADATA_TIMEOUT_MS=abc → 2000).
  *
  * @param {string | undefined} rawValue
  * @param {number} defaultValue
@@ -45,7 +45,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
 }
 
 export const CITATION_POLICY = {
-  MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
 
   // Feature flags: enable/disable citation rendering.
@@ -381,10 +380,10 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   const rawSources = extractSearchResults(perplexityResponse).filter((result) => result?.url);
 
   if (rawSources.length > 0) {
-    // Normalize and deduplicate with deterministic first-seen ordering
-    const { sources, sourceIndexMap } = normalizeSources(rawSources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Normalize and deduplicate with deterministic first-seen ordering. No
+    // cap: the model cites results by Agent API id across every search round,
+    // so dropping any result leaves its [n] marker unlinkable.
+    const { sources, sourceIndexMap } = normalizeSources(rawSources);
 
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
@@ -402,10 +401,8 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
       }
     }
 
-    // Build final sources list respecting cap policy
-    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Rebuild the final sources list and index map from the merged set
+    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources);
     metadata.sources = finalSources;
     metadata.source_index_map = finalIndexMap;
   }
@@ -568,12 +565,18 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         break;
 
       // Both terminals carry a full response snapshot, and both are handled the
-      // same way: the snapshot is authoritative when it carries results,
-      // because the per-round `response.reasoning.search_results` events each
-      // REPLACE the running list rather than appending to it, so on a
-      // multi-round search only the snapshot holds the complete set. An
-      // incomplete run keeps its partial answer, whose [n] markers still need
-      // those sources to linkify.
+      // same way: the snapshot's results win when present. An incomplete run
+      // keeps its partial answer, whose [n] markers still need those sources
+      // to linkify.
+      //
+      // This is complete only for a single search round, which is what the
+      // default `max_steps` produces (measured live: always 1 round, 15
+      // results, ids 1-15). With `max_steps` > 1 each round's event carries
+      // its own results under ids numbered across rounds (1-15, 16-30, ...),
+      // but the snapshot keeps only round 1, so markers citing later rounds
+      // cannot linkify. Raising `max_steps` therefore requires merging every
+      // round's event and mapping markers by id rather than URL, since rounds
+      // return the same URL under different ids.
       case 'response.incomplete':
       case 'response.completed': {
         if (event.type === 'response.incomplete') {

@@ -71,9 +71,8 @@ describe('CITATION_POLICY', () => {
     expect(CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS).toBeGreaterThan(0);
   });
 
-  it('defines MAX_SOURCES_DISPLAYED as positive number', () => {
-    expect(typeof CITATION_POLICY.MAX_SOURCES_DISPLAYED).toBe('number');
-    expect(CITATION_POLICY.MAX_SOURCES_DISPLAYED).toBeGreaterThan(0);
+  it('does not cap sources, since a cap would leave markers for dropped results unlinked', () => {
+    expect(CITATION_POLICY).not.toHaveProperty('MAX_SOURCES_DISPLAYED');
   });
 
   it('defines FEATURE_FLAG_EVIDENCE_ROW as boolean', () => {

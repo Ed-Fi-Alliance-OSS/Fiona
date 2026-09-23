@@ -214,6 +214,12 @@ describe('normalizeSources', () => {
     expect(sources[0].url).toBe('https://good.com');
   });
 
+  it('keeps every source when no maxSources is given', () => {
+    const raw = Array.from({ length: 15 }, (_, i) => ({ url: `https://example${i}.com` }));
+    const { sources } = normalizeSources(raw);
+    expect(sources).toHaveLength(15);
+  });
+
   it('respects custom maxSources option', () => {
     const raw = Array.from({ length: 20 }, (_, i) => ({ url: `https://example${i}.com` }));
     const { sources } = normalizeSources(raw, { maxSources: 5 });
