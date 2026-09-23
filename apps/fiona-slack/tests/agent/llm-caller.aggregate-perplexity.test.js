@@ -66,6 +66,24 @@ describe('aggregatePerplexityMetadata', () => {
     expect(urls).toContain('https://b.example.com');
   });
 
+  it('maps inline markers to the Agent API result id, not the post-dedup position', () => {
+    // Measured against production the ids are contiguous 1..N, so id equals
+    // position on the happy path. Dedup is what breaks that: dropping the
+    // repeat of id 1 shifts id 3 into position 2, and positional numbering
+    // would then link the model's [3] to the id-2 URL.
+    const metadata = makeMetadata();
+    aggregatePerplexityMetadata(metadata, {
+      search_results: [
+        { id: 1, url: 'https://a.example.com', title: 'A' },
+        { id: 2, url: 'https://a.example.com', title: 'A again' },
+        { id: 3, url: 'https://c.example.com', title: 'C' },
+      ],
+    });
+
+    expect(metadata.source_index_map['https://a.example.com']).toBe(1);
+    expect(metadata.source_index_map['https://c.example.com']).toBe(3);
+  });
+
   it('prefers the title supplied by the Agent API over one derived from the URL', () => {
     const metadata = makeMetadata();
     aggregatePerplexityMetadata(metadata, {
@@ -306,6 +324,30 @@ describe('callPerplexityChat – buffer and linkify', () => {
     const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], logger);
 
     expect(botText).toBe('Truncated answer');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
+  });
+
+  it('still takes sources from the terminal snapshot when the run is incomplete', async () => {
+    // Each `response.reasoning.search_results` event REPLACES the running list,
+    // so on a multi-round search the per-round events hold only the last round.
+    // An incomplete run keeps its partial answer, and those [n] markers can
+    // only linkify if the terminal snapshot is read here too, exactly as it is
+    // for a completed run.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    const logger = { warn: jest.fn() };
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Truncated [1].', searchResults: urlsToResults(['https://stale.example.com']) }], {
+        terminal: 'response.incomplete',
+        finalResults: urlsToResults(['https://authoritative.example.com']),
+      }),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], logger);
+
+    expect(citations).toEqual(['https://authoritative.example.com']);
+    expect(botText).toBe('Truncated [[1]](https://authoritative.example.com).');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
   });
 

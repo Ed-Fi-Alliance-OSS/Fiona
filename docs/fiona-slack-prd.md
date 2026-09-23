@@ -169,7 +169,7 @@ user as task status updates (in-progress, complete, error).
 | Tool                | Purpose                                   | Parameters                               |
 | ------------------- | ----------------------------------------- | ---------------------------------------- |
 | `roll_dice`         | Random number generation / demonstrations | `sides` (default 6), `count` (default 1) |
-| `perplexity_search` | Real-time web search via Perplexity Agent API | `query` (required)                       |
+| `perplexity_search` | Real-time web search via the Perplexity Search API (`POST /search`, not the Agent API) | `query` (required)                       |
 
 The `perplexity_search` tool is only registered when a Perplexity client is
 configured and the primary provider is *not* Perplexity (since Perplexity

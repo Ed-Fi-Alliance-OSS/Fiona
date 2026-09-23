@@ -14,7 +14,10 @@ import { normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'perplexity/sonar';
+// Nullish (not `||`) so an explicitly empty PERPLEXITY_API_MODEL reaches
+// describeInvalidModel() and fails fast at boot, rather than being silently
+// replaced by the default and hiding a broken deployment setting.
+const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
 const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
@@ -564,23 +567,29 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         }
         break;
 
+      // Both terminals carry a full response snapshot, and both are handled the
+      // same way: the snapshot is authoritative when it carries results,
+      // because the per-round `response.reasoning.search_results` events each
+      // REPLACE the running list rather than appending to it, so on a
+      // multi-round search only the snapshot holds the complete set. An
+      // incomplete run keeps its partial answer, whose [n] markers still need
+      // those sources to linkify.
+      case 'response.incomplete':
       case 'response.completed': {
-        // The terminal snapshot is authoritative when it carries results.
+        if (event.type === 'response.incomplete') {
+          // Usually `incomplete_details.reason === 'max_output_tokens'` (the
+          // old `finish_reason: 'length'`).
+          logger?.warn?.(
+            `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
+          );
+        }
+
         const finalResults = extractSearchResults(event.response);
         if (finalResults.length > 0) {
           searchResults = finalResults;
         }
         break;
       }
-
-      case 'response.incomplete':
-        // Usually `incomplete_details.reason === 'max_output_tokens'` (the old
-        // `finish_reason: 'length'`). Keep the partial answer rather than
-        // discarding user-facing output.
-        logger?.warn?.(
-          `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
-        );
-        break;
 
       case 'response.failed':
       case 'response.cancelled':

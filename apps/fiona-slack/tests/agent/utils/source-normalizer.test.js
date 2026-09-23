@@ -157,6 +157,35 @@ describe('buildSourceIndexMap', () => {
     const map = buildSourceIndexMap(sources);
     expect(Object.getPrototypeOf(map)).toBeNull();
   });
+
+  it('keys on the Agent API id when ids differ from array position', () => {
+    // Inline [n] markers refer to the search result's own id, so a list whose
+    // ids no longer match position (dedup or the display cap dropped entries)
+    // must still link [7] to the id-7 URL rather than the 7th entry.
+    const sources = [
+      { url: 'https://a.com', title: 'A', id: 2 },
+      { url: 'https://b.com', title: 'B', id: 5 },
+      { url: 'https://c.com', title: 'C', id: 7 },
+    ];
+    const map = buildSourceIndexMap(sources);
+    expect(map).toEqual({ 'https://a.com': 2, 'https://b.com': 5, 'https://c.com': 7 });
+  });
+
+  it('falls back to array position when ids are absent, partial, or duplicated', () => {
+    // The Search API path supplies no ids, so positional numbering must stay
+    // the behaviour there; a partial or colliding set is also untrustworthy.
+    const noIds = buildSourceIndexMap([{ url: 'https://a.com' }, { url: 'https://b.com' }]);
+    expect(noIds).toEqual({ 'https://a.com': 1, 'https://b.com': 2 });
+
+    const partial = buildSourceIndexMap([{ url: 'https://a.com', id: 3 }, { url: 'https://b.com' }]);
+    expect(partial).toEqual({ 'https://a.com': 1, 'https://b.com': 2 });
+
+    const duplicated = buildSourceIndexMap([
+      { url: 'https://a.com', id: 4 },
+      { url: 'https://b.com', id: 4 },
+    ]);
+    expect(duplicated).toEqual({ 'https://a.com': 1, 'https://b.com': 2 });
+  });
 });
 
 describe('normalizeSources', () => {
