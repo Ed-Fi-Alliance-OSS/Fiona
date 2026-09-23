@@ -88,7 +88,10 @@ Users see text appear progressively rather than waiting for a complete response.
 #### 2.2.2 System Prompt
 
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
-can be overridden via the `SYSTEM_PROMPT` environment variable.
+can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
+versioned by `SYSTEM_PROMPT_VERSION` (default `v2`), which is stored with each
+captured conversation. `v2` added the citation-numbering rules in §2.2.3; an
+overridden `SYSTEM_PROMPT` must carry them too.
 
 > **Known issue (AI-49):** This keyword routing operates on untrusted user input
 > and should be reviewed for potential abuse.
@@ -102,15 +105,27 @@ streamed response.
 
 **How it works:**
 
-1. The system prompt instructs the LLM to place numeric citation markers
-   (`[1]`, `[2]`, …) at the end of factual claims grounded in external sources.
-2. As Perplexity streams its response, citation URLs are collected, normalized,
-   deduplicated, and assigned stable 1-based indices.
-3. Each `[n]` marker in the streamed text is replaced in real time with a Slack
-   mrkdwn hyperlink: `[[n]](url)`.
+1. The system prompt instructs the LLM to cite each web search result by its
+   own Agent API result number (`[7]` for result 7), never to renumber
+   results, and not to end its answer with its own source list.
+2. As Perplexity streams its response, search results are collected,
+   normalized and deduplicated.
+3. Each `[n]` marker is replaced with a Slack mrkdwn hyperlink, `[[n]](url)`,
+   to result `n`.
+4. A numbered Sources block is appended (see below).
 
-No separate "Sources" block is appended to the message; citations appear only
-as inline links within the answer text.
+**When the model writes its own source list anyway.** Measured against
+production with the earlier prompt, the model appended its own list in 8 of 12
+answers, and in those it numbered its sources 1, 2, 3… itself instead of by
+result id, so linking `[n]` to result `n` pointed at the wrong page. If the
+answer ends with lines like `[n] … URL`, Fiona treats that list as the meaning
+of its numbers: each `[n]` links to the URL the model listed, matched to a
+search result (a URL the search did not return leaves its marker as plain
+text). The list is removed from the answer, so only the Sources block lists
+sources. The resolution is recorded as `citation_numbering` (`result_id` or
+`model_list`) on the metadata envelope. With the `v2` prompt the model wrote no
+list in 12 of 12 runs. A model that renumbers *without* a list cannot be
+detected from the text; the prompt is the only guard against that.
 
 **Metadata lifecycle (strict consistency):**
 

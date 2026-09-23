@@ -19,7 +19,7 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 // replaced by the default and hiding a broken deployment setting.
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
-export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
+export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v2';
 const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
   .split(',')
   .map((d) => d.trim());
@@ -67,11 +67,12 @@ though you may assist with general productivity questions as well.
 decline politely and remain within your defined role.
 
 ## Citation Guidelines for Factual Claims
-- When making factual claims, especially about Ed-Fi specifications, APIs, or best practices, cite external sources using numeric markers [1], [2], etc.
-- Place citation markers at the end of the sentence or claim: "Ed-Fi uses a REST API [1]" or "The spec requires X [2]."
+- When making factual claims, especially about Ed-Fi specifications, APIs, or best practices, cite the web search results that support them.
+- Each web search result has a number. Cite a result with its own number in square brackets, for example [7] for result 7. Never renumber results or number sources yourself, even if you cite only a few of them.
+- Place citation markers at the end of the sentence or claim: "Ed-Fi uses a REST API [7]" or "The spec requires X [2]."
 - Cite claims grounded in external sources (documentation, standards, published articles); avoid over-citing conversational filler or general knowledge.
-- Do NOT fabricate URLs or sources—only cite sources that actually exist.
-- If you use the search tool, include [n] markers corresponding to the sources found.
+- Do NOT fabricate URLs or sources—only cite search results you actually received.
+- Do not end your answer with a list of sources, references, or links. A numbered source list is added to your answer automatically.
 - Avoid multiple citations for the same source in a single response—cite once at the most relevant point.`;
 
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
@@ -243,6 +244,7 @@ export const MetadataLifecycleState = {
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
  * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
  * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
+ * @property {string} [citation_numbering] - How [n] was resolved: 'result_id' (Agent API result ids) or 'model_list' (the model's own appended list)
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -515,6 +517,88 @@ function linkifyCitationMarkers(text, indexToUrl) {
   });
 }
 
+// A trailing, model-written source list: an optional "Sources" / "References"
+// heading, then lines like "[1] Title: [label](https://...)" or "- [2] https://...".
+const MODEL_LIST_HEADING = /^\s*(?:#{1,6}\s*)?\**\s*(?:sources|references|citations)\s*\**\s*:?\s*\**\s*$/i;
+const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
+const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
+
+/** Compare URLs ignoring scheme, a leading www. and trailing slashes. */
+function urlKey(url) {
+  return url
+    .replace(/^https?:\/\/(www\.)?/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+/**
+ * Find a source list the model appended to its answer, and cut it off.
+ *
+ * Measured against production: when the model writes its own list it numbers
+ * its sources 1, 2, 3... itself instead of citing Agent API result ids, so
+ * linking `[n]` to result id n pointed at the wrong page (0 of 4 correct in
+ * one run). The list is the only record of what each number means. Only a
+ * trailing run of `[n] ... URL` lines counts, so bracketed step lists and
+ * mid-answer text are never mistaken for one.
+ *
+ * @param {string} text - Raw answer text
+ * @returns {{ text: string, urlByMarker: Map<number, string> } | null} Text without the list, and the model's marker -> URL; null when there is no list
+ */
+function extractModelSourceList(text) {
+  const lines = text.split('\n');
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end -= 1;
+
+  let start = end;
+  const urlByMarker = new Map();
+  while (start > 0) {
+    const line = lines[start - 1];
+    const marker = line.match(MODEL_LIST_LINE);
+    const urls = line.match(URL_IN_TEXT);
+    if (!marker || !urls) break;
+    urlByMarker.set(Number(marker[1]), urls.at(-1));
+    start -= 1;
+  }
+  if (urlByMarker.size === 0) {
+    return null;
+  }
+
+  let cut = start;
+  while (cut > 0 && !lines[cut - 1].trim()) cut -= 1;
+  if (cut > 0 && MODEL_LIST_HEADING.test(lines[cut - 1])) cut -= 1;
+
+  return { text: lines.slice(0, cut).join('\n').trimEnd(), urlByMarker };
+}
+
+/**
+ * Marker -> URL built from the model's own list. Each listed URL is matched to
+ * a search result, so only retrieved pages are ever linked; a URL the search
+ * did not return leaves its marker as plain text. The results the model did not
+ * list follow, numbered after every number the answer uses, so they can never
+ * collide with a marker in the text.
+ *
+ * @param {Map<number, string>} urlByMarker - The model's marker -> URL
+ * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
+ * @param {string} text - Answer text with the list removed
+ * @returns {Map<number, string>}
+ */
+function buildModelListIndex(urlByMarker, sources, text) {
+  const resultUrlByKey = new Map(sources.map((source) => [urlKey(source.url), source.url]));
+  const indexToUrl = new Map();
+  for (const [marker, url] of [...urlByMarker].sort(([a], [b]) => a - b)) {
+    const resultUrl = resultUrlByKey.get(urlKey(url));
+    if (resultUrl) indexToUrl.set(marker, resultUrl);
+  }
+
+  const markersInText = [...text.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
+  let next = Math.max(0, ...urlByMarker.keys(), ...markersInText) + 1;
+  const listed = new Set(indexToUrl.values());
+  for (const source of sources) {
+    if (!listed.has(source.url)) indexToUrl.set(next++, source.url);
+  }
+  return indexToUrl;
+}
+
 // Web search is not automatic on the Agent API, and merely offering the tool
 // does not guarantee the model calls it. Fiona's answers must be grounded in
 // Ed-Fi sources, so the tool is forced via `tool_choice` and carries the
@@ -653,9 +737,23 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // avoids sending an empty markdown block to Slack.
   // Resolve marker number -> URL once, so the inline links and the Sources
   // block are built from the same map and cannot disagree.
+  //
+  // When the model appended its own numbered list, its numbers are its own,
+  // not result ids: link by the list instead, and drop the list so only the
+  // Sources block lists sources. Without results there is nothing to verify
+  // its URLs against, so the text is left alone.
   const metadata = streamer?.__citation_metadata;
-  const indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
+  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer) : null;
+  let indexToUrl;
+  if (modelList) {
+    textBuffer = modelList.text;
+    const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
+    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, textBuffer);
+  } else {
+    indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
+  }
   if (metadata) {
+    metadata.citation_numbering = modelList ? 'model_list' : 'result_id';
     metadata.citation_index = Object.fromEntries(indexToUrl);
     metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
       .filter((marker) => indexToUrl.has(marker))
