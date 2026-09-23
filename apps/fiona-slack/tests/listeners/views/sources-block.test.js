@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from '@jest/globals';
 import { MetadataLifecycleState } from '../../../src/agent/llm-caller.js';
+import { normalizeSources } from '../../../src/agent/utils/source-normalizer.js';
 import {
   createSourcesBlocks,
   SLACK_SECTION_TEXT_LIMIT,
@@ -113,6 +114,14 @@ describe('createSourcesBlocks', () => {
     );
 
     expect(textOf(blocks)).toContain('<https://docs.ed-fi.org/a|Q&amp;A &lt;draft&gt; | notes>');
+  });
+
+  it('never emits Slack control syntax from a normalized source URL', () => {
+    const [source] = normalizeSources([{ url: 'https://docs.ed-fi.org/a><!here>', title: 'Test' }]).sources;
+
+    const text = textOf(createSourcesBlocks(makeMetadata([source], { 1: source.url })));
+
+    expect(text).toBe('*Sources*\n*[1]* <https://docs.ed-fi.org/a%3E%3C!here%3E|Test>');
   });
 
   it('splits long lists across section blocks within the Slack text limit', () => {
