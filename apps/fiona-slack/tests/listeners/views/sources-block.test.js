@@ -200,6 +200,8 @@ describe('createSourcesBlocks', () => {
       expect(text).toContain('*[1]* ');
       expect(text).toContain('*[60]* ');
       expect(text.match(/\*\[\d+\]\* /g)).toHaveLength(2);
+      expect(text.startsWith('*Cited in this answer*\n')).toBe(true);
+      expect(text).not.toContain('Also retrieved');
       expect(blocks.at(-1).text.text).toBe('_+58 more sources not cited in this answer_');
     });
 
@@ -246,6 +248,16 @@ describe('createSourcesBlocks', () => {
       );
     });
 
+    it('treats every source as cited when the answer cites none of them', () => {
+      const { sources, citationIndex } = unpackable(60);
+
+      const blocks = createSourcesBlocks({ ...makeMetadata(sources, citationIndex), cited_markers: [] });
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      expect(textOf(blocks).match(/\*\[\d+\]\* /g)).toHaveLength(60);
+      expect(textOf(blocks).startsWith('*Sources*')).toBe(true);
+    });
+
     it('treats every source as cited when the cited markers are unknown', () => {
       const { sources, citationIndex } = unpackable(60);
 
@@ -253,6 +265,80 @@ describe('createSourcesBlocks', () => {
 
       expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
       expect(textOf(blocks).match(/\*\[\d+\]\* /g)).toHaveLength(60);
+    });
+  });
+
+  describe('cited vs retrieved split', () => {
+    const withCited = (metadata, citedMarkers) => ({ ...metadata, cited_markers: citedMarkers });
+
+    it('lists cited sources first, then the other retrieved sources, under their own headings', () => {
+      const { sources, citationIndex } = pages(4);
+
+      const blocks = createSourcesBlocks(withCited(makeMetadata(sources, citationIndex), [2, 3]));
+
+      expect(textOf(blocks)).toBe(
+        [
+          '*Cited in this answer*',
+          '*[2]* <https://docs.ed-fi.org/page-2|Page 2>',
+          '*[3]* <https://docs.ed-fi.org/page-3|Page 3>',
+          '*Also retrieved*',
+          '*[1]* <https://docs.ed-fi.org/page-1|Page 1>',
+          '*[4]* <https://docs.ed-fi.org/page-4|Page 4>',
+        ].join('\n'),
+      );
+    });
+
+    it('omits the retrieved heading when every source is cited', () => {
+      const { sources, citationIndex } = pages(2);
+
+      const text = textOf(createSourcesBlocks(withCited(makeMetadata(sources, citationIndex), [1, 2])));
+
+      expect(text.startsWith('*Cited in this answer*\n')).toBe(true);
+      expect(text).not.toContain('Also retrieved');
+    });
+
+    it('falls back to a single Sources list when the answer cites nothing', () => {
+      const { sources, citationIndex } = pages(2);
+
+      const text = textOf(createSourcesBlocks(withCited(makeMetadata(sources, citationIndex), [])));
+
+      expect(text).toBe(
+        '*Sources*\n*[1]* <https://docs.ed-fi.org/page-1|Page 1>\n*[2]* <https://docs.ed-fi.org/page-2|Page 2>',
+      );
+    });
+
+    it('lists a duplicate-URL source as cited when any of its numbers is cited', () => {
+      const metadata = makeMetadata(
+        [
+          { url: 'https://docs.ed-fi.org/a', title: 'A' },
+          { url: 'https://docs.ed-fi.org/c', title: 'C' },
+        ],
+        { 1: 'https://docs.ed-fi.org/a', 2: 'https://docs.ed-fi.org/a', 3: 'https://docs.ed-fi.org/c' },
+      );
+
+      const text = textOf(createSourcesBlocks(withCited(metadata, [2])));
+
+      expect(text).toBe(
+        '*Cited in this answer*\n*[1, 2]* <https://docs.ed-fi.org/a|A>\n*Also retrieved*\n*[3]* <https://docs.ed-fi.org/c|C>',
+      );
+    });
+
+    it('keeps each heading once and every section within the limit when the split spans sections', () => {
+      const sources = Array.from({ length: 15 }, (_, i) => ({
+        url: `https://docs.ed-fi.org/${'segment/'.repeat(20)}page-${i + 1}`,
+        title: `${'Very long documentation title '.repeat(5)}${i + 1}`,
+      }));
+      const citationIndex = Object.fromEntries(sources.map((s, i) => [i + 1, s.url]));
+
+      const blocks = createSourcesBlocks(withCited(makeMetadata(sources, citationIndex), [1, 2, 3, 4, 5, 6, 7, 8]));
+
+      expect(blocks.length).toBeGreaterThan(1);
+      expectWithinSectionLimit(blocks);
+      const text = textOf(blocks);
+      expect(text.match(/\*Cited in this answer\*/g)).toHaveLength(1);
+      expect(text.match(/\*Also retrieved\*/g)).toHaveLength(1);
+      expect(text.indexOf('*[8]* ')).toBeLessThan(text.indexOf('*Also retrieved*'));
+      expect(text.indexOf('*Also retrieved*')).toBeLessThan(text.indexOf('*[9]* '));
     });
   });
 
