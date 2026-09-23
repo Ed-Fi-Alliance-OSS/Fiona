@@ -524,6 +524,24 @@ describe('callPerplexityChat – buffer and linkify', () => {
       });
     });
 
+    it('records which resolvable markers the answer actually cites', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      const finalResults = Array.from({ length: 15 }, (_, i) => ({
+        id: i + 1,
+        url: `https://docs.ed-fi.org/page-${i + 1}`,
+      }));
+
+      // [12] twice, and an invented [16] that has no result.
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [12]. B [3]. Again [12]. Invented [16].' }], { finalResults }),
+      );
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.cited_markers).toEqual([3, 12]);
+    });
+
     it('omits ambiguous ids, matching what the inline markers link', async () => {
       const metadata = makeMetadata();
       const streamer = makeStreamer(metadata);
