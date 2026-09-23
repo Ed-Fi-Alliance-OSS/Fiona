@@ -128,7 +128,19 @@ before the stream is finalized:
 
 If the metadata does not arrive within `CITATION_METADATA_TIMEOUT_MS`
 (default: 2 000 ms), the envelope transitions to `degraded_no_metadata` and
-the response is finalized with plain `[n]` markers left as-is.
+the response is finalized with plain `[n]` markers left as-is and no
+Sources block.
+
+**Sources block:** every answer that cites anything ends with a numbered
+Sources list, placed before the feedback buttons, on both the assistant-thread
+and @-mention paths. Each entry shows the marker number(s), the source title as
+a clickable link, and the publication date when the search result supplies one.
+Numbering comes from the same marker-to-URL map the inline `[n]` links use, so
+every linked marker has an entry; a result that repeats an earlier URL is
+listed once under both numbers (e.g. `[1, 2]`). All sources are shown, with no
+truncation, split across several section blocks when needed to stay within
+Slack's 3 000-character section limit. A marker the model invents beyond the
+result count (e.g. `[16]` of 15) stays plain text and has no entry.
 
 **Source normalization:**
 
@@ -143,16 +155,14 @@ the response is finalized with plain `[n]` markers left as-is.
 
 - The `source_index_map` is created with `Object.create(null)` to prevent
   prototype pollution from external URL keys.
-- mrkdwn special characters (including underscores) in evidence snippets are
-  escaped before rendering.
+- `&`, `<` and `>` in source titles are escaped before rendering, so a title
+  cannot break its Slack link.
 
 **Citation policy env vars** (see also §7):
 
 | Variable                       | Default | Purpose                                         |
 | ------------------------------ | ------- | ----------------------------------------------- |
-| `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
 | `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
-| `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
 
 **Telemetry:** `citation-telemetry.js` records per-response metadata wait
 durations and source counts (bounded arrays, capped at 1 000 entries) for
@@ -511,7 +521,7 @@ documentation. Key groups:
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
 | LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
-| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
+| Citations     | `CITATION_METADATA_TIMEOUT_MS`                                                                         |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |

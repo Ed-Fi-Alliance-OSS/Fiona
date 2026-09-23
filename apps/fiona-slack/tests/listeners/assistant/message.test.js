@@ -18,8 +18,6 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
-    citation_rendering_enabled: true,
-    FEATURE_FLAG_EVIDENCE_ROW: false,
     METADATA_WAIT_TIMEOUT_MS: 2000,
   },
   MetadataLifecycleState: {
@@ -370,6 +368,100 @@ describe('message (assistant thread handler)', () => {
       const [, prompts] = callLLM.mock.calls[0];
       expect(prompts).toHaveLength(3);
       expect(prompts[prompts.length - 1]).toEqual({ role: 'user', content: 'What is Ed-Fi?' });
+    });
+  });
+
+  describe('Sources block', () => {
+    const readyMetadata = () => ({
+      finalize_state: 'ready_to_finalize',
+      sources: [
+        { url: 'https://docs.ed-fi.org/a', title: 'A' },
+        { url: 'https://docs.ed-fi.org/b', title: 'B' },
+      ],
+      source_index_map: { 'https://docs.ed-fi.org/a': 1, 'https://docs.ed-fi.org/b': 2 },
+      citation_index: { 1: 'https://docs.ed-fi.org/a', 2: 'https://docs.ed-fi.org/b' },
+    });
+    const sectionBlocks = (blocks) => blocks.filter((block) => block.type === 'section');
+
+    it('renders the numbered Sources block before the feedback block', async () => {
+      callLLM.mockResolvedValueOnce({ metadata: readyMetadata(), botText: 'A [1] B [2]', systemPromptVersion: 'v1' });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks.map((block) => block.type)).toEqual(['section', 'context_actions']);
+      expect(blocks[0].text.text).toBe(
+        '*Sources*\n*[1]* <https://docs.ed-fi.org/a|A>\n*[2]* <https://docs.ed-fi.org/b|B>',
+      );
+    });
+
+    it('posts the answer without a Sources block when metadata degraded', async () => {
+      callLLM.mockResolvedValueOnce({
+        metadata: { ...readyMetadata(), finalize_state: 'degraded_no_metadata' },
+        botText: 'answer',
+        systemPromptVersion: 'v1',
+      });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(sectionBlocks(blocks)).toHaveLength(0);
+      expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
+    });
+
+    it('posts the answer without a Sources block when there are no sources', async () => {
+      callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
+    });
+
+    it('renders the Sources block only once when the same response is delivered twice', async () => {
+      callLLM.mockResolvedValue({ metadata: readyMetadata(), botText: 'A [1]', systemPromptVersion: 'v1' });
+      shouldFinalize.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
+      expect(sectionBlocks(mockStreamer.stop.mock.calls[0][0].blocks)).toHaveLength(1);
     });
   });
 

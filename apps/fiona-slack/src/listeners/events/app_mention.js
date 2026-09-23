@@ -18,6 +18,7 @@ import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent
 import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
+import { createSourcesBlocks } from '../views/sources_block.js';
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation
@@ -139,6 +140,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       await streamer.stop({
         blocks: [
+          ...createSourcesBlocks(metadata),
           createFeedbackBlock({
             responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
             interactionType: 'app_mention',

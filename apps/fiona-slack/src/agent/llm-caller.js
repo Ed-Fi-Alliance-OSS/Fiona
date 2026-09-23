@@ -46,15 +46,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
 
 export const CITATION_POLICY = {
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
-
-  // Feature flags: enable/disable citation rendering.
-  // Default: ON in non-prod, OFF in prod (controlled by environment).
-  // Set CITATION_RENDERING_ENABLED=false or NODE_ENV=production to disable.
-  citation_rendering_enabled:
-    process.env.CITATION_RENDERING_ENABLED !== 'false' && process.env.NODE_ENV !== 'production',
-
-  // Evidence row: optional detailed snippets (off by default)
-  FEATURE_FLAG_EVIDENCE_ROW: process.env.CITATION_INCLUDE_EVIDENCE === 'true',
 };
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
@@ -250,6 +241,7 @@ export const MetadataLifecycleState = {
  * @property {string} provider - Always "perplexity"
  * @property {Array<Object>} sources - Normalized list of sources (URL, title, date, etc.)
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
+ * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -268,6 +260,7 @@ function initializeMetadataEnvelope() {
     provider: 'perplexity',
     sources: [],
     source_index_map: Object.create(null),
+    citation_index: {},
     search_results: [],
     related_questions: [],
     evidence_snippets: {},
@@ -499,12 +492,10 @@ function addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults) {
   }
 }
 
-function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
+function linkifyCitationMarkers(text, indexToUrl) {
   if (!text || typeof text !== 'string') {
     return text;
   }
-
-  const indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
 
   if (indexToUrl.size === 0) {
     return text;
@@ -658,10 +649,17 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // Linkify [n] markers using the now-populated source_index_map, then emit
   // a single append call.  Skipping the append entirely when there is no text
   // avoids sending an empty markdown block to Slack.
+  // Resolve marker number -> URL once, so the inline links and the Sources
+  // block are built from the same map and cannot disagree.
+  const metadata = streamer?.__citation_metadata;
+  const indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
+  if (metadata) {
+    metadata.citation_index = Object.fromEntries(indexToUrl);
+  }
+
   let botText = '';
   if (textBuffer) {
-    const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap, searchResults);
+    botText = linkifyCitationMarkers(textBuffer, indexToUrl);
     await streamer.append({ markdown_text: botText });
   }
 
