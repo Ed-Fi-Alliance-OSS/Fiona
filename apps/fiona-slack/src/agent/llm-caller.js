@@ -567,23 +567,29 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         }
         break;
 
+      // Both terminals carry a full response snapshot, and both are handled the
+      // same way: the snapshot is authoritative when it carries results,
+      // because the per-round `response.reasoning.search_results` events each
+      // REPLACE the running list rather than appending to it, so on a
+      // multi-round search only the snapshot holds the complete set. An
+      // incomplete run keeps its partial answer, whose [n] markers still need
+      // those sources to linkify.
+      case 'response.incomplete':
       case 'response.completed': {
-        // The terminal snapshot is authoritative when it carries results.
+        if (event.type === 'response.incomplete') {
+          // Usually `incomplete_details.reason === 'max_output_tokens'` (the
+          // old `finish_reason: 'length'`).
+          logger?.warn?.(
+            `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
+          );
+        }
+
         const finalResults = extractSearchResults(event.response);
         if (finalResults.length > 0) {
           searchResults = finalResults;
         }
         break;
       }
-
-      case 'response.incomplete':
-        // Usually `incomplete_details.reason === 'max_output_tokens'` (the old
-        // `finish_reason: 'length'`). Keep the partial answer rather than
-        // discarding user-facing output.
-        logger?.warn?.(
-          `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
-        );
-        break;
 
       case 'response.failed':
       case 'response.cancelled':

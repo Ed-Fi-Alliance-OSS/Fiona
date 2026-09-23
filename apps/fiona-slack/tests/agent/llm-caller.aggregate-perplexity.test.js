@@ -327,6 +327,30 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
   });
 
+  it('still takes sources from the terminal snapshot when the run is incomplete', async () => {
+    // Each `response.reasoning.search_results` event REPLACES the running list,
+    // so on a multi-round search the per-round events hold only the last round.
+    // An incomplete run keeps its partial answer, and those [n] markers can
+    // only linkify if the terminal snapshot is read here too, exactly as it is
+    // for a completed run.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    const logger = { warn: jest.fn() };
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Truncated [1].', searchResults: urlsToResults(['https://stale.example.com']) }], {
+        terminal: 'response.incomplete',
+        finalResults: urlsToResults(['https://authoritative.example.com']),
+      }),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], logger);
+
+    expect(citations).toEqual(['https://authoritative.example.com']);
+    expect(botText).toBe('Truncated [[1]](https://authoritative.example.com).');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
+  });
+
   it('ignores unrecognized event types', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
