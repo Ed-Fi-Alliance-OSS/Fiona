@@ -151,8 +151,9 @@ Sources block.
 
 **Sources block:** every answer that cites anything ends with a numbered
 Sources list, placed before the feedback buttons, on both the assistant-thread
-and @-mention paths. Each entry shows the marker number(s), the source title as
-a clickable link, and the publication date when the search result supplies one.
+and @-mention paths. Each entry shows the marker number(s) and the source title
+as a clickable link. Publication dates are deliberately not shown, because the
+dates on search results are not currently reliable.
 Sources the answer actually cites come first, under *Cited in this answer*; the
 other retrieved sources follow under *Also retrieved*, so a reader checking a
 claim finds its source immediately. Numbers stay the inline marker numbers, so
