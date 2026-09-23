@@ -8,9 +8,11 @@ import { MetadataLifecycleState } from '../../agent/llm-caller.js';
 // Slack rejects a section block whose text exceeds 3000 characters.
 export const SLACK_SECTION_TEXT_LIMIT = 3000;
 
-// Most sections the Sources block may use. Slack rejects a message with more
-// than 50 blocks; ~10 entries pack into each section, so this holds ~100
-// ordinary sources while leaving ample room for the rest of the message.
+// Most sections the Sources block may use: a deliberate product limit, not a
+// Slack one (Slack allows 50 blocks per message). It keeps the list from
+// dwarfing the answer and leaves room for the rest of the message; ~10 entries
+// pack into each section, so it holds ~100 ordinary sources. Raising it is safe
+// up to Slack's limit if a larger list is ever needed.
 export const SOURCES_BLOCK_BUDGET = 10;
 
 const SOURCES_HEADING = '*Sources*';
@@ -117,15 +119,16 @@ function packSections(lines) {
  *
  * Numbering comes from `metadata.citation_index` — the same marker -> URL map
  * the inline `[n]` links were built from — so the list and the links cannot
- * disagree. Whenever the list fits Slack's limits, every resolvable source is
+ * disagree. Whenever the list fits SOURCES_BLOCK_BUDGET, every resolvable source is
  * listed and every linked marker has a matching entry. That covers every real
  * answer: a typical one has 15 sources, which use one or two sections.
  *
  * Long lists are split across section blocks to stay within Slack's text
  * limit, up to SOURCES_BLOCK_BUDGET sections. Only entries too long to pack
  * can overflow that. The overflow path (fitCitedEntries) then drops uncited
- * sources first, and past about 130 cited sources (at maximum title length)
- * it cannot list them all within the limits; the final note counts exactly what is left out.
+ * sources first. Past about 130 cited sources (at maximum title length) the
+ * budget cannot hold them all, and the final note counts exactly what is left
+ * out — a deliberate limit for inputs no real answer produces.
  *
  * Returns no blocks unless metadata reached READY_TO_FINALIZE, so a degraded
  * or still-collecting response never shows an empty or partial list.
@@ -175,8 +178,9 @@ function fitCitedEntries(entries, citedMarkers) {
   }
 
   if (sections.length > budget) {
-    // Past ~130 cited sources even the compact form overflows. Slack's limits
-    // make listing them all impossible, so count exactly what is left out.
+    // Past ~130 cited sources even the compact form overflows the budget.
+    // Deliberately not raised for inputs no real answer produces (measured:
+    // 15 results); count exactly what is left out instead.
     sections = sections.slice(0, SOURCES_BLOCK_BUDGET - 1);
     const shown = sections.reduce((sum, section) => sum + section.lineCount, 0);
     const uncitedNote = uncitedCount > 0 ? `, plus ${uncitedCount} not cited in this answer` : '';

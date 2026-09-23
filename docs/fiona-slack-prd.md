@@ -142,11 +142,12 @@ range (e.g. `[1, 2]`, `[4–9]`). A marker the model invents beyond the result
 count (e.g. `[16]` of 15) stays plain text and has no entry.
 
 The list is split across section blocks to stay within Slack's 3 000-character
-section limit, and capped at 10 blocks, well inside Slack's 50-block message
-limit. An entry too long for a section shows its title and host unlinked; its
+section limit, and capped at 10 blocks. The cap is a deliberate product
+limit, not a Slack one: Slack allows 50 blocks per message, and 10 keeps the
+list from dwarfing the answer. An entry too long for a section shows its title and host unlinked; its
 inline `[n]` marker still links.
 
-**What the list guarantees.** Whenever the list fits within those limits, every
+**What the list guarantees.** Whenever the list fits within the 10-block cap, every
 source is shown and every linked marker has an entry. That covers every real
 answer: a typical answer has 15 sources, which use one or two blocks. Only
 entries too long to share a block can reach the cap. When they do:
@@ -155,9 +156,11 @@ entries too long to share a block can reach the cap. When they do:
   note counting them ("+N more sources not cited in this answer").
 - Every cited source is still listed, unlinked if needed to fit. That holds for at
   least 130 cited sources, even when every title is at the 150-character cap.
-- Beyond that, Slack's limits make listing every cited source impossible. The
-  cited sources left out keep their inline links but have no entry, and the
-  note counts exactly how many are not shown.
+- Beyond that, the cap is deliberately not raised, because no real answer
+  comes close (every measured answer had 15 results). The cited sources left
+  out keep their inline links but have no entry, and the note counts exactly
+  how many are not shown. Raising the cap toward Slack's 50-block limit would
+  list more, if this ever matters.
 
 **Source normalization:**
 
