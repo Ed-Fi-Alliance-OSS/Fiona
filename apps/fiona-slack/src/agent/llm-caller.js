@@ -20,9 +20,9 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
-const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
-  ? process.env.PERPLEXITY_DOMAIN_FILTER.split(',').map((d) => d.trim())
-  : ['www.ed-fi.org', 'docs.ed-fi.org'];
+const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
+  .split(',')
+  .map((d) => d.trim());
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
@@ -622,9 +622,12 @@ export async function callPerplexityChat(streamer, prompts, logger) {
           );
         }
 
-        const finalResults = extractSearchResults(event.response);
-        if (finalResults.length > 0) {
-          searchResults = finalResults;
+        const snapshot = event.response;
+        if (
+          Array.isArray(snapshot?.search_results) ||
+          (Array.isArray(snapshot?.output) && snapshot.output.some((item) => item?.type === 'search_results'))
+        ) {
+          searchResults = extractSearchResults(snapshot);
         }
         break;
       }

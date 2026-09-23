@@ -149,7 +149,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
         type: terminal,
         response: {
           status: terminal === 'response.completed' ? 'completed' : 'failed',
-          ...(finalResults ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
+          ...(finalResults !== undefined ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
           ...(terminal === 'response.failed' ? { error: { message: 'upstream refused' } } : {}),
           ...(terminal === 'response.incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {}),
         },
@@ -301,6 +301,36 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://authoritative.example.com']);
   });
 
+  it.each([[], null])('does not link stale results when the terminal snapshot contains %p', async (finalResults) => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Answer [1].', searchResults: urlsToResults(['https://stale.example.com']) }], {
+        finalResults,
+      }),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(citations).toEqual([]);
+    expect(botText).toBe('Answer [1].');
+    expect(metadata.sources).toEqual([]);
+  });
+
+  it('uses streamed results when the terminal snapshot has no search_results item', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Answer [1].', searchResults: urlsToResults(['https://streamed.example.com']) }]),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(citations).toEqual(['https://streamed.example.com']);
+    expect(botText).toBe('Answer [[1]](https://streamed.example.com).');
+  });
+
   it('throws when the run terminates with response.failed over a 200 response', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
@@ -400,9 +430,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(metadata.sources.map((s) => s.url)).toEqual(['https://docs.ed-fi.org/a', 'https://docs.ed-fi.org/c']);
   });
 
-  it('does not alias ids when they are non-unique and positional numbering is in use', async () => {
-    // Non-unique ids make the API numbering unreliable, so buildSourceIndexMap
-    // falls back to array position. Aliasing raw ids here would relink [1].
+  it('leaves ambiguous ids unlinked rather than using positional numbering', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
@@ -418,9 +446,25 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
     const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
-    expect(botText).toBe(
-      'A [[1]](https://docs.ed-fi.org/a). B [[2]](https://docs.ed-fi.org/b). C [[3]](https://docs.ed-fi.org/c).',
+    expect(botText).toBe('A [1]. B [[2]](https://docs.ed-fi.org/c). C [3].');
+  });
+
+  it('does not link a missing id by its array position when another result has an API id', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Unknown [1]. Known [3].' }], {
+        finalResults: [
+          { id: 3, url: 'https://docs.ed-fi.org/known' },
+          { url: 'https://docs.ed-fi.org/unknown' },
+        ],
+      }),
     );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe('Unknown [1]. Known [[3]](https://docs.ed-fi.org/known).');
   });
 
   it('ignores unrecognized event types', async () => {

@@ -197,20 +197,30 @@ export function capSources(sources, maxSources = 10) {
  * the model's inline [n] markers refer to. Measured against production the ids
  * are contiguous 1..N and therefore equal to array position, but dedup and the
  * display cap can drop entries, and using position after a drop would link a
- * marker to the wrong URL. Falls back to array position when the ids are
- * missing, partial, or non-unique (the Search API path supplies no ids), so
- * behaviour is unchanged for non-Agent sources.
+ * marker to the wrong URL. Falls back to array position only when every id is
+ * missing (the Search API path). With partial or duplicate ids, keep only
+ * valid ids that uniquely identify a source rather than mislinking a marker.
  *
  * @param {Array<NormalizedSource>} sources - Normalized and deduplicated sources
  * @returns {Object} Map of URL -> index
  */
 export function buildSourceIndexMap(sources) {
   const ids = sources.map((source) => source.id);
-  const useApiIds = ids.every((id) => Number.isInteger(id) && id > 0) && new Set(ids).size === ids.length;
+  const usePositions = ids.every((id) => id === undefined);
+  const idCounts = new Map();
+  for (const id of ids) {
+    if (Number.isInteger(id) && id > 0) {
+      idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+    }
+  }
 
   const map = Object.create(null);
   sources.forEach((source, idx) => {
-    map[source.url] = useApiIds ? source.id : idx + 1; // 1-indexed
+    if (usePositions) {
+      map[source.url] = idx + 1;
+    } else if (idCounts.get(source.id) === 1) {
+      map[source.url] = source.id;
+    }
   });
   return map;
 }

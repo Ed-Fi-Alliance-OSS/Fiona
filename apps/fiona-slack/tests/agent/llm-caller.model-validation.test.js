@@ -141,4 +141,9 @@ describe('assertLLMConfigured – domain filter validation at boot', () => {
     const assertLLMConfigured = await assertWithDomains('docs.ed-fi.org,,www.ed-fi.org');
     expect(() => assertLLMConfigured()).toThrow(/empty entry/);
   });
+
+  it('rejects an explicitly empty filter instead of silently using the default domains', async () => {
+    const assertLLMConfigured = await assertWithDomains('');
+    expect(() => assertLLMConfigured()).toThrow(/PERPLEXITY_DOMAIN_FILTER is invalid:.*empty entry/);
+  });
 });
