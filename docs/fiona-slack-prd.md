@@ -135,6 +135,11 @@ Sources block.
 Sources list, placed before the feedback buttons, on both the assistant-thread
 and @-mention paths. Each entry shows the marker number(s), the source title as
 a clickable link, and the publication date when the search result supplies one.
+Sources the answer actually cites come first, under *Cited in this answer*; the
+other retrieved sources follow under *Also retrieved*, so a reader checking a
+claim finds its source immediately. Numbers stay the inline marker numbers, so
+the cited list can have gaps (e.g. `[2]`, `[7]`, `[12]`). When the answer cites
+nothing, everything is listed under a single *Sources* heading.
 Numbering comes from the same marker-to-URL map the inline `[n]` links use, so
 the list and the links cannot disagree. A result that repeats an earlier URL is
 listed once under all its numbers, with runs of three or more collapsed into a
@@ -152,7 +157,7 @@ source is shown and every linked marker has an entry. That covers every real
 answer: a typical answer has 15 sources, which use one or two blocks. Only
 entries too long to share a block can reach the cap. When they do:
 
-- Sources the answer never cites are dropped first, and the list ends with a
+- The *Also retrieved* sources are dropped first, and the list ends with a
   note counting them ("+N more sources not cited in this answer").
 - Every cited source is still listed, unlinked if needed to fit. That holds for at
   least 130 cited sources, even when every title is at the 150-character cap.
