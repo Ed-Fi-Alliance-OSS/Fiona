@@ -27,6 +27,13 @@ function pages(count) {
 
 const textOf = (blocks) => blocks.map((block) => block.text.text).join('\n');
 
+function expectWithinSectionLimit(blocks) {
+  expect(blocks.length).toBeGreaterThan(0);
+  for (const block of blocks) {
+    expect(block.text.text.length).toBeLessThanOrEqual(SLACK_SECTION_TEXT_LIMIT);
+  }
+}
+
 describe('createSourcesBlocks', () => {
   it('renders a numbered Sources list with clickable titled links', () => {
     const { sources, citationIndex } = pages(2);
@@ -139,23 +146,114 @@ describe('createSourcesBlocks', () => {
     expect(textOf(blocks)).toContain('*[1]* Huge (docs.ed-fi.org) · 2025-04-01');
   });
 
-  it('stays within the block budget when entries cannot be packed, noting what is left out', () => {
-    // Each ~1,600-character entry needs its own section, so 60 of them would
-    // be 60 blocks without a budget, past Slack's 50-block message limit.
-    const sources = Array.from({ length: 60 }, (_, i) => ({
-      url: `https://docs.ed-fi.org/${String(i + 1).padStart(1600, 'x')}`,
-      title: `Page ${i + 1}`,
-    }));
-    const citationIndex = Object.fromEntries(sources.map((s, i) => [i + 1, s.url]));
+  it('keeps an entry within the section limit when its date is oversized', () => {
+    const blocks = createSourcesBlocks(
+      makeMetadata([{ url: 'https://docs.ed-fi.org/a', title: 'A', date: 'x'.repeat(3100) }], {
+        1: 'https://docs.ed-fi.org/a',
+      }),
+    );
 
-    const blocks = createSourcesBlocks(makeMetadata(sources, citationIndex));
+    expectWithinSectionLimit(blocks);
+    // Capping the date lets the entry keep its link.
+    expect(textOf(blocks)).toContain(`*[1]* <https://docs.ed-fi.org/a|A> · ${'x'.repeat(39)}…`);
+  });
 
-    expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
-    for (const block of blocks) {
-      expect(block.text.text.length).toBeLessThanOrEqual(SLACK_SECTION_TEXT_LIMIT);
+  it('collapses runs of three or more marker numbers into a range', () => {
+    const url = 'https://docs.ed-fi.org/a';
+    const citationIndex = Object.fromEntries([1, 2, 3, 5, 7, 8].map((n) => [n, url]));
+
+    const blocks = createSourcesBlocks(makeMetadata([{ url, title: 'A' }], citationIndex));
+
+    expect(textOf(blocks)).toContain('*[1–3, 5, 7, 8]* <https://docs.ed-fi.org/a|A>');
+  });
+
+  it('lists every marker of a URL with 1,000 aliases, within the section limit', () => {
+    const url = 'https://docs.ed-fi.org/a';
+    const citationIndex = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [i + 1, url]));
+
+    const blocks = createSourcesBlocks(makeMetadata([{ url, title: 'A' }], citationIndex));
+
+    expectWithinSectionLimit(blocks);
+    expect(textOf(blocks)).toContain('*[1–1000]* <https://docs.ed-fi.org/a|A>');
+  });
+
+  describe('when the list overflows the block budget', () => {
+    // Each ~1,600-character linked entry needs its own section, so 60 of them
+    // would be 60 blocks without a budget, past Slack's 50-block message limit.
+    function unpackable(count) {
+      const sources = Array.from({ length: count }, (_, i) => ({
+        url: `https://docs.ed-fi.org/${String(i + 1).padStart(1600, 'x')}`,
+        title: `Page ${i + 1}`,
+      }));
+      const citationIndex = Object.fromEntries(sources.map((s, i) => [i + 1, s.url]));
+      return { sources, citationIndex };
     }
-    const listed = textOf(blocks).match(/\*\[\d+\]\* /g).length;
-    expect(blocks.at(-1).text.text).toBe(`_+${60 - listed} more sources, linked inline in the answer above_`);
+
+    it('keeps every cited source and drops only uncited ones, saying so', () => {
+      const { sources, citationIndex } = unpackable(60);
+
+      const blocks = createSourcesBlocks({ ...makeMetadata(sources, citationIndex), cited_markers: [1, 60] });
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      expectWithinSectionLimit(blocks);
+      const text = textOf(blocks);
+      expect(text).toContain('*[1]* ');
+      expect(text).toContain('*[60]* ');
+      expect(text.match(/\*\[\d+\]\* /g)).toHaveLength(2);
+      expect(blocks.at(-1).text.text).toBe('_+58 more sources not cited in this answer_');
+    });
+
+    it('lists every cited source, unlinked if need be, when the cited ones alone overflow', () => {
+      const { sources, citationIndex } = unpackable(60);
+      const citedMarkers = Array.from({ length: 60 }, (_, i) => i + 1);
+
+      const blocks = createSourcesBlocks({ ...makeMetadata(sources, citationIndex), cited_markers: citedMarkers });
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      expectWithinSectionLimit(blocks);
+      const text = textOf(blocks);
+      for (let n = 1; n <= 60; n++) {
+        expect(text).toContain(`*[${n}]* Page ${n} (docs.ed-fi.org)`);
+      }
+      expect(text).not.toContain('more sources');
+    });
+
+    it('counts exactly the cited sources it cannot list, past the ceiling', () => {
+      // Far beyond any real answer (measured: 15 results). The block cannot
+      // hold 1,200 entries, so the note must account for every one left out.
+      const { sources, citationIndex } = unpackable(1200);
+      const citedMarkers = Array.from({ length: 1200 }, (_, i) => i + 1);
+
+      const blocks = createSourcesBlocks({ ...makeMetadata(sources, citationIndex), cited_markers: citedMarkers });
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      expectWithinSectionLimit(blocks);
+      const listed = textOf(blocks).match(/\*\[\d+\]\* /g).length;
+      expect(textOf(blocks)).toContain('*[1]* ');
+      expect(blocks.at(-1).text.text).toBe(`_+${1200 - listed} more cited sources not shown_`);
+    });
+
+    it('counts cited and uncited omissions separately past the ceiling', () => {
+      const { sources, citationIndex } = unpackable(1300);
+      const citedMarkers = Array.from({ length: 1200 }, (_, i) => i + 1);
+
+      const blocks = createSourcesBlocks({ ...makeMetadata(sources, citationIndex), cited_markers: citedMarkers });
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      const listed = textOf(blocks).match(/\*\[\d+\]\* /g).length;
+      expect(blocks.at(-1).text.text).toBe(
+        `_+${1200 - listed} more cited sources not shown, plus 100 not cited in this answer_`,
+      );
+    });
+
+    it('treats every source as cited when the cited markers are unknown', () => {
+      const { sources, citationIndex } = unpackable(60);
+
+      const blocks = createSourcesBlocks(makeMetadata(sources, citationIndex));
+
+      expect(blocks.length).toBeLessThanOrEqual(SOURCES_BLOCK_BUDGET);
+      expect(textOf(blocks).match(/\*\[\d+\]\* /g)).toHaveLength(60);
+    });
   });
 
   it('adds no overflow note when every source fits the budget', () => {

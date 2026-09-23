@@ -242,6 +242,7 @@ export const MetadataLifecycleState = {
  * @property {Array<Object>} sources - Normalized list of sources (URL, title, date, etc.)
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
  * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
+ * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -261,6 +262,7 @@ function initializeMetadataEnvelope() {
     sources: [],
     source_index_map: Object.create(null),
     citation_index: {},
+    cited_markers: [],
     search_results: [],
     related_questions: [],
     evidence_snippets: {},
@@ -655,6 +657,9 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   const indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
   if (metadata) {
     metadata.citation_index = Object.fromEntries(indexToUrl);
+    metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
+      .filter((marker) => indexToUrl.has(marker))
+      .sort((a, b) => a - b);
   }
 
   let botText = '';
