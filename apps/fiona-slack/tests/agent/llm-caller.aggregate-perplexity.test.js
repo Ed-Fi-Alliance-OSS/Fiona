@@ -543,6 +543,69 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(botText).toBe('A [[4]](https://docs.ed-fi.org/four/). B [[2]](https://docs.ed-fi.org/two/).');
     });
 
+    it('keeps a trailing numbered list of steps with links that the answer never cites', async () => {
+      const text = 'Setup steps:\n[1] Open https://docs.ed-fi.org/one/\n[2] Check https://docs.ed-fi.org/two/';
+
+      const { botText } = await run(text);
+
+      expect(botText).toBe(
+        'Setup steps:\n[[1]](https://docs.ed-fi.org/one/) Open https://docs.ed-fi.org/one/\n[[2]](https://docs.ed-fi.org/two/) Check https://docs.ed-fi.org/two/',
+      );
+    });
+
+    it('treats a headed list as the model list even when the answer cites none of it', async () => {
+      const { botText } = await run('Some answer.\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)');
+
+      expect(botText).toBe('Some answer.');
+    });
+
+    it('links a listed URL to the result with the same path case, not one differing only in case', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [1].\n\n[1] [Upper](https://docs.ed-fi.org/Case)' }], {
+          finalResults: [
+            { id: 1, url: 'https://docs.ed-fi.org/Case' },
+            { id: 2, url: 'https://docs.ed-fi.org/case' },
+          ],
+        }),
+      );
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/Case).');
+    });
+
+    it('leaves a marker unlinked when its URL loosely matches more than one result', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [1].\n\n[1] [X](http://docs.ed-fi.org/x)' }], {
+          finalResults: [
+            { id: 1, url: 'https://docs.ed-fi.org/x/' },
+            { id: 2, url: 'https://www.docs.ed-fi.org/x' },
+          ],
+        }),
+      );
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(botText).toBe('A [1].');
+    });
+
+    it('never emits Slack control syntax from a result URL in the inline link', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [1].' }], { finalResults: [{ id: 1, url: 'https://docs.ed-fi.org/a><!here>' }] }),
+      );
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/a%3E%3C!here%3E).');
+      expect(botText).not.toContain('<!here>');
+    });
+
     it('does not treat bracketed lines without URLs as a source list', async () => {
       const { botText } = await run('Steps:\n[1] Install the tools.\n[2] Run the setup [3].');
 

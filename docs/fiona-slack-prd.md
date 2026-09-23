@@ -118,13 +118,16 @@ streamed response.
 production with the earlier prompt, the model appended its own list in 8 of 12
 answers, and in those it numbered its sources 1, 2, 3… itself instead of by
 result id, so linking `[n]` to result `n` pointed at the wrong page. If the
-answer ends with lines like `[n] … URL`, Fiona treats that list as the meaning
-of its numbers: each `[n]` links to the URL the model listed, matched to a
-search result (a URL the search did not return leaves its marker as plain
-text). The list is removed from the answer, so only the Sources block lists
-sources. The resolution is recorded as `citation_numbering` (`result_id` or
-`model_list`) on the metadata envelope. With the `v2` prompt the model wrote no
-list in 12 of 12 runs. A model that renumbers *without* a list cannot be
+answer ends with lines like `[n] … URL` that read as a bibliography (a
+*Sources* / *References* / *Citations* heading, or numbers the answer itself
+cites), Fiona treats that list as the meaning of its numbers. A closing list of
+numbered steps with links has neither, so it is kept as answer content. Each
+`[n]` links to the URL the model listed, matched to a search result: exactly,
+or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
+case) when only one result matches. A URL the search did not return, or one
+that loosely matches several results, leaves its marker as plain text. The list
+is removed from the answer, so only the Sources block lists sources. With the
+`v2` prompt the model wrote no list in 12 of 12 runs. A model that renumbers *without* a list cannot be
 detected from the text; the prompt is the only guard against that.
 
 **Metadata lifecycle (strict consistency):**
@@ -197,6 +200,10 @@ entries too long to share a block can reach the cap. When they do:
   prototype pollution from external URL keys.
 - `&`, `<` and `>` in source titles are escaped before rendering, so a title
   cannot break its Slack link.
+- `<`, `>`, `|` and whitespace in source URLs are percent-encoded when sources
+  are normalized, so a URL cannot close a link or inject Slack syntax such as
+  `<!here>`. Every rendered link, inline or in the Sources block, uses the
+  normalized URL.
 
 **Citation policy env vars** (see also §7):
 

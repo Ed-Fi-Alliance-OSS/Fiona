@@ -244,7 +244,6 @@ export const MetadataLifecycleState = {
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
  * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
  * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
- * @property {string} [citation_numbering] - How [n] was resolved: 'result_id' (Agent API result ids) or 'model_list' (the model's own appended list)
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -523,12 +522,19 @@ const MODEL_LIST_HEADING = /^\s*(?:#{1,6}\s*)?\**\s*(?:sources|references|citati
 const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
 const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
 
-/** Compare URLs ignoring scheme, a leading www. and trailing slashes. */
+/**
+ * Loose comparison key: ignores the scheme, host case, a leading www. and
+ * trailing slashes. Path, query and fragment keep their case, since paths are
+ * case-sensitive.
+ */
 function urlKey(url) {
-  return url
-    .replace(/^https?:\/\/(www\.)?/i, '')
-    .replace(/\/+$/, '')
-    .toLowerCase();
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    return `${host}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}${parsed.hash}`;
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -537,9 +543,12 @@ function urlKey(url) {
  * Measured against production: when the model writes its own list it numbers
  * its sources 1, 2, 3... itself instead of citing Agent API result ids, so
  * linking `[n]` to result id n pointed at the wrong page (0 of 4 correct in
- * one run). The list is the only record of what each number means. Only a
- * trailing run of `[n] ... URL` lines counts, so bracketed step lists and
- * mid-answer text are never mistaken for one.
+ * one run). The list is the only record of what each number means.
+ *
+ * Only a trailing run of `[n] ... URL` lines counts, and only when it reads as
+ * a bibliography: headed "Sources" / "References" / "Citations", or referenced
+ * from the answer by at least one of its numbers. A closing list of numbered
+ * steps that happen to contain links has neither, so it is kept as content.
  *
  * @param {string} text - Raw answer text
  * @returns {{ text: string, urlByMarker: Map<number, string> } | null} Text without the list, and the model's marker -> URL; null when there is no list
@@ -565,15 +574,24 @@ function extractModelSourceList(text) {
 
   let cut = start;
   while (cut > 0 && !lines[cut - 1].trim()) cut -= 1;
-  if (cut > 0 && MODEL_LIST_HEADING.test(lines[cut - 1])) cut -= 1;
+  const headed = cut > 0 && MODEL_LIST_HEADING.test(lines[cut - 1]);
+  if (headed) cut -= 1;
 
-  return { text: lines.slice(0, cut).join('\n').trimEnd(), urlByMarker };
+  const answer = lines.slice(0, cut).join('\n');
+  const referenced = [...urlByMarker.keys()].some((marker) => answer.includes(`[${marker}]`));
+  if (!headed && !referenced) {
+    return null;
+  }
+
+  return { text: answer.trimEnd(), urlByMarker };
 }
 
 /**
  * Marker -> URL built from the model's own list. Each listed URL is matched to
- * a search result, so only retrieved pages are ever linked; a URL the search
- * did not return leaves its marker as plain text. The results the model did not
+ * a search result, so only retrieved pages are ever linked: an exact match
+ * first, else a loose (urlKey) match that is unique. A URL the search did not
+ * return, or that loosely matches several results, leaves its marker as plain
+ * text rather than guess. The results the model did not
  * list follow, numbered after every number the answer uses, so they can never
  * collide with a marker in the text.
  *
@@ -583,10 +601,17 @@ function extractModelSourceList(text) {
  * @returns {Map<number, string>}
  */
 function buildModelListIndex(urlByMarker, sources, text) {
-  const resultUrlByKey = new Map(sources.map((source) => [urlKey(source.url), source.url]));
+  const resultUrls = new Set(sources.map((source) => source.url));
+  // null marks a key shared by several results, which cannot be resolved.
+  const resultUrlByKey = new Map();
+  for (const { url } of sources) {
+    const key = urlKey(url);
+    resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
+  }
+
   const indexToUrl = new Map();
   for (const [marker, url] of [...urlByMarker].sort(([a], [b]) => a - b)) {
-    const resultUrl = resultUrlByKey.get(urlKey(url));
+    const resultUrl = resultUrls.has(url) ? url : resultUrlByKey.get(urlKey(url));
     if (resultUrl) indexToUrl.set(marker, resultUrl);
   }
 
@@ -753,7 +778,6 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
   }
   if (metadata) {
-    metadata.citation_numbering = modelList ? 'model_list' : 'result_id';
     metadata.citation_index = Object.fromEntries(indexToUrl);
     metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
       .filter((marker) => indexToUrl.has(marker))

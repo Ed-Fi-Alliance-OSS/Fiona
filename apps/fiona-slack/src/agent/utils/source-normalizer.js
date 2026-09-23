@@ -109,6 +109,21 @@ function buildTitleFromUrlPath(url) {
  */
 
 /**
+ * Percent-encode the characters Slack parses as control syntax (`<`, `>`, `|`)
+ * and whitespace. `new URL()` accepts them in a raw string, and a raw `>`
+ * would close a `<url|text>` link and let an injected `<!here>` through. The
+ * encoded URL is equivalent, and ordinary URLs are left byte-for-byte as-is.
+ * Every rendered link, inline or in the Sources block, comes from a URL
+ * normalized here.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function encodeSlackControlChars(url) {
+  return url.replace(/[<>|\s]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+}
+
+/**
  * Normalize a single source and enforce invariants.
  *
  * @param {Object} source - Raw source object from API
@@ -140,8 +155,9 @@ export function normalizeSource(source) {
     return null;
   }
 
-  const { hostname, domain } = parseUrlHostname(url);
-  const fallbackTitle = buildTitleFromUrlPath(url) || domain;
+  const safeUrl = encodeSlackControlChars(url);
+  const { hostname, domain } = parseUrlHostname(safeUrl);
+  const fallbackTitle = buildTitleFromUrlPath(safeUrl) || domain;
 
   // Agent API search results carry a numeric `id`; inline [n] markers refer to
   // it. Preserve it so buildSourceIndexMap can key on the API's own numbering
@@ -149,7 +165,7 @@ export function normalizeSource(source) {
   const id = Number.isInteger(source.id) && source.id > 0 ? source.id : undefined;
 
   return {
-    url,
+    url: safeUrl,
     id,
     title: source.title?.trim() || fallbackTitle,
     hostname,
