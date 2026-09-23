@@ -482,6 +482,68 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(botText).toBe('Unknown [1]. Known [[3]](https://docs.ed-fi.org/known).');
   });
 
+  describe('citation_index (marker number -> URL, for the Sources block)', () => {
+    it('records every result id when a search returns 15 results', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      const finalResults = Array.from({ length: 15 }, (_, i) => ({
+        id: i + 1,
+        url: `https://docs.ed-fi.org/page-${i + 1}`,
+      }));
+
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Late [14].' }], { finalResults }));
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(Object.keys(metadata.citation_index).map(Number)).toEqual(
+        Array.from({ length: 15 }, (_, i) => i + 1),
+      );
+      expect(metadata.citation_index[14]).toBe('https://docs.ed-fi.org/page-14');
+    });
+
+    it('aliases a duplicate result id to the URL it shares', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [1]. Again [2].' }], {
+          finalResults: [
+            { id: 1, url: 'https://docs.ed-fi.org/a' },
+            { id: 2, url: 'https://docs.ed-fi.org/a' },
+            { id: 3, url: 'https://docs.ed-fi.org/c' },
+          ],
+        }),
+      );
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.citation_index).toEqual({
+        1: 'https://docs.ed-fi.org/a',
+        2: 'https://docs.ed-fi.org/a',
+        3: 'https://docs.ed-fi.org/c',
+      });
+    });
+
+    it('omits ambiguous ids, matching what the inline markers link', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+
+      mockCreate.mockResolvedValue(
+        makeStream([{ text: 'A [1]. B [2].' }], {
+          finalResults: [
+            { id: 1, url: 'https://docs.ed-fi.org/a' },
+            { id: 1, url: 'https://docs.ed-fi.org/b' },
+            { id: 2, url: 'https://docs.ed-fi.org/c' },
+          ],
+        }),
+      );
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.citation_index).toEqual({ 2: 'https://docs.ed-fi.org/c' });
+    });
+  });
+
   it('ignores unrecognized event types', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
