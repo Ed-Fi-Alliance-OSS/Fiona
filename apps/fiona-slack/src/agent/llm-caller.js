@@ -10,7 +10,7 @@ import {
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
-import { normalizeSources } from './utils/source-normalizer.js';
+import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
@@ -451,7 +451,7 @@ function promptsToInputItems(prompts) {
     .filter(Boolean);
 }
 
-function buildIndexToUrlMap(sourceIndexMap = {}) {
+function buildIndexToUrlMap(sourceIndexMap = {}, rawResults = []) {
   const indexToUrl = new Map();
 
   for (const [url, index] of Object.entries(sourceIndexMap)) {
@@ -461,15 +461,50 @@ function buildIndexToUrlMap(sourceIndexMap = {}) {
     }
   }
 
+  addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults);
+
   return indexToUrl;
 }
 
-function linkifyCitationMarkers(text, sourceIndexMap = {}) {
+/**
+ * Dedup keeps one source per URL, so a result repeating an earlier URL under a
+ * new Agent API id drops out of `source_index_map`, and a marker citing that id
+ * would stay bare. Alias each such id to the URL it shares. Only applies when
+ * the map is keyed by API id — every result carries a unique id and each kept
+ * URL is indexed by its first result's id — since positional numbering has no
+ * relationship to the raw ids.
+ */
+function addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults) {
+  const results = rawResults.map(normalizeSource).filter(Boolean);
+  const ids = results.map((result) => result.id);
+  if (ids.length === 0 || ids.some((id) => id === undefined) || new Set(ids).size !== ids.length) {
+    return;
+  }
+
+  const firstIdByUrl = new Map();
+  for (const result of results) {
+    if (!firstIdByUrl.has(result.url)) {
+      firstIdByUrl.set(result.url, result.id);
+    }
+  }
+  const keyedByApiId = Object.entries(sourceIndexMap).every(([url, index]) => firstIdByUrl.get(url) === index);
+  if (!keyedByApiId) {
+    return;
+  }
+
+  for (const result of results) {
+    if (!indexToUrl.has(result.id) && sourceIndexMap[result.url] !== undefined) {
+      indexToUrl.set(result.id, result.url);
+    }
+  }
+}
+
+function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
   if (!text || typeof text !== 'string') {
     return text;
   }
 
-  const indexToUrl = buildIndexToUrlMap(sourceIndexMap);
+  const indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
 
   if (indexToUrl.size === 0) {
     return text;
@@ -623,7 +658,7 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let botText = '';
   if (textBuffer) {
     const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap, searchResults);
     await streamer.append({ markdown_text: botText });
   }
 

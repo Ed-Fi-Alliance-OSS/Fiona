@@ -375,6 +375,54 @@ describe('callPerplexityChat – buffer and linkify', () => {
     );
   });
 
+  it('links a marker citing a duplicate result id to the same URL as the first', async () => {
+    // Dedup keeps one source per URL, so id 2 (a repeat of id 1's URL) has no
+    // entry in source_index_map. The marker must still link, to that URL.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'A [1]. Again [2]. C [3].' }], {
+        finalResults: [
+          { id: 1, url: 'https://docs.ed-fi.org/a' },
+          { id: 2, url: 'https://docs.ed-fi.org/a' },
+          { id: 3, url: 'https://docs.ed-fi.org/c' },
+        ],
+      }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe(
+      'A [[1]](https://docs.ed-fi.org/a). Again [[2]](https://docs.ed-fi.org/a). C [[3]](https://docs.ed-fi.org/c).',
+    );
+    // The source list itself stays deduplicated.
+    expect(metadata.sources.map((s) => s.url)).toEqual(['https://docs.ed-fi.org/a', 'https://docs.ed-fi.org/c']);
+  });
+
+  it('does not alias ids when they are non-unique and positional numbering is in use', async () => {
+    // Non-unique ids make the API numbering unreliable, so buildSourceIndexMap
+    // falls back to array position. Aliasing raw ids here would relink [1].
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'A [1]. B [2]. C [3].' }], {
+        finalResults: [
+          { id: 1, url: 'https://docs.ed-fi.org/a' },
+          { id: 1, url: 'https://docs.ed-fi.org/b' },
+          { id: 2, url: 'https://docs.ed-fi.org/c' },
+        ],
+      }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe(
+      'A [[1]](https://docs.ed-fi.org/a). B [[2]](https://docs.ed-fi.org/b). C [[3]](https://docs.ed-fi.org/c).',
+    );
+  });
+
   it('ignores unrecognized event types', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);

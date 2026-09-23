@@ -11,6 +11,7 @@ jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
 }));
 
 jest.unstable_mockModule('../../src/agent/utils/source-normalizer.js', () => ({
+  normalizeSource: jest.fn().mockReturnValue(null),
   normalizeSources: jest.fn().mockReturnValue({ sources: [], sourceIndexMap: {} }),
 }));
 
