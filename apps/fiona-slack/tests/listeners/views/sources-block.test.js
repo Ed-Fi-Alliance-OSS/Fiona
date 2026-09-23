@@ -49,14 +49,14 @@ describe('createSourcesBlocks', () => {
     );
   });
 
-  it('shows the publication date when the source has one', () => {
+  it('does not show publication dates, which search results do not supply reliably', () => {
     const blocks = createSourcesBlocks(
       makeMetadata([{ url: 'https://docs.ed-fi.org/a', title: 'A', date: '2025-04-01' }], {
         1: 'https://docs.ed-fi.org/a',
       }),
     );
 
-    expect(textOf(blocks)).toContain('*[1]* <https://docs.ed-fi.org/a|A> · 2025-04-01');
+    expect(textOf(blocks)).toBe('*Sources*\n*[1]* <https://docs.ed-fi.org/a|A>');
   });
 
   it('renders all 15 sources of a typical Agent API answer, untruncated', () => {
@@ -152,19 +152,7 @@ describe('createSourcesBlocks', () => {
     for (const block of blocks) {
       expect(block.text.text.length).toBeLessThanOrEqual(SLACK_SECTION_TEXT_LIMIT);
     }
-    expect(textOf(blocks)).toContain('*[1]* Huge (docs.ed-fi.org) · 2025-04-01');
-  });
-
-  it('keeps an entry within the section limit when its date is oversized', () => {
-    const blocks = createSourcesBlocks(
-      makeMetadata([{ url: 'https://docs.ed-fi.org/a', title: 'A', date: 'x'.repeat(3100) }], {
-        1: 'https://docs.ed-fi.org/a',
-      }),
-    );
-
-    expectWithinSectionLimit(blocks);
-    // Capping the date lets the entry keep its link.
-    expect(textOf(blocks)).toContain(`*[1]* <https://docs.ed-fi.org/a|A> · ${'x'.repeat(39)}…`);
+    expect(textOf(blocks)).toBe('*Sources*\n*[1]* Huge (docs.ed-fi.org)');
   });
 
   it('collapses runs of three or more marker numbers into a range', () => {
