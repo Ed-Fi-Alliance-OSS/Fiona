@@ -330,6 +330,23 @@ describe('appMentionCallback', () => {
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
   });
 
+  it('logs when the answer was declined for having no sources', async () => {
+    callLLM.mockResolvedValueOnce({
+      metadata: {
+        finalize_state: 'ready_to_finalize',
+        sources: [],
+        source_index_map: {},
+        grounding: 'declined_no_results',
+      },
+      botText: 'declined',
+      systemPromptVersion: 'v3',
+    });
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
+  });
+
   it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
     const metadata = {
       finalize_state: 'ready_to_finalize',
