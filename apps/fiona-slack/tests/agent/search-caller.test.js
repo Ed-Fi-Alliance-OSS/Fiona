@@ -3,7 +3,12 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+
+// The describe blocks below predate link checking (AI-227) and assert the
+// exact max_results sent; link checking asks for a few extra results. Its own
+// block turns it back on.
+process.env.CITATION_LINK_CHECK_ENABLED = 'false';
 
 // Mock the Perplexity SDK so tests control search results without hitting the API.
 // llm-caller.js creates one Perplexity client on load (for both chat and
@@ -22,6 +27,8 @@ process.env.PERPLEXITY_API_KEY = 'test-key';
 const { searchForSources, formatSearchResults, escapeMrkdwn, extractSearchQuery, SEARCH_ERROR_TEXT } = await import(
   '../../src/agent/search-caller.js'
 );
+
+const { clearLinkCheckCache } = await import('../../src/agent/utils/link-checker.js');
 
 /**
  * Configure mockSearchCreate to resolve with the given results array.
@@ -469,5 +476,51 @@ describe('SEARCH_ERROR_TEXT', () => {
   it('is a non-empty string', () => {
     expect(typeof SEARCH_ERROR_TEXT).toBe('string');
     expect(SEARCH_ERROR_TEXT.length).toBeGreaterThan(0);
+  });
+});
+
+describe('searchForSources link checking (AI-227)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearLinkCheckCache();
+    delete process.env.CITATION_LINK_CHECK_ENABLED;
+  });
+
+  afterEach(() => {
+    process.env.CITATION_LINK_CHECK_ENABLED = 'false';
+    globalThis.fetch = () => Promise.reject(new Error('Unexpected network call in a unit test; mock globalThis.fetch'));
+  });
+
+  const page = (n) => ({ url: `https://docs.ed-fi.org/p${n}/`, title: `P${n}` });
+
+  it('asks for 3 extra results, removes dead ones, and trims to the requested count', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async (url) => ({ status: url.endsWith('/p2/') ? 404 : 200 }));
+
+    const sources = await searchForSources('q', { maxSources: 3 });
+
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 6 }));
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(3).url, page(4).url]);
+  });
+
+  it('never asks for more than 10', async () => {
+    mockSearchOk([page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+    await searchForSources('q', { maxSources: 9 });
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 10 }));
+  });
+
+  it('removes denylisted results without fetching them', async () => {
+    mockSearchOk([{ url: 'https://www.ed-fi.org/what-is-ed-fi-old/mission/' }, page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+    const sources = await searchForSources('q', { maxSources: 5 });
+    expect(sources.map((s) => s.url)).toEqual([page(1).url]);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an empty list when every result is dead', async () => {
+    mockSearchOk([page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 404 }));
+    expect(await searchForSources('q', { maxSources: 5 })).toEqual([]);
   });
 });

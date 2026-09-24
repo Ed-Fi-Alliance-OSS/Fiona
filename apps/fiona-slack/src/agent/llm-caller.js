@@ -1031,19 +1031,25 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
   if (!query || !query.trim()) return [];
 
   const cappedMaxSources = clampSearchMaxSources(maxSources);
+  // Ask for a few extra when link checking is on, so removing dead results
+  // does not leave the command short (AI-227).
+  const linkCheck = isCitationLinkCheckEnabled();
+  const fetchCount = linkCheck ? Math.min(cappedMaxSources + 3, SEARCH_ABSOLUTE_MAX) : cappedMaxSources;
 
   try {
     const response = await perplexityClient.search.create({
       query,
-      max_results: cappedMaxSources,
+      max_results: fetchCount,
       search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
     });
 
     const rawResults = response?.results;
 
     if (Array.isArray(rawResults) && rawResults.length > 0) {
-      const { sources } = normalizeSources(rawResults, { maxSources: cappedMaxSources });
-      return sources;
+      const { sources } = normalizeSources(rawResults, { maxSources: fetchCount });
+      if (!linkCheck) return sources;
+      const { kept } = await validateSources(sources, logger);
+      return kept.slice(0, cappedMaxSources);
     }
 
     return [];
