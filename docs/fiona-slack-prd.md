@@ -94,6 +94,14 @@ captured conversation. `v2` added the citation-numbering rules in §2.2.3, and
 `v3` added the grounding rules below; an overridden `SYSTEM_PROMPT` must carry
 both.
 
+**Scope (AI-231).** Fiona helps only with Ed-Fi. Coding questions are in scope
+when they concern implementing, integrating, or extending Ed-Fi (calling an
+Ed-Fi API, mapping data to the Data Standard, working in an Ed-Fi code base).
+General programming and unrelated topics are declined as outside what Fiona
+can help with. That reply is distinct from "could not find this in the Ed-Fi
+documentation", and Fiona does not recast an unrelated question as an Ed-Fi
+one.
+
 **Grounding (AI-231).** On the chat path, every factual claim must come from a
 cited search result, never from the model's background knowledge. When the
 results do not answer the question, Fiona says it could not find this in the
