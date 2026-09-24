@@ -135,7 +135,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       // Telemetry: log finalize_state and source count for observability.
       if (metadata) {
-        logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+        logger.info(
+          `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+            (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+        );
       }
 
       await streamer.stop({

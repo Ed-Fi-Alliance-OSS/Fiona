@@ -257,7 +257,10 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
         // Telemetry: log finalize_state and source count for observability.
         if (metadata) {
-          logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+          logger.info(
+            `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+              (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+          );
         }
 
         await streamer.stop({
