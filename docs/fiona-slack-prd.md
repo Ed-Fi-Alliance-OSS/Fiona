@@ -119,9 +119,12 @@ production with the earlier prompt, the model appended its own list in 8 of 12
 answers, and in those it numbered its sources 1, 2, 3… itself instead of by
 result id, so linking `[n]` to result `n` pointed at the wrong page. If the
 answer ends with lines like `[n] … URL` that read as a bibliography (a
-*Sources* / *References* / *Citations* heading, or numbers the answer itself
-cites), Fiona treats that list as the meaning of its numbers. A closing list of
-numbered steps with links has neither, so it is kept as answer content. Each
+*Sources* / *References* / *Citations* heading, or, without one, every listed
+number cited earlier in the answer and every listed URL a search result), Fiona
+treats that list as the meaning of its numbers. A closing list of numbered
+steps with links normally fails that test, even if the answer cites one of its
+numbers, so it is kept as answer content; a missed list only falls back to
+result-id linking. Each
 `[n]` links to the URL the model listed, matched to a search result: exactly,
 or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
 case) when only one result matches. A URL the search did not return, or one
