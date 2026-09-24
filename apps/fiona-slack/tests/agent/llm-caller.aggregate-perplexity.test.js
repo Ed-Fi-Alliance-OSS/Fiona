@@ -29,12 +29,27 @@ process.env.PERPLEXITY_API_KEY = 'test-key';
 const { aggregatePerplexityMetadata, callPerplexityChat, callLLM, assertLLMConfigured } = await import(
   '../../src/agent/llm-caller.js'
 );
+const { incrementDegradedNoMetadataCount } = await import('../../src/agent/utils/citation-telemetry.js');
 
 describe('assertLLMConfigured', () => {
   it('does not throw when PERPLEXITY_API_KEY is set at module load', () => {
     expect(() => assertLLMConfigured()).not.toThrow();
   });
 });
+
+function toAsyncIterable(events) {
+  return {
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        async next() {
+          if (i >= events.length) return { done: true, value: undefined };
+          return { done: false, value: events[i++] };
+        },
+      };
+    },
+  };
+}
 
 function makeMetadata() {
   return {
@@ -131,8 +146,9 @@ describe('callPerplexityChat – buffer and linkify', () => {
    * Each element may have { text, searchResults }, producing the typed SSE
    * events the Agent API emits (`response.output_text.delta` and
    * `response.reasoning.search_results`), followed by `response.completed`.
+   * Pass `terminalEvent` to end the stream with that exact event instead.
    */
-  function makeStream(chunks, { terminal = 'response.completed', finalResults } = {}) {
+  function makeStream(chunks, { terminal = 'response.completed', finalResults, terminalEvent } = {}) {
     const events = [];
 
     for (const chunk of chunks) {
@@ -144,29 +160,20 @@ describe('callPerplexityChat – buffer and linkify', () => {
       }
     }
 
-    if (terminal) {
+    if (terminalEvent) {
+      events.push(terminalEvent);
+    } else if (terminal) {
       events.push({
         type: terminal,
         response: {
-          status: terminal === 'response.completed' ? 'completed' : 'failed',
-          ...(finalResults ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
-          ...(terminal === 'response.failed' ? { error: { message: 'upstream refused' } } : {}),
+          status: terminal === 'response.completed' ? 'completed' : 'incomplete',
+          ...(finalResults !== undefined ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
           ...(terminal === 'response.incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {}),
         },
       });
     }
 
-    return {
-      [Symbol.asyncIterator]() {
-        let i = 0;
-        return {
-          async next() {
-            if (i >= events.length) return { done: true, value: undefined };
-            return { done: false, value: events[i++] };
-          },
-        };
-      },
-    };
+    return toAsyncIterable(events);
   }
 
   const urlsToResults = (urls) => urls.map((url) => ({ url }));
@@ -301,15 +308,53 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://authoritative.example.com']);
   });
 
-  it('throws when the run terminates with response.failed over a 200 response', async () => {
+  it.each([[], null])('does not link stale results when the terminal snapshot contains %p', async (finalResults) => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
-    mockCreate.mockResolvedValue(makeStream([{ text: 'partial' }], { terminal: 'response.failed' }));
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Answer [1].', searchResults: urlsToResults(['https://stale.example.com']) }], {
+        finalResults,
+      }),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(citations).toEqual([]);
+    expect(botText).toBe('Answer [1].');
+    expect(metadata.sources).toEqual([]);
+  });
+
+  it('uses streamed results when the terminal snapshot has no search_results item', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Answer [1].', searchResults: urlsToResults(['https://streamed.example.com']) }]),
+    );
+
+    const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(citations).toEqual(['https://streamed.example.com']);
+    expect(botText).toBe('Answer [[1]](https://streamed.example.com).');
+  });
+
+  // Failed and cancelled runs arrive over a successful HTTP 200. The SDK's
+  // `ResponseFailedEvent` carries a top-level `error` and no `response`.
+  it.each([
+    ['response.failed', { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } }, 'upstream refused'],
+    ['response.cancelled', { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } }, 'run cancelled'],
+    ['bare error', { type: 'error', error: { message: 'stream broke' } }, 'stream broke'],
+    ['detail-less response.failed', { type: 'response.failed', sequence_number: 3 }, 'no error detail'],
+  ])('throws on a %s terminal event without appending the partial answer', async (_label, terminalEvent, expectedDetail) => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(makeStream([{ text: 'partial' }], { terminalEvent }));
 
     await expect(callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }])).rejects.toThrow(
-      /response\.failed: upstream refused/,
+      `Perplexity run ended with ${terminalEvent.type}: ${expectedDetail}`,
     );
+    expect(streamer.append).not.toHaveBeenCalled();
   });
 
   it('keeps the partial answer and warns when the run terminates as incomplete', async () => {
@@ -328,11 +373,10 @@ describe('callPerplexityChat – buffer and linkify', () => {
   });
 
   it('still takes sources from the terminal snapshot when the run is incomplete', async () => {
-    // Each `response.reasoning.search_results` event REPLACES the running list,
-    // so on a multi-round search the per-round events hold only the last round.
-    // An incomplete run keeps its partial answer, and those [n] markers can
-    // only linkify if the terminal snapshot is read here too, exactly as it is
-    // for a completed run.
+    // The terminal snapshot's results take precedence over the streamed
+    // `response.reasoning.search_results` events. An incomplete run keeps its
+    // partial answer, and those [n] markers can only linkify if the terminal
+    // snapshot is read here too, exactly as it is for a completed run.
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
     const logger = { warn: jest.fn() };
@@ -349,6 +393,93 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://authoritative.example.com']);
     expect(botText).toBe('Truncated [[1]](https://authoritative.example.com).');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('max_output_tokens'));
+  });
+
+  it('linkifies markers whose result id falls beyond the display cap', async () => {
+    // A multi-round search can return more than 10 results, and the model
+    // cites them by their Agent API id. The former 10-source cap ran before
+    // source_index_map was built and left [12] and [14] as bare text in
+    // production.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+    const finalResults = Array.from({ length: 15 }, (_, i) => ({
+      id: i + 1,
+      url: `https://docs.ed-fi.org/page-${i + 1}`,
+    }));
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'First [2]. Later [12]. Last [14].' }], { finalResults }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe(
+      'First [[2]](https://docs.ed-fi.org/page-2). ' +
+        'Later [[12]](https://docs.ed-fi.org/page-12). ' +
+        'Last [[14]](https://docs.ed-fi.org/page-14).',
+    );
+  });
+
+  it('links a marker citing a duplicate result id to the same URL as the first', async () => {
+    // Dedup keeps one source per URL, so id 2 (a repeat of id 1's URL) has no
+    // entry in source_index_map. The marker must still link, to that URL.
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'A [1]. Again [2]. C [3].' }], {
+        finalResults: [
+          { id: 1, url: 'https://docs.ed-fi.org/a' },
+          { id: 2, url: 'https://docs.ed-fi.org/a' },
+          { id: 3, url: 'https://docs.ed-fi.org/c' },
+        ],
+      }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe(
+      'A [[1]](https://docs.ed-fi.org/a). Again [[2]](https://docs.ed-fi.org/a). C [[3]](https://docs.ed-fi.org/c).',
+    );
+    // The source list itself stays deduplicated.
+    expect(metadata.sources.map((s) => s.url)).toEqual(['https://docs.ed-fi.org/a', 'https://docs.ed-fi.org/c']);
+  });
+
+  it('leaves ambiguous ids unlinked rather than using positional numbering', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'A [1]. B [2]. C [3].' }], {
+        finalResults: [
+          { id: 1, url: 'https://docs.ed-fi.org/a' },
+          { id: 1, url: 'https://docs.ed-fi.org/b' },
+          { id: 2, url: 'https://docs.ed-fi.org/c' },
+        ],
+      }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe('A [1]. B [[2]](https://docs.ed-fi.org/c). C [3].');
+  });
+
+  it('does not link a missing id by its array position when another result has an API id', async () => {
+    const metadata = makeMetadata();
+    const streamer = makeStreamer(metadata);
+
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Unknown [1]. Known [3].' }], {
+        finalResults: [
+          { id: 3, url: 'https://docs.ed-fi.org/known' },
+          { url: 'https://docs.ed-fi.org/unknown' },
+        ],
+      }),
+    );
+
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+    expect(botText).toBe('Unknown [1]. Known [[3]](https://docs.ed-fi.org/known).');
   });
 
   it('ignores unrecognized event types', async () => {
@@ -387,6 +518,27 @@ describe('callLLM error path does not mask original failure', () => {
   function makeStreamer() {
     return { append: jest.fn().mockResolvedValue(undefined) };
   }
+
+  it('marks the envelope degraded and counts it once when the stream ends with response.failed', async () => {
+    // HTTP-200 failures surface as a throw from inside the stream loop, so this
+    // is the primary failure path — no envelope pre-seeding.
+    incrementDegradedNoMetadataCount.mockClear();
+    mockCreate.mockResolvedValue(
+      toAsyncIterable([
+        { type: 'response.output_text.delta', delta: 'partial' },
+        { type: 'response.failed', sequence_number: 2, error: { message: 'upstream refused' } },
+      ]),
+    );
+
+    const streamer = makeStreamer();
+
+    await expect(callLLM(streamer, [{ role: 'user', content: 'hi' }], makeLogger())).rejects.toThrow(
+      'Perplexity run ended with response.failed: upstream refused',
+    );
+    expect(streamer.__citation_metadata.finalize_state).toBe('degraded_no_metadata');
+    expect(incrementDegradedNoMetadataCount).toHaveBeenCalledTimes(1);
+    expect(streamer.append).not.toHaveBeenCalled();
+  });
 
   it('rethrows the original LLM error when metadata is already DEGRADED_NO_METADATA', async () => {
     const llmError = new Error('upstream LLM exploded');

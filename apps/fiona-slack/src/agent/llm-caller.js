@@ -10,7 +10,7 @@ import {
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
-import { normalizeSources } from './utils/source-normalizer.js';
+import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
@@ -20,9 +20,9 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
-const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
-  ? process.env.PERPLEXITY_DOMAIN_FILTER.split(',').map((d) => d.trim())
-  : ['www.ed-fi.org', 'docs.ed-fi.org'];
+const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
+  .split(',')
+  .map((d) => d.trim());
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
@@ -30,7 +30,7 @@ export const METADATA_CONTRACT_VERSION = 'v1';
 /**
  * Safely parse an environment variable into a positive integer.
  * Falls back to `defaultValue` when the value is missing, non-numeric, NaN,
- * or not a positive integer (e.g. CITATION_MAX_SOURCES=abc → 10).
+ * or not a positive integer (e.g. CITATION_METADATA_TIMEOUT_MS=abc → 2000).
  *
  * @param {string | undefined} rawValue
  * @param {number} defaultValue
@@ -45,7 +45,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
 }
 
 export const CITATION_POLICY = {
-  MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
 
   // Feature flags: enable/disable citation rendering.
@@ -381,10 +380,10 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   const rawSources = extractSearchResults(perplexityResponse).filter((result) => result?.url);
 
   if (rawSources.length > 0) {
-    // Normalize and deduplicate with deterministic first-seen ordering
-    const { sources, sourceIndexMap } = normalizeSources(rawSources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Normalize and deduplicate with deterministic first-seen ordering. No
+    // cap: the model cites results by Agent API id across every search round,
+    // so dropping any result leaves its [n] marker unlinkable.
+    const { sources, sourceIndexMap } = normalizeSources(rawSources);
 
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
@@ -402,10 +401,8 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
       }
     }
 
-    // Build final sources list respecting cap policy
-    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Rebuild the final sources list and index map from the merged set
+    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources);
     metadata.sources = finalSources;
     metadata.source_index_map = finalIndexMap;
   }
@@ -454,7 +451,7 @@ function promptsToInputItems(prompts) {
     .filter(Boolean);
 }
 
-function buildIndexToUrlMap(sourceIndexMap = {}) {
+function buildIndexToUrlMap(sourceIndexMap = {}, rawResults = []) {
   const indexToUrl = new Map();
 
   for (const [url, index] of Object.entries(sourceIndexMap)) {
@@ -464,15 +461,50 @@ function buildIndexToUrlMap(sourceIndexMap = {}) {
     }
   }
 
+  addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults);
+
   return indexToUrl;
 }
 
-function linkifyCitationMarkers(text, sourceIndexMap = {}) {
+/**
+ * Dedup keeps one source per URL, so a result repeating an earlier URL under a
+ * new Agent API id drops out of `source_index_map`, and a marker citing that id
+ * would stay bare. Alias each such id to the URL it shares. Only applies when
+ * the map is keyed by API id — every result carries a unique id and each kept
+ * URL is indexed by its first result's id — since positional numbering has no
+ * relationship to the raw ids.
+ */
+function addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults) {
+  const results = rawResults.map(normalizeSource).filter(Boolean);
+  const ids = results.map((result) => result.id);
+  if (ids.length === 0 || ids.some((id) => id === undefined) || new Set(ids).size !== ids.length) {
+    return;
+  }
+
+  const firstIdByUrl = new Map();
+  for (const result of results) {
+    if (!firstIdByUrl.has(result.url)) {
+      firstIdByUrl.set(result.url, result.id);
+    }
+  }
+  const keyedByApiId = Object.entries(sourceIndexMap).every(([url, index]) => firstIdByUrl.get(url) === index);
+  if (!keyedByApiId) {
+    return;
+  }
+
+  for (const result of results) {
+    if (!indexToUrl.has(result.id) && sourceIndexMap[result.url] !== undefined) {
+      indexToUrl.set(result.id, result.url);
+    }
+  }
+}
+
+function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
   if (!text || typeof text !== 'string') {
     return text;
   }
 
-  const indexToUrl = buildIndexToUrlMap(sourceIndexMap);
+  const indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
 
   if (indexToUrl.size === 0) {
     return text;
@@ -568,12 +600,18 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         break;
 
       // Both terminals carry a full response snapshot, and both are handled the
-      // same way: the snapshot is authoritative when it carries results,
-      // because the per-round `response.reasoning.search_results` events each
-      // REPLACE the running list rather than appending to it, so on a
-      // multi-round search only the snapshot holds the complete set. An
-      // incomplete run keeps its partial answer, whose [n] markers still need
-      // those sources to linkify.
+      // same way: the snapshot's results win when present. An incomplete run
+      // keeps its partial answer, whose [n] markers still need those sources
+      // to linkify.
+      //
+      // This is complete only for a single search round, which is what the
+      // default `max_steps` produces (measured live: always 1 round, 15
+      // results, ids 1-15). With `max_steps` > 1 each round's event carries
+      // its own results under ids numbered across rounds (1-15, 16-30, ...),
+      // but the snapshot keeps only round 1, so markers citing later rounds
+      // cannot linkify. Raising `max_steps` therefore requires merging every
+      // round's event and mapping markers by id rather than URL, since rounds
+      // return the same URL under different ids.
       case 'response.incomplete':
       case 'response.completed': {
         if (event.type === 'response.incomplete') {
@@ -584,9 +622,12 @@ export async function callPerplexityChat(streamer, prompts, logger) {
           );
         }
 
-        const finalResults = extractSearchResults(event.response);
-        if (finalResults.length > 0) {
-          searchResults = finalResults;
+        const snapshot = event.response;
+        if (
+          Array.isArray(snapshot?.search_results) ||
+          (Array.isArray(snapshot?.output) && snapshot.output.some((item) => item?.type === 'search_results'))
+        ) {
+          searchResults = extractSearchResults(snapshot);
         }
         break;
       }
@@ -620,7 +661,7 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let botText = '';
   if (textBuffer) {
     const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap, searchResults);
     await streamer.append({ markdown_text: botText });
   }
 

@@ -136,7 +136,8 @@ the response is finalized with plain `[n]` markers left as-is.
   `data:`, `vbscript:`).
 - Duplicate URLs are dropped; first-seen ordering is preserved.
 - Titles are derived from the URL path when no explicit title is provided.
-- The source list is capped at `CITATION_MAX_SOURCES` (default: 10).
+- Sources are not capped: the model cites Agent API result ids across every
+  search round, so dropping any result would leave its `[n]` marker unlinked.
 
 **Security hardening:**
 
@@ -150,7 +151,6 @@ the response is finalized with plain `[n]` markers left as-is.
 | Variable                       | Default | Purpose                                         |
 | ------------------------------ | ------- | ----------------------------------------------- |
 | `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
-| `CITATION_MAX_SOURCES`         | `10`    | Maximum sources normalised per response         |
 | `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
 | `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
 
@@ -511,7 +511,7 @@ documentation. Key groups:
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
 | LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
-| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
+| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
