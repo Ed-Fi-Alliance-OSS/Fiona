@@ -955,6 +955,13 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toMatch(/licensing or legal question/i);
     expect(system).toMatch(/do not give a (?:definitive )?yes or no/i);
     expect(system).toContain('https://www.ed-fi.org/contact/');
+    // Scope: Ed-Fi implementation coding is in, general coding and trivia are out,
+    // and out-of-scope questions are declined as out of scope, not as "not found".
+    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi/i);
+    expect(system).toMatch(/general programming/i);
+    expect(system).toMatch(/outside what you can help with/i);
+    // Measured: a generic SQL question was answered by recasting it onto Ed-Fi's Admin database.
+    expect(system).toMatch(/do not recast it as an Ed-Fi question/i);
     // Search is forced now, and "general productivity" invited ungrounded answers.
     expect(system).not.toMatch(/offer to search/i);
     expect(system).not.toMatch(/general productivity/i);
