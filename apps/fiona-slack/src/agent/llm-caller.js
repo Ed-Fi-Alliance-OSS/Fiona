@@ -670,6 +670,34 @@ function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
   return indexToUrl;
 }
 
+/**
+ * Work out what each [n] marker in the text links to. When the model appended
+ * its own source list, its numbers are its own, so link by the list and drop it
+ * (only the Sources block lists sources); otherwise link by result id.
+ *
+ * @param {string} text - Raw answer text
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
+ * @param {Object} sourceIndexMap - URL -> result id
+ * @param {Array<Object>} rawResults - Raw search results (for duplicate-id aliases)
+ * @returns {{ text: string, indexToUrl: Map<number, string>, citedMarkers: number[] }}
+ */
+function resolveCitations(text, sources, sourceIndexMap, rawResults) {
+  const resolveResultUrl = makeResultUrlResolver(sources);
+  const modelList = rawResults.length > 0 ? extractModelSourceList(text, resolveResultUrl) : null;
+  let answer = text;
+  let indexToUrl;
+  if (modelList) {
+    answer = modelList.text;
+    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, answer);
+  } else {
+    indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
+  }
+  const citedMarkers = [...new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
+    .filter((marker) => indexToUrl.has(marker))
+    .sort((a, b) => a - b);
+  return { text: answer, indexToUrl, citedMarkers };
+}
+
 // Web search is not automatic on the Agent API, and merely offering the tool
 // does not guarantee the model calls it. Fiona's answers must be grounded in
 // Ed-Fi sources, so the tool is forced via `tool_choice` and carries the
@@ -808,27 +836,12 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // avoids sending an empty markdown block to Slack.
   // Resolve marker number -> URL once, so the inline links and the Sources
   // block are built from the same map and cannot disagree.
-  //
-  // When the model appended its own numbered list, its numbers are its own,
-  // not result ids: link by the list instead, and drop the list so only the
-  // Sources block lists sources. Without results there is nothing to verify
-  // its URLs against, so the text is left alone.
   const metadata = streamer?.__citation_metadata;
   const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
-  const resolveResultUrl = makeResultUrlResolver(sources);
-  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer, resolveResultUrl) : null;
-  let indexToUrl;
-  if (modelList) {
-    textBuffer = modelList.text;
-    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, textBuffer);
-  } else {
-    indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
-  }
+  const resolved = resolveCitations(textBuffer, sources, metadata?.source_index_map || {}, searchResults);
   if (metadata) {
-    metadata.citation_index = Object.fromEntries(indexToUrl);
-    metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
-      .filter((marker) => indexToUrl.has(marker))
-      .sort((a, b) => a - b);
+    metadata.citation_index = Object.fromEntries(resolved.indexToUrl);
+    metadata.cited_markers = resolved.citedMarkers;
   }
 
   let botText = '';
@@ -840,8 +853,8 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     if (metadata) metadata.grounding = 'declined_no_results';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else if (textBuffer) {
-    botText = linkifyCitationMarkers(textBuffer, indexToUrl);
+  } else if (resolved.text) {
+    botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
     await streamer.append({ markdown_text: botText });
   }
 
