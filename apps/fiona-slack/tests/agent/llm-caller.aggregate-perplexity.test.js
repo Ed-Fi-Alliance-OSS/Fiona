@@ -951,6 +951,10 @@ describe('callLLM returns botText alongside metadata', () => {
     // Measured: v3 without this called the homepage's case-study states "implemented".
     expect(system).toMatch(/use the source's own label/i);
     expect(system).toMatch(/case stud(?:y|ies) (?:is|are) not (?:a list of )?(?:states )?implementing/i);
+    // Measured: two runs of the same commercial-use question gave opposite answers.
+    expect(system).toMatch(/licensing or legal question/i);
+    expect(system).toMatch(/do not give a (?:definitive )?yes or no/i);
+    expect(system).toContain('https://www.ed-fi.org/contact/');
     // Search is forced now, and "general productivity" invited ungrounded answers.
     expect(system).not.toMatch(/offer to search/i);
     expect(system).not.toMatch(/general productivity/i);
