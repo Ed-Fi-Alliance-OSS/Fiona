@@ -45,7 +45,8 @@ export function parseDenylist(raw) {
 
 /**
  * True when the URL is a denylisted prefix or sits below one. A prefix ends at
- * a path boundary, so ".../what-is-ed-fi-old" does not match ".../what-is-ed-fi-older".
+ * a path boundary (/, ?, or #), so ".../what-is-ed-fi-old" does not match
+ * ".../what-is-ed-fi-older". Query strings and fragments are treated as boundaries.
  *
  * @param {string} url
  * @param {string[]} denylist - From parseDenylist
@@ -53,7 +54,11 @@ export function parseDenylist(raw) {
  */
 export function isDenylisted(url, denylist) {
   const key = urlKey(url);
-  return denylist.some((prefix) => key === prefix || key.startsWith(`${prefix}/`));
+  return denylist.some((prefix) => {
+    if (key === prefix) return true;
+    const nextChar = key.charAt(prefix.length);
+    return ['/', '?', '#'].includes(nextChar) && key.startsWith(prefix);
+  });
 }
 
 /**

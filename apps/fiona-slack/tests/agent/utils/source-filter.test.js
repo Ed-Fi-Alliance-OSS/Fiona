@@ -41,6 +41,22 @@ describe('parseDenylist / isDenylisted', () => {
   it('matches nothing when the denylist is empty', () => {
     expect(isDenylisted('https://www.ed-fi.org/anything/', parseDenylist(''))).toBe(false);
   });
+
+  it('matches the prefix with query string', () => {
+    expect(isDenylisted('https://www.ed-fi.org/what-is-ed-fi-old/?utm=1', denylist)).toBe(true);
+  });
+
+  it('matches the prefix with fragment', () => {
+    expect(isDenylisted('https://www.ed-fi.org/what-is-ed-fi-old#top', denylist)).toBe(true);
+  });
+
+  it('matches paths below the prefix with query string', () => {
+    expect(isDenylisted('https://www.ed-fi.org/what-is-ed-fi-old/mission/?utm=1', denylist)).toBe(true);
+  });
+
+  it('does not match sibling path with query string', () => {
+    expect(isDenylisted('https://www.ed-fi.org/what-is-ed-fi-older?x=1', denylist)).toBe(false);
+  });
 });
 
 describe('filterSources', () => {
