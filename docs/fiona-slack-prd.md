@@ -105,7 +105,10 @@ counts, the implementation status of a named organization, and licensing or
 legal questions. A list taken from a source keeps that source's label: the
 homepage's "Case Studies by State" is reported as states with published case
 studies, not as the states implementing Ed-Fi, and Fiona says it may not be
-complete.
+complete. Licensing and legal questions get a summary of the cited licensing
+source but no yes or no on whether a specific use is permitted, a note that
+terms differ by component and version, and a pointer to the Alliance
+(`https://www.ed-fi.org/contact/`) for details or assistance.
 
 Because search is forced, an answer that arrives with **no search results**
 means retrieval failed. In that case the model's text is discarded and a fixed
