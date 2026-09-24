@@ -4,13 +4,15 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import Perplexity from '@perplexity-ai/perplexity_ai';
+import { isCitationLinkCheckEnabled } from './deployment-flags.js';
 import {
   incrementDegradedNoMetadataCount,
   incrementTotalResponseCount,
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
-import { urlKey } from './utils/source-filter.js';
+import { checkUrls } from './utils/link-checker.js';
+import { filterSources, isDenylisted, parseDenylist, urlKey } from './utils/source-filter.js';
 import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
@@ -24,6 +26,12 @@ export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v3';
 const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
   .split(',')
   .map((d) => d.trim());
+
+// ─── Citation Link Checking (AI-227) ────────────────────────────────────────
+// Time budget for checking one answer's sources; unfinished checks keep the source.
+const CITATION_LINK_CHECK_TIMEOUT_MS = parsePositiveIntEnv(process.env.CITATION_LINK_CHECK_TIMEOUT_MS, 2000);
+// Retired-path prefixes the domain-level search filter cannot express.
+const CITATION_PATH_DENYLIST = parseDenylist(process.env.CITATION_PATH_DENYLIST ?? 'www.ed-fi.org/what-is-ed-fi-old/');
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
@@ -671,6 +679,35 @@ function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
 }
 
 /**
+ * Drop sources Fiona must not cite: retired paths (never fetched) and pages
+ * that return 404 or 410. Pages the check cannot confirm are kept.
+ *
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ */
+async function validateSources(sources, logger) {
+  const toCheck = sources.filter((source) => !isDenylisted(source.url, CITATION_PATH_DENYLIST)).map((s) => s.url);
+  const verdicts = await checkUrls(toCheck, {
+    timeoutMs: CITATION_LINK_CHECK_TIMEOUT_MS,
+    allowedHosts: PERPLEXITY_DOMAIN_FILTER,
+  });
+  const { kept, removed } = filterSources(sources, verdicts, CITATION_PATH_DENYLIST);
+  const count = (verdict) => [...verdicts.values()].filter((v) => v === verdict).length;
+  const stats = {
+    checked: toCheck.length,
+    dead: count('dead'),
+    unknown: count('unknown'),
+    denylisted: removed.filter((entry) => entry.reason === 'denylisted').length,
+  };
+  if (removed.length > 0) {
+    logger?.warn?.(
+      `[citations] removed ${removed.length} source(s): ${removed.map((r) => `${r.reason} ${r.url}`).join(', ')}`,
+    );
+  }
+  return { kept, removed, stats };
+}
+
+/**
  * Work out what each [n] marker in the text links to. When the model appended
  * its own source list, its numbers are its own, so link by the list and drop it
  * (only the Sources block lists sources); otherwise link by result id.
@@ -837,8 +874,28 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // Resolve marker number -> URL once, so the inline links and the Sources
   // block are built from the same map and cannot disagree.
   const metadata = streamer?.__citation_metadata;
-  const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
-  const resolved = resolveCitations(textBuffer, sources, metadata?.source_index_map || {}, searchResults);
+  let sources = metadata?.sources ?? normalizeSources(searchResults).sources;
+  let sourceIndexMap = metadata?.source_index_map || {};
+  let resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
+
+  if (sources.length > 0 && isCitationLinkCheckEnabled()) {
+    const started = Date.now();
+    const { kept, removed, stats } = await validateSources(sources, logger);
+    if (removed.length > 0) {
+      const removedUrls = new Set(removed.map((entry) => entry.url));
+      sources = kept;
+      sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
+      // Compare normalized URLs: the normalizer re-encodes some characters, so a
+      // raw result URL can differ from its source URL.
+      searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
+      if (metadata) {
+        metadata.sources = sources;
+        metadata.source_index_map = sourceIndexMap;
+      }
+      resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
+    }
+    if (metadata) metadata.link_check = { ...stats, regenerated: false, ms: Date.now() - started };
+  }
   if (metadata) {
     metadata.citation_index = Object.fromEntries(resolved.indexToUrl);
     metadata.cited_markers = resolved.citedMarkers;
