@@ -514,7 +514,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
     it('leaves a marker unlinked when its list URL is not among the search results', async () => {
       const { botText, metadata } = await run(
-        'A [1]. B [2].\n\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] [Elsewhere](https://example.com/made-up)',
+        'A [1]. B [2].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] [Elsewhere](https://example.com/made-up)',
       );
 
       expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [2].');
@@ -535,6 +535,26 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
       expect(botText).toBe(
         'Setup steps:\n[[1]](https://docs.ed-fi.org/one/) Open https://docs.ed-fi.org/one/\n[[2]](https://docs.ed-fi.org/two/) Check https://docs.ed-fi.org/two/',
+      );
+    });
+
+    it('keeps a trailing list of steps even when the answer cites one of its numbers', async () => {
+      // Only [1] is cited earlier, so this is not evidence of a bibliography.
+      const text =
+        'Follow the cited guidance [1] to complete these steps:\n[1] Open https://docs.ed-fi.org/one/\n[2] Check https://docs.ed-fi.org/two/';
+
+      const { botText } = await run(text);
+
+      expect(botText).toBe(
+        'Follow the cited guidance [[1]](https://docs.ed-fi.org/one/) to complete these steps:\n[[1]](https://docs.ed-fi.org/one/) Open https://docs.ed-fi.org/one/\n[[2]](https://docs.ed-fi.org/two/) Check https://docs.ed-fi.org/two/',
+      );
+    });
+
+    it('keeps an unheaded trailing list whose links are not search results', async () => {
+      const { botText } = await run('See [1].\n\n[1] Read https://example.com/elsewhere');
+
+      expect(botText).toBe(
+        'See [[1]](https://docs.ed-fi.org/one/).\n\n[[1]](https://docs.ed-fi.org/one/) Read https://example.com/elsewhere',
       );
     });
 
@@ -565,7 +585,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
       const metadata = makeMetadata();
       const streamer = makeStreamer(metadata);
       mockCreate.mockResolvedValue(
-        makeStream([{ text: 'A [1].\n\n[1] [X](http://docs.ed-fi.org/x)' }], {
+        makeStream([{ text: 'A [1].\n\nSources\n[1] [X](http://docs.ed-fi.org/x)' }], {
           finalResults: [
             { id: 1, url: 'https://docs.ed-fi.org/x/' },
             { id: 2, url: 'https://www.docs.ed-fi.org/x' },
