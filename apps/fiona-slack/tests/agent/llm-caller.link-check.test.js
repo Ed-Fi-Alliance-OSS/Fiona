@@ -22,7 +22,9 @@ jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
 
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
-const { callPerplexityChat, NO_SOURCES_DECLINE_TEXT } = await import('../../src/agent/llm-caller.js');
+const { callPerplexityChat, NO_SOURCES_DECLINE_TEXT, buildRegenerateInput, regenerateFromSources } = await import(
+  '../../src/agent/llm-caller.js'
+);
 const { clearLinkCheckCache } = await import('../../src/agent/utils/link-checker.js');
 
 const LIVE_A = 'https://docs.ed-fi.org/live-a/';
@@ -183,5 +185,167 @@ describe('link check: dead or retired sources the answer does not cite', () => {
     expect(on.__citation_metadata.grounding).toBeUndefined();
     expect(on.__citation_metadata.link_check).toEqual(expect.objectContaining({ unknown: 2, dead: 0 }));
     expect(mockCreate).toHaveBeenCalledTimes(2); // one per run: no rewrite
+  });
+});
+
+const completed = (text) => ({ status: 'completed', output_text: text });
+
+describe('link check: a cited source is dead', () => {
+  it('rewrites the answer from live sources only, with no tools, keeping thread history', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD, LIVE_B]) }]))
+      .mockResolvedValueOnce(completed('Could not confirm; see [1] and [3].'));
+    const streamer = makeStreamer(makeMetadata());
+    const prompts = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'earlier' },
+      { role: 'assistant', content: 'earlier answer' },
+      { role: 'user', content: 'question' },
+    ];
+    await callPerplexityChat(streamer, prompts);
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    const rewriteArgs = mockCreate.mock.calls[1][0];
+    expect(rewriteArgs.tools).toBeUndefined();
+    expect(rewriteArgs.tool_choice).toBeUndefined();
+    expect(rewriteArgs.stream).toBe(false);
+    expect(rewriteArgs.input.map((item) => item.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    const system = rewriteArgs.input[0].content;
+    expect(system.startsWith('SYS\n\n## Search results')).toBe(true);
+    expect(system).toContain(`[1] T1\nURL: ${LIVE_A}\nS1`);
+    expect(system).toContain(`[3] T3\nURL: ${LIVE_B}\nS3`);
+    expect(system).not.toContain(DEAD);
+
+    const metadata = streamer.__citation_metadata;
+    expect(streamer._appended).toEqual([`Could not confirm; see [[1]](${LIVE_A}) and [[3]](${LIVE_B}).`]);
+    expect(metadata.grounding).toBe('regenerated_dead_sources');
+    expect(metadata.cited_markers).toEqual([1, 3]);
+    expect(metadata.link_check.regenerated).toBe(true);
+  });
+
+  it('rewrites when the answer cites a denylisted source', async () => {
+    mockFetchDead();
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Old mission [2].', searchResults: results([LIVE_A, RETIRED]) }]))
+      .mockResolvedValueOnce(completed('Current [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(streamer._appended).toEqual([`Current [[1]](${LIVE_A}).`]);
+  });
+
+  // Review Focus 3: one dead URL returned under two ids.
+  it('treats citing either id of a duplicated dead URL as citing a removed source', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([
+          {
+            text: 'Claim [3].',
+            searchResults: [
+              { id: 1, url: LIVE_A },
+              { id: 2, url: DEAD },
+              { id: 3, url: DEAD },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(completed('Live claim [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    const index = streamer.__citation_metadata.citation_index;
+    expect(index['2']).toBeUndefined();
+    expect(index['3']).toBeUndefined();
+  });
+
+  // Review Focus 5: the rewrite still cites the dead source's id.
+  it('leaves a marker for a removed id as plain text in the rewrite', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]))
+      .mockResolvedValueOnce(completed('Live [1], stale [2].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}), stale [2].`]);
+    expect(Object.values(streamer.__citation_metadata.citation_index)).not.toContain(DEAD);
+    expect(streamer.__citation_metadata.cited_markers).toEqual([1]);
+  });
+
+  it('rewrites when a model-written source list links a dead URL', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([
+          {
+            text: `Claim [1].\n\nSources:\n[1] Gone ${DEAD}`,
+            searchResults: results([LIVE_A, DEAD]),
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
+  });
+
+  it('applies the same rules to an incomplete run', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([{ text: 'Partial [2]', searchResults: results([LIVE_A, DEAD]) }], { terminal: 'response.incomplete' }),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(streamer.__citation_metadata.grounding).toBe('regenerated_dead_sources');
+  });
+
+  it.each([
+    ['an API error', () => mockCreate.mockRejectedValueOnce(new Error('boom'))],
+    ['a failed status', () => mockCreate.mockResolvedValueOnce({ status: 'failed', error: { message: 'x' } })],
+    ['a cancelled status', () => mockCreate.mockResolvedValueOnce({ status: 'cancelled' })],
+    ['empty text', () => mockCreate.mockResolvedValueOnce(completed('   '))],
+  ])('declines with declined_dead_sources when the rewrite fails with %s', async (_label, arrangeFailure) => {
+    mockFetchDead(DEAD);
+    mockCreate.mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]));
+    arrangeFailure();
+    const streamer = makeStreamer(makeMetadata());
+    const { botText } = await callPerplexityChat(streamer, USER);
+
+    const metadata = streamer.__citation_metadata;
+    expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+    expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+    expect(metadata.grounding).toBe('declined_dead_sources');
+    // No Sources block under a decline: createSourcesBlocks renders from citation_index.
+    expect(metadata.citation_index).toEqual({});
+    expect(metadata.cited_markers).toEqual([]);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('buildRegenerateInput', () => {
+  it('adds a system item when the prompts have none', () => {
+    const input = buildRegenerateInput([{ role: 'user', content: 'q' }], [{ url: LIVE_A, title: 'A' }], {
+      [LIVE_A]: 4,
+    });
+    expect(input[0]).toEqual(expect.objectContaining({ role: 'system' }));
+    expect(input[0].content).toContain(`[4] A\nURL: ${LIVE_A}\n(no snippet)`);
+  });
+
+  it('leaves out a source with no result id, since nothing could link to it', () => {
+    const input = buildRegenerateInput(USER, [{ url: LIVE_A, title: 'A' }, { url: LIVE_B, title: 'B' }], {
+      [LIVE_A]: 1,
+    });
+    expect(input[0].content).not.toContain(LIVE_B);
+  });
+});
+
+describe('regenerateFromSources', () => {
+  it('passes a model override through, so a live evaluation can force a failure', async () => {
+    mockCreate.mockResolvedValueOnce(completed('ok'));
+    await regenerateFromSources(USER, [{ url: LIVE_A, title: 'A' }], { [LIVE_A]: 1 }, undefined, { model: 'x/y' });
+    expect(mockCreate.mock.calls[0][0].model).toBe('x/y');
   });
 });

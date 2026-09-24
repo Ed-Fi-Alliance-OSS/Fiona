@@ -878,8 +878,10 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let sourceIndexMap = metadata?.source_index_map || {};
   let resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
 
+  let declinedDeadSources = false;
   if (sources.length > 0 && isCitationLinkCheckEnabled()) {
     const started = Date.now();
+    let regenerated = false;
     const { kept, removed, stats } = await validateSources(sources, logger);
     if (removed.length > 0) {
       const removedUrls = new Set(removed.map((entry) => entry.url));
@@ -892,22 +894,39 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         metadata.sources = sources;
         metadata.source_index_map = sourceIndexMap;
       }
-      resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
+      const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
+      let answerText = textBuffer;
+      if (citedRemoved && sources.length > 0) {
+        const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
+        if (rewritten) {
+          answerText = rewritten;
+          regenerated = true;
+          if (metadata) metadata.grounding = 'regenerated_dead_sources';
+        } else {
+          declinedDeadSources = true;
+        }
+      }
+      resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
     }
-    if (metadata) metadata.link_check = { ...stats, regenerated: false, ms: Date.now() - started };
+    if (metadata) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
   }
   if (metadata) {
-    metadata.citation_index = Object.fromEntries(resolved.indexToUrl);
-    metadata.cited_markers = resolved.citedMarkers;
+    metadata.citation_index = declinedDeadSources ? {} : Object.fromEntries(resolved.indexToUrl);
+    metadata.cited_markers = declinedDeadSources ? [] : resolved.citedMarkers;
   }
 
   let botText = '';
   if (sources.length === 0) {
     // Never show an answer with nothing behind it. Counting normalized
     // sources, not raw results, also catches results whose URLs were all
-    // rejected. The escalation summary does not come through here, so it
-    // still summarizes without sources.
+    // rejected or found dead. The escalation summary does not come through
+    // here, so it still summarizes without sources.
     if (metadata) metadata.grounding = 'declined_no_results';
+    botText = NO_SOURCES_DECLINE_TEXT;
+    await streamer.append({ markdown_text: botText });
+  } else if (declinedDeadSources) {
+    // The answer relied on a dead page and could not be rewritten without it.
+    if (metadata) metadata.grounding = 'declined_dead_sources';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
   } else if (resolved.text) {
@@ -1031,6 +1050,82 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
   } catch (error) {
     logger?.warn?.(`Search failed: ${error.message}`);
     throw error;
+  }
+}
+
+// ─── Rewrite From Live Sources (AI-227) ────────────────────────────────────
+const REGENERATE_RESULTS_HEADER =
+  '## Search results\n' +
+  'Search has already been run for this question. These are the only results you may use; ' +
+  'cite them by their [n] number exactly as given.';
+
+/**
+ * Input for rewriting an answer after a cited source proved dead: the same
+ * prompts (system prompt and thread history), with the live results appended
+ * to the system prompt under their original result ids. Sources with no id in
+ * the map are left out, since a marker for them could not be linked.
+ *
+ * @param {Array} prompts - The prompts sent on the first call, system prompt first
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} liveSources
+ * @param {Object} sourceIndexMap - URL -> result id, dead sources already removed
+ */
+export function buildRegenerateInput(prompts, liveSources, sourceIndexMap) {
+  const entries = liveSources
+    .filter((source) => sourceIndexMap[source.url] !== undefined)
+    .map(
+      (source) =>
+        `[${sourceIndexMap[source.url]}] ${source.title}\nURL: ${source.url}\n${source.snippet?.trim() || '(no snippet)'}`,
+    );
+  const block = `${REGENERATE_RESULTS_HEADER}\n\n${entries.join('\n\n')}`;
+
+  const input = promptsToInputItems(prompts);
+  const system = input.find((item) => item.role === 'system');
+  if (system) {
+    system.content = `${system.content}\n\n${block}`;
+  } else {
+    input.unshift({ type: 'message', role: 'system', content: block });
+  }
+  return input;
+}
+
+/**
+ * Rewrite an answer from live sources only, with no search tool. One attempt:
+ * returns null on any failure, and the caller declines rather than sending an
+ * answer built on a dead page.
+ *
+ * @param {Array} prompts
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} liveSources
+ * @param {Object} sourceIndexMap
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @param {{ model?: string }} [options] - model override, used by the live evaluation to force a failure
+ * @returns {Promise<string | null>}
+ */
+export async function regenerateFromSources(
+  prompts,
+  liveSources,
+  sourceIndexMap,
+  logger,
+  { model = PERPLEXITY_API_MODEL } = {},
+) {
+  if (!perplexityClient) return null;
+  try {
+    const response = await perplexityClient.responses.create({
+      model,
+      input: buildRegenerateInput(prompts, liveSources, sourceIndexMap),
+      stream: false,
+    });
+    // Failed and cancelled runs arrive over HTTP 200, as in summarizeForEscalation.
+    if (response?.status && response.status !== 'completed' && response.status !== 'incomplete') {
+      logger?.warn?.(
+        `Rewrite from live sources ended with ${response.status}: ${response.error?.message || 'no error detail'}`,
+      );
+      return null;
+    }
+    const text = response?.output_text;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
+  } catch (error) {
+    logger?.warn?.(`Rewrite from live sources failed: ${error.message}`);
+    return null;
   }
 }
 
