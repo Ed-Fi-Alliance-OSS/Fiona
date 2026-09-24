@@ -14,6 +14,13 @@ import {
 } from '../../../src/agent/utils/source-normalizer.js';
 
 describe('normalizeSource', () => {
+  it('percent-encodes Unicode whitespace as UTF-8 bytes, so the link target is unchanged', () => {
+    // The WHATWG URL parser resolves both to these UTF-8 byte sequences.
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%E2%80%A8b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%C2%A0b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe(new URL('https://docs.ed-fi.org/a b').href);
+  });
+
   it('percent-encodes characters that Slack parses as control syntax', () => {
     // A raw ">" would close a Slack <url|text> link and let "<!here>" through.
     const result = normalizeSource({ url: 'https://docs.ed-fi.org/a><!here>|x' });

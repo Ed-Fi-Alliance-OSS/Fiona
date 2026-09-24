@@ -538,6 +538,26 @@ function urlKey(url) {
 }
 
 /**
+ * Build a function that maps a URL the model wrote to the search result it
+ * names: an exact match first, else a loose (urlKey) match that is unique.
+ * Returns undefined for a URL the search did not return, or one that loosely
+ * matches several results, rather than guess.
+ *
+ * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
+ * @returns {(url: string) => string | undefined}
+ */
+function makeResultUrlResolver(sources) {
+  const resultUrls = new Set(sources.map((source) => source.url));
+  // null marks a key shared by several results, which cannot be resolved.
+  const resultUrlByKey = new Map();
+  for (const { url } of sources) {
+    const key = urlKey(url);
+    resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
+  }
+  return (url) => (resultUrls.has(url) ? url : (resultUrlByKey.get(urlKey(url)) ?? undefined));
+}
+
+/**
  * Find a source list the model appended to its answer, and cut it off.
  *
  * Measured against production: when the model writes its own list it numbers
@@ -546,14 +566,18 @@ function urlKey(url) {
  * one run). The list is the only record of what each number means.
  *
  * Only a trailing run of `[n] ... URL` lines counts, and only when it reads as
- * a bibliography: headed "Sources" / "References" / "Citations", or referenced
- * from the answer by at least one of its numbers. A closing list of numbered
- * steps that happen to contain links has neither, so it is kept as content.
+ * a bibliography. Either it is headed "Sources" / "References" / "Citations",
+ * or, unheaded, every one of its numbers is cited earlier in the answer AND
+ * every one of its URLs is a search result. A closing list of numbered steps
+ * with links fails that (typically most step numbers are never cited), so it
+ * is kept as content. When unsure, keeping text beats deleting it: a missed
+ * list only falls back to result-id linking.
  *
  * @param {string} text - Raw answer text
+ * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
  * @returns {{ text: string, urlByMarker: Map<number, string> } | null} Text without the list, and the model's marker -> URL; null when there is no list
  */
-function extractModelSourceList(text) {
+function extractModelSourceList(text, resolveResultUrl) {
   const lines = text.split('\n');
   let end = lines.length;
   while (end > 0 && !lines[end - 1].trim()) end -= 1;
@@ -578,9 +602,12 @@ function extractModelSourceList(text) {
   if (headed) cut -= 1;
 
   const answer = lines.slice(0, cut).join('\n');
-  const referenced = [...urlByMarker.keys()].some((marker) => answer.includes(`[${marker}]`));
-  if (!headed && !referenced) {
-    return null;
+  if (!headed) {
+    const allCited = [...urlByMarker.keys()].every((marker) => answer.includes(`[${marker}]`));
+    const allResults = [...urlByMarker.values()].every((url) => resolveResultUrl(url) !== undefined);
+    if (!allCited || !allResults) {
+      return null;
+    }
   }
 
   return { text: answer.trimEnd(), urlByMarker };
@@ -588,30 +615,21 @@ function extractModelSourceList(text) {
 
 /**
  * Marker -> URL built from the model's own list. Each listed URL is matched to
- * a search result, so only retrieved pages are ever linked: an exact match
- * first, else a loose (urlKey) match that is unique. A URL the search did not
- * return, or that loosely matches several results, leaves its marker as plain
- * text rather than guess. The results the model did not
- * list follow, numbered after every number the answer uses, so they can never
- * collide with a marker in the text.
+ * a search result (see makeResultUrlResolver), so only retrieved pages are
+ * ever linked; an unmatched URL leaves its marker as plain text. The results
+ * the model did not list follow, numbered after every number the answer uses,
+ * so they can never collide with a marker in the text.
  *
  * @param {Map<number, string>} urlByMarker - The model's marker -> URL
  * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
+ * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
  * @param {string} text - Answer text with the list removed
  * @returns {Map<number, string>}
  */
-function buildModelListIndex(urlByMarker, sources, text) {
-  const resultUrls = new Set(sources.map((source) => source.url));
-  // null marks a key shared by several results, which cannot be resolved.
-  const resultUrlByKey = new Map();
-  for (const { url } of sources) {
-    const key = urlKey(url);
-    resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
-  }
-
+function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
   const indexToUrl = new Map();
   for (const [marker, url] of [...urlByMarker].sort(([a], [b]) => a - b)) {
-    const resultUrl = resultUrls.has(url) ? url : resultUrlByKey.get(urlKey(url));
+    const resultUrl = resolveResultUrl(url);
     if (resultUrl) indexToUrl.set(marker, resultUrl);
   }
 
@@ -768,12 +786,13 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // Sources block lists sources. Without results there is nothing to verify
   // its URLs against, so the text is left alone.
   const metadata = streamer?.__citation_metadata;
-  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer) : null;
+  const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
+  const resolveResultUrl = makeResultUrlResolver(sources);
+  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer, resolveResultUrl) : null;
   let indexToUrl;
   if (modelList) {
     textBuffer = modelList.text;
-    const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
-    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, textBuffer);
+    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, textBuffer);
   } else {
     indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
   }

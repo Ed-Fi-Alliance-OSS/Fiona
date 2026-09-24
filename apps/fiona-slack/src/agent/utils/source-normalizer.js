@@ -120,7 +120,9 @@ function buildTitleFromUrlPath(url) {
  * @returns {string}
  */
 function encodeSlackControlChars(url) {
-  return url.replace(/[<>|\s]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  // encodeURIComponent emits UTF-8 bytes, matching how the URL parser resolves
+  // non-ASCII whitespace such as U+2028, so the link target never changes.
+  return url.replace(/[<>|\s]/g, (char) => encodeURIComponent(char));
 }
 
 /**
