@@ -10,6 +10,7 @@ import {
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
+import { urlKey } from './utils/source-filter.js';
 import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
@@ -563,21 +564,6 @@ function linkifyCitationMarkers(text, indexToUrl) {
 const MODEL_LIST_HEADING = /^\s*(?:#{1,6}\s*)?\**\s*(?:sources|references|citations)\s*\**\s*:?\s*\**\s*$/i;
 const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
 const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
-
-/**
- * Loose comparison key: ignores the scheme, host case, a leading www. and
- * trailing slashes. Path, query and fragment keep their case, since paths are
- * case-sensitive.
- */
-function urlKey(url) {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    return `${host}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}${parsed.hash}`;
-  } catch {
-    return url;
-  }
-}
 
 /**
  * Build a function that maps a URL the model wrote to the search result it
