@@ -44,7 +44,8 @@ const bareHost = (host) => host.toLowerCase().replace(/^www\./, '');
 
 function isAllowedHost(url, allowedHosts) {
   try {
-    return allowedHosts.map(bareHost).includes(bareHost(new URL(url).hostname));
+    const host = bareHost(new URL(url).hostname);
+    return allowedHosts.map(bareHost).some((base) => host === base || host.endsWith(`.${base}`));
   } catch {
     return false;
   }
@@ -73,7 +74,7 @@ async function probe(url, signal, fetchImpl) {
  * @param {string[]} urls
  * @param {Object} options
  * @param {number} options.timeoutMs - Budget for the whole batch; checks still running when it ends are "unknown"
- * @param {string[]} options.allowedHosts - Only these hosts are fetched (a leading www. is ignored); others are "unknown"
+ * @param {string[]} options.allowedHosts - Only these hosts and their subdomains are fetched (a leading www. is ignored); others are "unknown"
  * @param {typeof fetch} [options.fetchImpl]
  * @param {() => number} [options.now]
  * @returns {Promise<Map<string, 'live' | 'dead' | 'unknown'>>}

@@ -98,6 +98,33 @@ describe('checkUrls host allowlist', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(verdicts.get('not a url')).toBe('unknown');
   });
+
+  it('matches a subdomain of an allowlisted host', async () => {
+    const fetchImpl = fakeFetch({ 'https://stage.ed-fi.org/success-stories/': 404 });
+    const verdicts = await check(['https://stage.ed-fi.org/success-stories/'], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(verdicts.get('https://stage.ed-fi.org/success-stories/')).toBe('dead');
+  });
+
+  it('rejects lookalike hosts that merely contain the allowlisted domain', async () => {
+    const fetchImpl = fakeFetch({});
+    const verdicts = await check(['https://evil-ed-fi.org/x', 'https://ed-fi.org.evil.com/x'], fetchImpl);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(verdicts.get('https://evil-ed-fi.org/x')).toBe('unknown');
+    expect(verdicts.get('https://ed-fi.org.evil.com/x')).toBe('unknown');
+  });
+
+  it('matches a subdomain of a non-www allowlisted host, but not its parent domain or a lookalike', async () => {
+    const fetchImpl = fakeFetch({});
+    const verdicts = await checkUrls(
+      ['https://x.docs.ed-fi.org/a', 'https://www.ed-fi.org/a', 'https://notdocs.ed-fi.org/a'],
+      { timeoutMs: 2000, allowedHosts: ['docs.ed-fi.org'], fetchImpl },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith('https://x.docs.ed-fi.org/a', expect.anything());
+    expect(verdicts.get('https://www.ed-fi.org/a')).toBe('unknown');
+    expect(verdicts.get('https://notdocs.ed-fi.org/a')).toBe('unknown');
+  });
 });
 
 describe('checkUrls time budget', () => {

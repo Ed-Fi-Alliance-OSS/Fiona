@@ -97,8 +97,11 @@ stream ends (answer held back, as today)
   - A final 2xx (after following any 3xx) → `live`.
   - 5xx, a timeout, or a network error → `unknown`.
 - **Unknown counts as live.** A docs outage or a slow site must not drop every source and decline every answer.
-- **Host allowlist:** only hosts on `PERPLEXITY_DOMAIN_FILTER` (matching `www.` either way) are fetched. Any other
-  host is not fetched and counts as `unknown`. This guarantees Fiona can't be steered into fetching arbitrary hosts.
+- **Host allowlist:** only hosts on `PERPLEXITY_DOMAIN_FILTER` **and their subdomains** are fetched. A leading `www.`
+  is stripped from each allowlist entry to get its base domain, and a host matches when it equals that base or ends
+  with `.` + that base (a dot boundary, so `evil-ed-fi.org` and `ed-fi.org.evil.com` do not match `ed-fi.org`). Any
+  other host is not fetched and counts as `unknown`. This guarantees Fiona can't be steered into fetching arbitrary
+  hosts.
 - **Time limit:** each request has its own abort timer, and the whole batch shares one budget
   (`CITATION_LINK_CHECK_TIMEOUT_MS`, default 2000). Anything unfinished when the budget runs out counts as `unknown`.
 - **The link keeps the original URL.** A redirect works for the user as well, so nothing is rewritten.
@@ -171,6 +174,7 @@ stream ends (answer held back, as today)
 | No citations at all (chit-chat) | No rewrite; removed sources are only dropped from the list | unchanged |
 | Incomplete run (`max_output_tokens`) | Same rules as a complete run | as above |
 | Kill switch off | Exactly today's behaviour; nothing fetched | unchanged |
+| Link checking itself throws | Fails open: the answer is sent as if nothing were removed, with no rewrite; `metadata.link_check.error = true` | unchanged |
 
 The rewrite gets **one attempt** (a decision made during design). If it fails, Fiona declines rather than falling back
 to sentence removal (rejected in spike 1) or sending the original answer (which fails "claim not made").

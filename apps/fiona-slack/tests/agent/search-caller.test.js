@@ -523,4 +523,29 @@ describe('searchForSources link checking (AI-227)', () => {
     globalThis.fetch = jest.fn(async () => ({ status: 404 }));
     expect(await searchForSources('q', { maxSources: 5 })).toEqual([]);
   });
+
+  // Forces validateSources() to throw without a throwing fetch: checkUrls()
+  // swallows every fetch error itself, so the throw has to come from downstream.
+  // A fresh module registry (jest.resetModules) picks up the throwing mock for
+  // this one import only; the outer `searchForSources` used by every other test
+  // in this file was already bound to the real, non-throwing source-filter.js.
+  it('returns the unfiltered results, trimmed to the requested count, when link checking throws', async () => {
+    jest.resetModules();
+    jest.unstable_mockModule('../../src/agent/utils/source-filter.js', () => ({
+      filterSources: () => {
+        throw new Error('source-filter exploded');
+      },
+      isDenylisted: () => false,
+      parseDenylist: () => [],
+      urlKey: (url) => url,
+    }));
+    const { searchForSources: searchForSourcesFailOpen } = await import('../../src/agent/search-caller.js');
+
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+
+    const sources = await searchForSourcesFailOpen('q', { maxSources: 3 });
+
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(2).url, page(3).url]);
+  });
 });

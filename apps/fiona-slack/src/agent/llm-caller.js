@@ -294,7 +294,14 @@ export const MetadataLifecycleState = {
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
  * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
  * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
- * @property {string} [grounding] - "declined_no_results" when the answer was replaced by NO_SOURCES_DECLINE_TEXT
+ * @property {string} [grounding] - Set when the answer was replaced or rewritten by citation link checking
+ *   (AI-227): "declined_no_results" when every source was removed and NO_SOURCES_DECLINE_TEXT was sent instead;
+ *   "regenerated_dead_sources" when a cited source was dead and the answer was rewritten from the live sources
+ *   that remained; "declined_dead_sources" when a cited source was dead and the rewrite failed, so
+ *   NO_SOURCES_DECLINE_TEXT was sent instead.
+ * @property {Object} [link_check] - Citation link check summary (AI-227): { checked, dead, unknown, denylisted,
+ *   regenerated, ms, error? }. Set whenever link checking ran for this answer. `error: true` means link checking
+ *   itself threw and the answer was sent unchecked (checked/dead/unknown/denylisted are all 0, regenerated is false).
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -882,33 +889,52 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   if (sources.length > 0 && isCitationLinkCheckEnabled()) {
     const started = Date.now();
     let regenerated = false;
-    const { kept, removed, stats } = await validateSources(sources, logger);
-    if (removed.length > 0) {
-      const removedUrls = new Set(removed.map((entry) => entry.url));
-      sources = kept;
-      sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
-      // Compare normalized URLs: the normalizer re-encodes some characters, so a
-      // raw result URL can differ from its source URL.
-      searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
+    let validation;
+    try {
+      validation = await validateSources(sources, logger);
+    } catch (error) {
+      logger?.warn?.(`[citations] link check failed, sending the answer unchecked: ${error.message}`);
       if (metadata) {
-        metadata.sources = sources;
-        metadata.source_index_map = sourceIndexMap;
+        metadata.link_check = {
+          checked: 0,
+          dead: 0,
+          unknown: 0,
+          denylisted: 0,
+          regenerated: false,
+          ms: Date.now() - started,
+          error: true,
+        };
       }
-      const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
-      let answerText = textBuffer;
-      if (citedRemoved && sources.length > 0) {
-        const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
-        if (rewritten) {
-          answerText = rewritten;
-          regenerated = true;
-          if (metadata) metadata.grounding = 'regenerated_dead_sources';
-        } else {
-          declinedDeadSources = true;
-        }
-      }
-      resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
     }
-    if (metadata) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
+    if (validation) {
+      const { kept, removed, stats } = validation;
+      if (removed.length > 0) {
+        const removedUrls = new Set(removed.map((entry) => entry.url));
+        sources = kept;
+        sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
+        // Compare normalized URLs: the normalizer re-encodes some characters, so a
+        // raw result URL can differ from its source URL.
+        searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
+        if (metadata) {
+          metadata.sources = sources;
+          metadata.source_index_map = sourceIndexMap;
+        }
+        const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
+        let answerText = textBuffer;
+        if (citedRemoved && sources.length > 0) {
+          const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
+          if (rewritten) {
+            answerText = rewritten;
+            regenerated = true;
+            if (metadata) metadata.grounding = 'regenerated_dead_sources';
+          } else {
+            declinedDeadSources = true;
+          }
+        }
+        resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
+      }
+      if (metadata) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
+    }
   }
   if (metadata) {
     metadata.citation_index = declinedDeadSources ? {} : Object.fromEntries(resolved.indexToUrl);
@@ -1048,8 +1074,13 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
     if (Array.isArray(rawResults) && rawResults.length > 0) {
       const { sources } = normalizeSources(rawResults, { maxSources: fetchCount });
       if (!linkCheck) return sources;
-      const { kept } = await validateSources(sources, logger);
-      return kept.slice(0, cappedMaxSources);
+      try {
+        const { kept } = await validateSources(sources, logger);
+        return kept.slice(0, cappedMaxSources);
+      } catch (error) {
+        logger?.warn?.(`[citations] link check failed, returning unfiltered search results: ${error.message}`);
+        return sources.slice(0, cappedMaxSources);
+      }
     }
 
     return [];

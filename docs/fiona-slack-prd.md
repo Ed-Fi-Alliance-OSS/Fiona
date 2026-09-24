@@ -130,7 +130,7 @@ the question, only the prompt prevents a guess.
 source. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
 without being fetched. The rest get a HEAD request (GET if HEAD is refused),
 sent with the `User-Agent` `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`
-and only to hosts in `PERPLEXITY_DOMAIN_FILTER`. A 404 or 410 drops the
+and only to hosts in `PERPLEXITY_DOMAIN_FILTER` and their subdomains. A 404 or 410 drops the
 source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
 the source. Results are cached: live pages for 1 hour and dead pages for 24
 hours. If the answer cited a dropped source, it is rewritten once, with no
@@ -140,7 +140,7 @@ decline is sent, with `grounding: 'declined_dead_sources'`. If every source
 was dropped, the no-results decline above applies. `/fiona search` drops dead
 results the same way. The `[citations]` log line gains `dead=` and
 `regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` restores the
-previous behaviour.
+previous behaviour. If link checking itself fails, the answer is sent unchecked.
 
 The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
 already holds, uses its own prompt with no tools, and does not pass through
