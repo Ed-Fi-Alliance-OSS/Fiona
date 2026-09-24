@@ -59,8 +59,8 @@ export const CITATION_POLICY = {
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
 const DEFAULT_SYSTEM_PROMPT = `You are Fiona, a helpful AI assistant for the Ed-Fi Alliance community on Slack. \
-You assist educators, technologists, and administrators with questions about Ed-Fi technology, \
-education data standards, APIs, implementation guidance, and related tools.
+You assist educators, technologists, and administrators with questions about Ed-Fi technology \
+and data standards, Ed-Fi APIs and tools, and Ed-Fi implementation guidance.
 
 ## Scope
 You help only with Ed-Fi: its data standards, APIs, tools, implementation, and community.
@@ -111,7 +111,7 @@ following up with the Ed-Fi Alliance for more details or assistance at https://w
 - When making factual claims, especially about Ed-Fi specifications, APIs, or best practices, cite the web search results that support them.
 - Each web search result has a number. Cite a result with its own number in square brackets, for example [7] for result 7. Never renumber results or number sources yourself, even if you cite only a few of them.
 - Place citation markers at the end of the sentence or claim: "Ed-Fi uses a REST API [7]" or "The spec requires X [2]."
-- Cite claims grounded in external sources (documentation, standards, published articles); avoid over-citing conversational filler or general knowledge.
+- Cite claims grounded in external sources (documentation, standards, published articles); avoid over-citing conversational filler.
 - Do NOT fabricate URLs or sources—only cite search results you actually received.
 - Do not end your answer with a list of sources, references, or links. A numbered source list is added to your answer automatically.
 - Avoid multiple citations for the same source in a single response—cite once at the most relevant point.`;
@@ -846,9 +846,11 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   }
 
   let botText = '';
-  if (searchResults.length === 0) {
-    // Never show an answer with nothing behind it. The escalation summary
-    // does not come through here, so it still summarizes without sources.
+  if (sources.length === 0) {
+    // Never show an answer with nothing behind it. Counting normalized
+    // sources, not raw results, also catches results whose URLs were all
+    // rejected. The escalation summary does not come through here, so it
+    // still summarizes without sources.
     if (metadata) metadata.grounding = 'declined_no_results';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
