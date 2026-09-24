@@ -256,6 +256,37 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
     });
 
+    // Results whose URLs the normalizer rejects leave nothing to cite, which
+    // is the same as no results.
+    const unusableResults = [
+      { url: 'not a url', title: 'Malformed' },
+      { url: 'javascript:alert(1)', title: 'Script scheme' },
+      { title: 'No URL at all' },
+    ];
+
+    it('declines when every result has an unusable URL', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.sources).toEqual([]);
+      expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+      expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+      expect(metadata.grounding).toBe('declined_no_results');
+    });
+
+    it('declines on unusable URLs when no metadata envelope is attached', async () => {
+      const streamer = { append: jest.fn(async () => {}) };
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+      expect(streamer.append).toHaveBeenCalledWith({ markdown_text: NO_SOURCES_DECLINE_TEXT });
+    });
+
     it('declines when an incomplete run returned no results', async () => {
       const streamer = makeStreamer(makeMetadata());
       mockCreate.mockResolvedValue(makeStream([{ text: 'Partial unsourced' }], { terminal: 'response.incomplete' }));
@@ -929,5 +960,8 @@ describe('callLLM returns botText alongside metadata', () => {
     // Search is forced now, and "general productivity" invited ungrounded answers.
     expect(system).not.toMatch(/offer to search/i);
     expect(system).not.toMatch(/general productivity/i);
+    // Both contradicted the rules above: uncited "general knowledge", and a remit wider than Ed-Fi.
+    expect(system).not.toMatch(/general knowledge\./i);
+    expect(system).not.toMatch(/education data standards, APIs, implementation guidance, and related tools/);
   });
 });
