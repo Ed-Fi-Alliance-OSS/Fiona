@@ -347,6 +347,25 @@ describe('appMentionCallback', () => {
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
   });
 
+  it('logs the dead-source count and whether the answer was rewritten', async () => {
+    callLLM.mockResolvedValueOnce({
+      metadata: {
+        finalize_state: 'ready_to_finalize',
+        sources: [{ url: 'https://a.com' }],
+        source_index_map: { 'https://a.com': 1 },
+        grounding: 'regenerated_dead_sources',
+        link_check: { checked: 3, dead: 2, unknown: 0, denylisted: 0, regenerated: true, ms: 40 },
+      },
+      botText: 'rewritten',
+      systemPromptVersion: 'v3',
+    });
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('dead=2 regenerated=true'));
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=regenerated_dead_sources'));
+  });
+
   it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
     const metadata = {
       finalize_state: 'ready_to_finalize',

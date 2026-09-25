@@ -125,6 +125,23 @@ records `grounding: 'declined_no_results'`, and the `[citations]` log line
 includes `grounding=declined_no_results`. When results exist but do not cover
 the question, only the prompt prevents a guess.
 
+**Dead links (AI-227).** Perplexity's index still holds pages that now return
+404, so after the answer is written, and before it is sent, Fiona checks every
+source. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
+without being fetched. The rest get a HEAD request (GET if HEAD is refused),
+sent with the `User-Agent` `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`
+and only to hosts in `PERPLEXITY_DOMAIN_FILTER` and their subdomains. A 404 or 410 drops the
+source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
+the source. Results are cached: live pages for 1 hour and dead pages for 24
+hours. If the answer cited a dropped source, it is rewritten once, with no
+search tool, from the live sources only, and the metadata records
+`grounding: 'regenerated_dead_sources'`. If that rewrite fails, the fixed
+decline is sent, with `grounding: 'declined_dead_sources'`. If every source
+was dropped, the no-results decline above applies. `/fiona search` drops dead
+results the same way. The `[citations]` log line gains `dead=` and
+`regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` restores the
+previous behaviour. If link checking itself fails, the answer is sent unchecked.
+
 The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
 already holds, uses its own prompt with no tools, and does not pass through
 this check.

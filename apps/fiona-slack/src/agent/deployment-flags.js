@@ -38,3 +38,13 @@ export function isTicketingFeatureEnabled() {
 export function isEscalationEnabled() {
   return process.env.ESCALATION_ENABLED === 'true';
 }
+
+/**
+ * True unless citation link checking is switched off for this deployment
+ * (AI-227). This one defaults ON, the reverse of the flags above: for them off
+ * is the safe direction, but switching link checking off lets dead links back
+ * into answers. Only the exact string 'false' turns it off.
+ */
+export function isCitationLinkCheckEnabled() {
+  return process.env.CITATION_LINK_CHECK_ENABLED !== 'false';
+}

@@ -4,12 +4,15 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import Perplexity from '@perplexity-ai/perplexity_ai';
+import { isCitationLinkCheckEnabled } from './deployment-flags.js';
 import {
   incrementDegradedNoMetadataCount,
   incrementTotalResponseCount,
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
+import { checkUrls } from './utils/link-checker.js';
+import { filterSources, isDenylisted, parseDenylist, urlKey } from './utils/source-filter.js';
 import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
@@ -23,6 +26,12 @@ export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v3';
 const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
   .split(',')
   .map((d) => d.trim());
+
+// ─── Citation Link Checking (AI-227) ────────────────────────────────────────
+// Time budget for checking one answer's sources; unfinished checks keep the source.
+const CITATION_LINK_CHECK_TIMEOUT_MS = parsePositiveIntEnv(process.env.CITATION_LINK_CHECK_TIMEOUT_MS, 2000);
+// Retired-path prefixes the domain-level search filter cannot express.
+const CITATION_PATH_DENYLIST = parseDenylist(process.env.CITATION_PATH_DENYLIST ?? 'www.ed-fi.org/what-is-ed-fi-old/');
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
@@ -285,7 +294,14 @@ export const MetadataLifecycleState = {
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
  * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
  * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
- * @property {string} [grounding] - "declined_no_results" when the answer was replaced by NO_SOURCES_DECLINE_TEXT
+ * @property {string} [grounding] - Set when the answer was replaced or rewritten by citation link checking
+ *   (AI-227): "declined_no_results" when every source was removed and NO_SOURCES_DECLINE_TEXT was sent instead;
+ *   "regenerated_dead_sources" when a cited source was dead and the answer was rewritten from the live sources
+ *   that remained; "declined_dead_sources" when a cited source was dead and the rewrite failed, so
+ *   NO_SOURCES_DECLINE_TEXT was sent instead.
+ * @property {Object} [link_check] - Citation link check summary (AI-227): { checked, dead, unknown, denylisted,
+ *   regenerated, ms, error? }. Set whenever link checking ran for this answer. `error: true` means link checking
+ *   itself threw and the answer was sent unchecked (checked/dead/unknown/denylisted are all 0, regenerated is false).
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -565,21 +581,6 @@ const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
 const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
 
 /**
- * Loose comparison key: ignores the scheme, host case, a leading www. and
- * trailing slashes. Path, query and fragment keep their case, since paths are
- * case-sensitive.
- */
-function urlKey(url) {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    return `${host}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}${parsed.hash}`;
-  } catch {
-    return url;
-  }
-}
-
-/**
  * Build a function that maps a URL the model wrote to the search result it
  * names: an exact match first, else a loose (urlKey) match that is unique.
  * Returns undefined for a URL the search did not return, or one that loosely
@@ -682,6 +683,63 @@ function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
     if (!listed.has(source.url)) indexToUrl.set(next++, source.url);
   }
   return indexToUrl;
+}
+
+/**
+ * Drop sources Fiona must not cite: retired paths (never fetched) and pages
+ * that return 404 or 410. Pages the check cannot confirm are kept.
+ *
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ */
+async function validateSources(sources, logger) {
+  const toCheck = sources.filter((source) => !isDenylisted(source.url, CITATION_PATH_DENYLIST)).map((s) => s.url);
+  const verdicts = await checkUrls(toCheck, {
+    timeoutMs: CITATION_LINK_CHECK_TIMEOUT_MS,
+    allowedHosts: PERPLEXITY_DOMAIN_FILTER,
+  });
+  const { kept, removed } = filterSources(sources, verdicts, CITATION_PATH_DENYLIST);
+  const count = (verdict) => [...verdicts.values()].filter((v) => v === verdict).length;
+  const stats = {
+    checked: toCheck.length,
+    dead: count('dead'),
+    unknown: count('unknown'),
+    denylisted: removed.filter((entry) => entry.reason === 'denylisted').length,
+  };
+  if (removed.length > 0) {
+    logger?.warn?.(
+      `[citations] removed ${removed.length} source(s): ${removed.map((r) => `${r.reason} ${r.url}`).join(', ')}`,
+    );
+  }
+  return { kept, removed, stats };
+}
+
+/**
+ * Work out what each [n] marker in the text links to. When the model appended
+ * its own source list, its numbers are its own, so link by the list and drop it
+ * (only the Sources block lists sources); otherwise link by result id.
+ *
+ * @param {string} text - Raw answer text
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
+ * @param {Object} sourceIndexMap - URL -> result id
+ * @param {Array<Object>} rawResults - Raw search results (for duplicate-id aliases)
+ * @returns {{ text: string, indexToUrl: Map<number, string>, citedMarkers: number[] }}
+ */
+function resolveCitations(text, sources, sourceIndexMap, rawResults) {
+  const resolveResultUrl = makeResultUrlResolver(sources);
+  const modelList = rawResults.length > 0 ? extractModelSourceList(text, resolveResultUrl) : null;
+  let answer = text;
+  let indexToUrl;
+  if (modelList) {
+    answer = modelList.text;
+    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, answer);
+  } else {
+    indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
+  }
+  const citedMarkers = [...new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
+    .filter((marker) => indexToUrl.has(marker))
+    .sort((a, b) => a - b);
+  return { text: answer, indexToUrl, citedMarkers };
 }
 
 // Web search is not automatic on the Agent API, and merely offering the tool
@@ -822,40 +880,83 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // avoids sending an empty markdown block to Slack.
   // Resolve marker number -> URL once, so the inline links and the Sources
   // block are built from the same map and cannot disagree.
-  //
-  // When the model appended its own numbered list, its numbers are its own,
-  // not result ids: link by the list instead, and drop the list so only the
-  // Sources block lists sources. Without results there is nothing to verify
-  // its URLs against, so the text is left alone.
   const metadata = streamer?.__citation_metadata;
-  const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
-  const resolveResultUrl = makeResultUrlResolver(sources);
-  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer, resolveResultUrl) : null;
-  let indexToUrl;
-  if (modelList) {
-    textBuffer = modelList.text;
-    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, textBuffer);
-  } else {
-    indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
+  let sources = metadata?.sources ?? normalizeSources(searchResults).sources;
+  let sourceIndexMap = metadata?.source_index_map || {};
+  let resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
+
+  let declinedDeadSources = false;
+  if (sources.length > 0 && isCitationLinkCheckEnabled()) {
+    const started = Date.now();
+    let regenerated = false;
+    let validation;
+    try {
+      validation = await validateSources(sources, logger);
+    } catch (error) {
+      logger?.warn?.(`[citations] link check failed, sending the answer unchecked: ${error.message}`);
+      if (metadata) {
+        metadata.link_check = {
+          checked: 0,
+          dead: 0,
+          unknown: 0,
+          denylisted: 0,
+          regenerated: false,
+          ms: Date.now() - started,
+          error: true,
+        };
+      }
+    }
+    if (validation) {
+      const { kept, removed, stats } = validation;
+      if (removed.length > 0) {
+        const removedUrls = new Set(removed.map((entry) => entry.url));
+        sources = kept;
+        sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
+        // Compare normalized URLs: the normalizer re-encodes some characters, so a
+        // raw result URL can differ from its source URL.
+        searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
+        if (metadata) {
+          metadata.sources = sources;
+          metadata.source_index_map = sourceIndexMap;
+        }
+        const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
+        let answerText = textBuffer;
+        if (citedRemoved && sources.length > 0) {
+          const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
+          if (rewritten) {
+            answerText = rewritten;
+            regenerated = true;
+            if (metadata) metadata.grounding = 'regenerated_dead_sources';
+          } else {
+            declinedDeadSources = true;
+          }
+        }
+        resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
+      }
+      if (metadata) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
+    }
   }
   if (metadata) {
-    metadata.citation_index = Object.fromEntries(indexToUrl);
-    metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
-      .filter((marker) => indexToUrl.has(marker))
-      .sort((a, b) => a - b);
+    metadata.citation_index = declinedDeadSources ? {} : Object.fromEntries(resolved.indexToUrl);
+    metadata.cited_markers = declinedDeadSources ? [] : resolved.citedMarkers;
   }
 
   let botText = '';
   if (sources.length === 0) {
     // Never show an answer with nothing behind it. Counting normalized
     // sources, not raw results, also catches results whose URLs were all
-    // rejected. The escalation summary does not come through here, so it
-    // still summarizes without sources.
+    // rejected or found dead. The escalation summary does not come through
+    // here, so it still summarizes without sources.
     if (metadata) metadata.grounding = 'declined_no_results';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else if (textBuffer) {
-    botText = linkifyCitationMarkers(textBuffer, indexToUrl);
+  } else if (declinedDeadSources) {
+    // The answer relied on a dead page and could not be rewritten without it.
+    if (metadata) metadata.grounding = 'declined_dead_sources';
+    botText = NO_SOURCES_DECLINE_TEXT;
+    await streamer.append({ markdown_text: botText });
+  } else if (resolved.text) {
+    botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
     await streamer.append({ markdown_text: botText });
   }
 
@@ -956,25 +1057,112 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
   if (!query || !query.trim()) return [];
 
   const cappedMaxSources = clampSearchMaxSources(maxSources);
+  // Ask for a few extra when link checking is on, so removing dead results
+  // does not leave the command short (AI-227).
+  const linkCheck = isCitationLinkCheckEnabled();
+  const fetchCount = linkCheck ? Math.min(cappedMaxSources + 3, SEARCH_ABSOLUTE_MAX) : cappedMaxSources;
 
   try {
     const response = await perplexityClient.search.create({
       query,
-      max_results: cappedMaxSources,
+      max_results: fetchCount,
       search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
     });
 
     const rawResults = response?.results;
 
     if (Array.isArray(rawResults) && rawResults.length > 0) {
-      const { sources } = normalizeSources(rawResults, { maxSources: cappedMaxSources });
-      return sources;
+      const { sources } = normalizeSources(rawResults, { maxSources: fetchCount });
+      if (!linkCheck) return sources;
+      try {
+        const { kept } = await validateSources(sources, logger);
+        return kept.slice(0, cappedMaxSources);
+      } catch (error) {
+        logger?.warn?.(`[citations] link check failed, returning unfiltered search results: ${error.message}`);
+        return sources.slice(0, cappedMaxSources);
+      }
     }
 
     return [];
   } catch (error) {
     logger?.warn?.(`Search failed: ${error.message}`);
     throw error;
+  }
+}
+
+// ─── Rewrite From Live Sources (AI-227) ────────────────────────────────────
+const REGENERATE_RESULTS_HEADER =
+  '## Search results\n' +
+  'Search has already been run for this question. These are the only results you may use; ' +
+  'cite them by their [n] number exactly as given.';
+
+/**
+ * Input for rewriting an answer after a cited source proved dead: the same
+ * prompts (system prompt and thread history), with the live results appended
+ * to the system prompt under their original result ids. Sources with no id in
+ * the map are left out, since a marker for them could not be linked.
+ *
+ * @param {Array} prompts - The prompts sent on the first call, system prompt first
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} liveSources
+ * @param {Object} sourceIndexMap - URL -> result id, dead sources already removed
+ */
+export function buildRegenerateInput(prompts, liveSources, sourceIndexMap) {
+  const entries = liveSources
+    .filter((source) => sourceIndexMap[source.url] !== undefined)
+    .map(
+      (source) =>
+        `[${sourceIndexMap[source.url]}] ${source.title}\nURL: ${source.url}\n${source.snippet?.trim() || '(no snippet)'}`,
+    );
+  const block = `${REGENERATE_RESULTS_HEADER}\n\n${entries.join('\n\n')}`;
+
+  const input = promptsToInputItems(prompts);
+  const system = input.find((item) => item.role === 'system');
+  if (system) {
+    system.content = `${system.content}\n\n${block}`;
+  } else {
+    input.unshift({ type: 'message', role: 'system', content: block });
+  }
+  return input;
+}
+
+/**
+ * Rewrite an answer from live sources only, with no search tool. One attempt:
+ * returns null on any failure, and the caller declines rather than sending an
+ * answer built on a dead page.
+ *
+ * @param {Array} prompts
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} liveSources
+ * @param {Object} sourceIndexMap
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @param {{ model?: string }} [options] - model override, used by the live evaluation to force a failure
+ * @returns {Promise<string | null>}
+ */
+export async function regenerateFromSources(
+  prompts,
+  liveSources,
+  sourceIndexMap,
+  logger,
+  { model = PERPLEXITY_API_MODEL } = {},
+) {
+  if (!perplexityClient) return null;
+  try {
+    const response = await perplexityClient.responses.create({
+      model,
+      input: buildRegenerateInput(prompts, liveSources, sourceIndexMap),
+      stream: false,
+    });
+    // Failed and cancelled runs arrive over HTTP 200, as in summarizeForEscalation.
+    if (response?.status && response.status !== 'completed' && response.status !== 'incomplete') {
+      logger?.warn?.(
+        `Rewrite from live sources ended with ${response.status}: ${response.error?.message || 'no error detail'}`,
+      );
+      return null;
+    }
+    const text = response?.output_text;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
+  } catch (error) {
+    logger?.warn?.(`Rewrite from live sources failed: ${error.message}`);
+    return null;
   }
 }
 
