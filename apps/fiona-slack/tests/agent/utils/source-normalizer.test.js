@@ -157,6 +157,34 @@ describe('buildSourceIndexMap', () => {
     const map = buildSourceIndexMap(sources);
     expect(Object.getPrototypeOf(map)).toBeNull();
   });
+
+  it('keys on the Agent API id when ids differ from array position', () => {
+    // Inline [n] markers refer to the search result's own id, so a list whose
+    // ids no longer match position (dedup or the display cap dropped entries)
+    // must still link [7] to the id-7 URL rather than the 7th entry.
+    const sources = [
+      { url: 'https://a.com', title: 'A', id: 2 },
+      { url: 'https://b.com', title: 'B', id: 5 },
+      { url: 'https://c.com', title: 'C', id: 7 },
+    ];
+    const map = buildSourceIndexMap(sources);
+    expect(map).toEqual({ 'https://a.com': 2, 'https://b.com': 5, 'https://c.com': 7 });
+  });
+
+  it('uses positional numbering only when every source lacks an id', () => {
+    const noIds = buildSourceIndexMap([{ url: 'https://a.com' }, { url: 'https://b.com' }]);
+    expect(noIds).toEqual({ 'https://a.com': 1, 'https://b.com': 2 });
+
+    const partial = buildSourceIndexMap([{ url: 'https://a.com', id: 3 }, { url: 'https://b.com' }]);
+    expect(partial).toEqual({ 'https://a.com': 3 });
+
+    const duplicated = buildSourceIndexMap([
+      { url: 'https://a.com', id: 4 },
+      { url: 'https://b.com', id: 4 },
+      { url: 'https://c.com', id: 7 },
+    ]);
+    expect(duplicated).toEqual({ 'https://c.com': 7 });
+  });
 });
 
 describe('normalizeSources', () => {
@@ -183,6 +211,12 @@ describe('normalizeSources', () => {
     const { sources } = normalizeSources(raw);
     expect(sources).toHaveLength(1);
     expect(sources[0].url).toBe('https://good.com');
+  });
+
+  it('keeps every source when no maxSources is given', () => {
+    const raw = Array.from({ length: 15 }, (_, i) => ({ url: `https://example${i}.com` }));
+    const { sources } = normalizeSources(raw);
+    expect(sources).toHaveLength(15);
   });
 
   it('respects custom maxSources option', () => {

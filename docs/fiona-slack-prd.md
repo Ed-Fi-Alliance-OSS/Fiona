@@ -72,9 +72,13 @@ than sending an empty prompt to the LLM.
 
 ### 2.2 LLM Integration
 
-Fiona calls the [Perplexity Sonar API](https://docs.perplexity.ai/) for grounded,
-citation-backed responses. Authentication uses `PERPLEXITY_API_KEY`, injected via
-environment variable.
+Fiona calls the [Perplexity Agent API](https://docs.perplexity.ai/) (`responses.create`)
+for grounded, citation-backed responses. Authentication uses `PERPLEXITY_API_KEY`,
+injected via environment variable.
+
+Grounding is explicit on the Agent API: the `web_search` tool is supplied and forced
+via `tool_choice`, carrying the Ed-Fi domain allowlist in its `filters`. Sources arrive
+as the `search_results` output item rather than a top-level `citations` array.
 
 #### 2.2.1 Streaming
 
@@ -132,7 +136,8 @@ the response is finalized with plain `[n]` markers left as-is.
   `data:`, `vbscript:`).
 - Duplicate URLs are dropped; first-seen ordering is preserved.
 - Titles are derived from the URL path when no explicit title is provided.
-- The source list is capped at `CITATION_MAX_SOURCES` (default: 10).
+- Sources are not capped: the model cites Agent API result ids across every
+  search round, so dropping any result would leave its `[n]` marker unlinked.
 
 **Security hardening:**
 
@@ -146,7 +151,6 @@ the response is finalized with plain `[n]` markers left as-is.
 | Variable                       | Default | Purpose                                         |
 | ------------------------------ | ------- | ----------------------------------------------- |
 | `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
-| `CITATION_MAX_SOURCES`         | `10`    | Maximum sources normalised per response         |
 | `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
 | `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
 
@@ -165,7 +169,7 @@ user as task status updates (in-progress, complete, error).
 | Tool                | Purpose                                   | Parameters                               |
 | ------------------- | ----------------------------------------- | ---------------------------------------- |
 | `roll_dice`         | Random number generation / demonstrations | `sides` (default 6), `count` (default 1) |
-| `perplexity_search` | Real-time web search via Perplexity Sonar | `query` (required)                       |
+| `perplexity_search` | Real-time web search via the Perplexity Search API (`POST /search`, not the Agent API) | `query` (required)                       |
 
 The `perplexity_search` tool is only registered when a Perplexity client is
 configured and the primary provider is *not* Perplexity (since Perplexity
@@ -368,7 +372,7 @@ Fiona monitors regular conversation for escalation intent (e.g., the word
 | ---------- | -------------------------------------------------------------- |
 | Runtime    | Node.js 22 (Alpine for containers)                             |
 | Framework  | Slack Bolt 4.x (JavaScript, ES Modules)                        |
-| LLM SDKs   | `openai` 6.x (used as a thin client against the Perplexity Sonar API) |
+| LLM SDKs   | `@perplexity-ai/perplexity_ai` 0.37.x (Agent API `responses` + Search API) |
 | Database   | Azure Cosmos DB (optional, for feedback and interaction analytics) |
 | Auth       | `@azure/identity` (DefaultAzureCredential)                     |
 | Linting    | Biome 2.x                                                      |
@@ -507,7 +511,7 @@ documentation. Key groups:
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
 | LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
-| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_MAX_SOURCES`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
+| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |

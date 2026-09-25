@@ -10,16 +10,19 @@ import {
   recordMetadataWaitDuration,
   recordSourceCount,
 } from './utils/citation-telemetry.js';
-import { normalizeSources } from './utils/source-normalizer.js';
+import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL || 'sonar';
+// Nullish (not `||`) so an explicitly empty PERPLEXITY_API_MODEL reaches
+// describeInvalidModel() and fails fast at boot, rather than being silently
+// replaced by the default and hiding a broken deployment setting.
+const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
 export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
-const PERPLEXITY_DOMAIN_FILTER = process.env.PERPLEXITY_DOMAIN_FILTER
-  ? process.env.PERPLEXITY_DOMAIN_FILTER.split(',').map((d) => d.trim())
-  : ['www.ed-fi.org', 'docs.ed-fi.org'];
+const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
+  .split(',')
+  .map((d) => d.trim());
 
 // ─── Citation Density Policy ────────────────────────────────────────────────
 export const METADATA_CONTRACT_VERSION = 'v1';
@@ -27,7 +30,7 @@ export const METADATA_CONTRACT_VERSION = 'v1';
 /**
  * Safely parse an environment variable into a positive integer.
  * Falls back to `defaultValue` when the value is missing, non-numeric, NaN,
- * or not a positive integer (e.g. CITATION_MAX_SOURCES=abc → 10).
+ * or not a positive integer (e.g. CITATION_METADATA_TIMEOUT_MS=abc → 2000).
  *
  * @param {string | undefined} rawValue
  * @param {number} defaultValue
@@ -42,7 +45,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
 }
 
 export const CITATION_POLICY = {
-  MAX_SOURCES_DISPLAYED: parsePositiveIntEnv(process.env.CITATION_MAX_SOURCES, 10),
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
 
   // Feature flags: enable/disable citation rendering.
@@ -85,10 +87,10 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
 
 // ─── Client Initialisation ─────────────────────────────────────────────────
 // A single native Perplexity SDK client handles both capabilities we need:
-// `chat.completions` (Sonar model, synthesized/streamed answers with
-// citations) and `search` (raw ranked results, no synthesis). Previously
-// `chat.completions` went through the OpenAI SDK pointed at Perplexity's
-// OpenAI-compatible endpoint, while `search` used this Perplexity SDK,
+// `responses` (Agent API, synthesized/streamed answers with search results)
+// and `search` (raw ranked results, no synthesis). Previously the synthesis
+// path went through the OpenAI SDK pointed at Perplexity's OpenAI-compatible
+// `chat.completions` endpoint, while `search` used this Perplexity SDK,
 // because the OpenAI SDK has no concept of Perplexity's `/search` endpoint.
 // The Perplexity SDK exposes both under one client, so the OpenAI SDK
 // dependency was removed and both calls now share `perplexityClient`.
@@ -99,16 +101,129 @@ if (PERPLEXITY_API_KEY) {
   perplexityClient = new Perplexity({ apiKey: PERPLEXITY_API_KEY });
 }
 
+// Retired chat-completions model names, and Agent API preset names. Neither
+// is a valid Agent API `model`, and both are plausible things to paste into
+// PERPLEXITY_API_MODEL, so each gets a targeted error rather than a generic one.
+const RETIRED_SONAR_MODELS = new Set([
+  'sonar',
+  'sonar-pro',
+  'sonar-reasoning',
+  'sonar-reasoning-pro',
+  'sonar-deep-research',
+]);
+const AGENT_PRESET_NAMES = new Set([
+  'fast',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'fast-search',
+  'pro-search',
+  'deep-research',
+  'advanced-deep-research',
+]);
+
+/**
+ * Explain why a configured model value cannot work as an Agent API `model`.
+ *
+ * Deliberately validates the `provider/model` SHAPE rather than checking a
+ * hardcoded slug allowlist: the model catalog drifts often, and a stale
+ * allowlist would reject models that actually work. `GET /v1/models` is the
+ * authoritative catalog.
+ *
+ * @param {string} model - Configured PERPLEXITY_API_MODEL value
+ * @returns {string | null} Error detail, or null when the shape is valid
+ */
+function describeInvalidModel(model) {
+  if (!model || !model.trim()) {
+    return 'it is empty';
+  }
+
+  if (RETIRED_SONAR_MODELS.has(model)) {
+    return `"${model}" is a Sonar chat-completions model, which the Agent API does not accept. Use the Agent API slug "perplexity/sonar" instead`;
+  }
+
+  if (AGENT_PRESET_NAMES.has(model)) {
+    return `"${model}" is an Agent API preset name, not a model. Presets are sent as a separate "preset" request field, so they cannot be used as PERPLEXITY_API_MODEL`;
+  }
+
+  // Agent API slugs are provider-prefixed, e.g. perplexity/sonar, openai/gpt-5.1.
+  if (!/^[^/\s]+\/[^/\s]+$/.test(model)) {
+    return `"${model}" is not in the required provider/model format (for example "perplexity/sonar")`;
+  }
+
+  // Anthropic models reject any request without max_output_tokens, and neither
+  // call site in this module sends one (answer length is governed by the
+  // prompt). Verified against production: omitting it returns
+  // `400 max_output_tokens is required when using Anthropic models`.
+  if (model.startsWith('anthropic/')) {
+    return `"${model}" requires max_output_tokens on every request, which Fiona does not send. Use a model that does not require it, such as "perplexity/sonar"`;
+  }
+
+  return null;
+}
+
+/**
+ * Explain why the configured domain filter cannot work.
+ *
+ * Whitespace is already trimmed when PERPLEXITY_DOMAIN_FILTER is parsed, but a
+ * scheme-prefixed entry is a natural mistake (pasting a URL) and is rejected by
+ * the API at request time rather than at boot. Verified against production:
+ * `https://docs.ed-fi.org` returns `400 domains must not include a URL scheme`.
+ *
+ * @param {Array<string>} domains - Parsed PERPLEXITY_DOMAIN_FILTER entries
+ * @returns {string | null} Error detail, or null when the filter is valid
+ */
+function describeInvalidDomainFilter(domains) {
+  if (!Array.isArray(domains) || domains.length === 0) {
+    return 'it is empty';
+  }
+
+  // The web_search tool accepts at most 20 entries, each at most 253 chars.
+  if (domains.length > 20) {
+    return `it has ${domains.length} entries, but at most 20 are allowed`;
+  }
+
+  const withScheme = domains.find((domain) => /:\/\//.test(domain));
+  if (withScheme) {
+    return `"${withScheme}" includes a URL scheme; pass the hostname only (for example "docs.ed-fi.org")`;
+  }
+
+  const tooLong = domains.find((domain) => domain.length > 253);
+  if (tooLong) {
+    return `"${tooLong.slice(0, 40)}…" exceeds the 253 character limit`;
+  }
+
+  const empty = domains.some((domain) => !domain);
+  if (empty) {
+    return 'it contains an empty entry (check for a stray comma)';
+  }
+
+  return null;
+}
+
 /**
  * Assert that the LLM client is configured. Call from the app entrypoint so
- * the process exits at boot if PERPLEXITY_API_KEY is missing, rather than
- * appearing healthy and failing on the first user request.
+ * the process exits at boot if PERPLEXITY_API_KEY is missing or the configured
+ * model cannot work, rather than appearing healthy and failing on the first
+ * user request with an opaque HTTP 400 mid-stream.
  *
- * @throws {Error} when no Perplexity client is configured.
+ * @throws {Error} when no Perplexity client is configured, or the configured
+ *   model is not a usable Agent API slug.
  */
 export function assertLLMConfigured() {
   if (!perplexityClient) {
     throw new Error('PERPLEXITY_API_KEY is not set. Refusing to start without an LLM provider.');
+  }
+
+  const invalidModel = describeInvalidModel(PERPLEXITY_API_MODEL);
+  if (invalidModel) {
+    throw new Error(`PERPLEXITY_API_MODEL is invalid: ${invalidModel}. Refusing to start.`);
+  }
+
+  const invalidDomainFilter = describeInvalidDomainFilter(PERPLEXITY_DOMAIN_FILTER);
+  if (invalidDomainFilter) {
+    throw new Error(`PERPLEXITY_DOMAIN_FILTER is invalid: ${invalidDomainFilter}. Refusing to start.`);
   }
 }
 
@@ -227,8 +342,34 @@ export function finalizeMetadataEnvelope(metadata) {
 }
 
 /**
- * Extract and aggregate citation metadata from Perplexity response.
- * Sonar model returns a flat citations array (URLs only); titles are derived from URLs.
+ * Extract the `search_results` output item from an Agent API response.
+ *
+ * The Agent API has no top-level `citations` array: sources arrive as the
+ * `output[]` entry with `type: 'search_results'`, whose results carry
+ * `{ url, title, snippet, date }`. Also accepts a bare `{ search_results }`
+ * shape so the streaming path can pass results it collected from
+ * `response.reasoning.search_results` events.
+ *
+ * @param {Object} response - Agent API response, or `{ search_results: [...] }`
+ * @returns {Array<Object>} Search results, or an empty array when absent
+ */
+function extractSearchResults(response) {
+  if (!response) return [];
+
+  if (Array.isArray(response.search_results)) {
+    return response.search_results;
+  }
+
+  const output = Array.isArray(response.output) ? response.output : [];
+  const searchResultsItem = output.find((item) => item?.type === 'search_results');
+
+  return Array.isArray(searchResultsItem?.results) ? searchResultsItem.results : [];
+}
+
+/**
+ * Extract and aggregate citation metadata from an Agent API response.
+ * Results carry real titles and snippets, so titles no longer need deriving
+ * from URLs (`normalizeSource` still falls back to the URL path when absent).
  *
  * @param {Object} metadata - Metadata envelope to update
  * @param {Object} perplexityResponse - Response from Perplexity API
@@ -236,15 +377,13 @@ export function finalizeMetadataEnvelope(metadata) {
 export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
   if (!perplexityResponse) return;
 
-  const citations = perplexityResponse.citations || [];
-
-  const rawSources = Array.isArray(citations) ? citations.map((url) => ({ url })) : [];
+  const rawSources = extractSearchResults(perplexityResponse).filter((result) => result?.url);
 
   if (rawSources.length > 0) {
-    // Normalize and deduplicate with deterministic first-seen ordering
-    const { sources, sourceIndexMap } = normalizeSources(rawSources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Normalize and deduplicate with deterministic first-seen ordering. No
+    // cap: the model cites results by Agent API id across every search round,
+    // so dropping any result leaves its [n] marker unlinkable.
+    const { sources, sourceIndexMap } = normalizeSources(rawSources);
 
     // Merge source index maps - track all sources seen so far
     for (const [url] of Object.entries(sourceIndexMap)) {
@@ -262,10 +401,8 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
       }
     }
 
-    // Build final sources list respecting cap policy
-    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources, {
-      maxSources: CITATION_POLICY.MAX_SOURCES_DISPLAYED,
-    });
+    // Rebuild the final sources list and index map from the merged set
+    const { sources: finalSources, sourceIndexMap: finalIndexMap } = normalizeSources(metadata.sources);
     metadata.sources = finalSources;
     metadata.source_index_map = finalIndexMap;
   }
@@ -277,7 +414,11 @@ export function aggregatePerplexityMetadata(metadata, perplexityResponse = {}) {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-function promptsToChatMessages(prompts) {
+// Agent API `input` items are `{ type: 'message', role, content }`; the roles
+// (user / assistant / system / developer) carry over from Sonar `messages`
+// unchanged, so the system prompt stays an input item rather than moving to
+// top-level `instructions`.
+function promptsToInputItems(prompts) {
   return prompts
     .map((prompt) => {
       if (!prompt?.role || !prompt?.content) {
@@ -285,7 +426,7 @@ function promptsToChatMessages(prompts) {
       }
 
       if (typeof prompt.content === 'string') {
-        return { role: prompt.role, content: prompt.content };
+        return { type: 'message', role: prompt.role, content: prompt.content };
       }
 
       if (Array.isArray(prompt.content)) {
@@ -298,11 +439,11 @@ function promptsToChatMessages(prompts) {
           })
           .join('');
 
-        return text ? { role: prompt.role, content: text } : null;
+        return text ? { type: 'message', role: prompt.role, content: text } : null;
       }
 
       if (typeof prompt.content === 'object') {
-        return { role: prompt.role, content: JSON.stringify(prompt.content) };
+        return { type: 'message', role: prompt.role, content: JSON.stringify(prompt.content) };
       }
 
       return null;
@@ -310,7 +451,7 @@ function promptsToChatMessages(prompts) {
     .filter(Boolean);
 }
 
-function buildIndexToUrlMap(sourceIndexMap = {}) {
+function buildIndexToUrlMap(sourceIndexMap = {}, rawResults = []) {
   const indexToUrl = new Map();
 
   for (const [url, index] of Object.entries(sourceIndexMap)) {
@@ -320,15 +461,50 @@ function buildIndexToUrlMap(sourceIndexMap = {}) {
     }
   }
 
+  addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults);
+
   return indexToUrl;
 }
 
-function linkifyCitationMarkers(text, sourceIndexMap = {}) {
+/**
+ * Dedup keeps one source per URL, so a result repeating an earlier URL under a
+ * new Agent API id drops out of `source_index_map`, and a marker citing that id
+ * would stay bare. Alias each such id to the URL it shares. Only applies when
+ * the map is keyed by API id — every result carries a unique id and each kept
+ * URL is indexed by its first result's id — since positional numbering has no
+ * relationship to the raw ids.
+ */
+function addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults) {
+  const results = rawResults.map(normalizeSource).filter(Boolean);
+  const ids = results.map((result) => result.id);
+  if (ids.length === 0 || ids.some((id) => id === undefined) || new Set(ids).size !== ids.length) {
+    return;
+  }
+
+  const firstIdByUrl = new Map();
+  for (const result of results) {
+    if (!firstIdByUrl.has(result.url)) {
+      firstIdByUrl.set(result.url, result.id);
+    }
+  }
+  const keyedByApiId = Object.entries(sourceIndexMap).every(([url, index]) => firstIdByUrl.get(url) === index);
+  if (!keyedByApiId) {
+    return;
+  }
+
+  for (const result of results) {
+    if (!indexToUrl.has(result.id) && sourceIndexMap[result.url] !== undefined) {
+      indexToUrl.set(result.id, result.url);
+    }
+  }
+}
+
+function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
   if (!text || typeof text !== 'string') {
     return text;
   }
 
-  const indexToUrl = buildIndexToUrlMap(sourceIndexMap);
+  const indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
 
   if (indexToUrl.size === 0) {
     return text;
@@ -346,72 +522,137 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}) {
   });
 }
 
+// Web search is not automatic on the Agent API, and merely offering the tool
+// does not guarantee the model calls it. Fiona's answers must be grounded in
+// Ed-Fi sources, so the tool is forced via `tool_choice` and carries the
+// domain filter in `filters` (the top-level `search_domain_filter` param from
+// Sonar no longer exists).
+//
+// NOTE: `tool_choice` is absent from @perplexity-ai/perplexity_ai@0.37.0's
+// `ResponsesCreateParams` typings, but the live API does support it — the SDK's
+// typed params lag the API surface. Verified against production: the Agent API
+// runs in strict mode and rejects genuinely unknown fields with
+// `400 unknown field "X"`, yet accepts `tool_choice` and validates its
+// contents semantically (a bogus tool name returns `400 tool_choice named tool
+// "..." is not present in tools`). Do not remove this on the basis of the SDK
+// types alone: measured against production, omitting `tool_choice` while still
+// offering the tool grounded only 2 of 4 runs (zero sources on the other two),
+// whereas forcing it grounded 4 of 4.
+function buildWebSearchTool() {
+  return {
+    type: 'web_search',
+    filters: { search_domain_filter: PERPLEXITY_DOMAIN_FILTER },
+  };
+}
+
 /**
- * Call Perplexity chat API (streaming) and collect citations from the final chunk.
- * Perplexity returns `citations` as a top-level field on the last stream chunk.
+ * Call the Perplexity Agent API (streaming) and collect sources from the
+ * `search_results` output item.
+ *
+ * Agent responses stream typed SSE events rather than `choices[0].delta`
+ * chunks: text arrives as `response.output_text.delta`, and search results
+ * arrive as `response.reasoning.search_results` events plus the terminal
+ * snapshot's `search_results` output item.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer
  * @param {Array} prompts
- * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and citation URL strings
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @returns {Promise<{ botText: string, citations: string[] }>} Full response text and source URL strings
  */
-export async function callPerplexityChat(streamer, prompts) {
+export async function callPerplexityChat(streamer, prompts, logger) {
   if (!perplexityClient) {
     throw new Error('Perplexity client is not configured. Set PERPLEXITY_API_KEY.');
   }
 
-  const messages = promptsToChatMessages(prompts);
+  const input = promptsToInputItems(prompts);
 
-  if (messages.length === 0) {
+  if (input.length === 0) {
     throw new Error('No usable prompts available for Perplexity call.');
   }
 
-  const response = await perplexityClient.chat.completions.create({
+  const response = await perplexityClient.responses.create({
     model: PERPLEXITY_API_MODEL,
-    messages,
-    search_domain_filter: PERPLEXITY_DOMAIN_FILTER,
+    input,
+    tools: [buildWebSearchTool()],
+    tool_choice: { type: 'web_search' },
     stream: true,
   });
 
-  // Buffer all text chunks during streaming so that citation markers can be
+  // Buffer all text deltas during streaming so that citation markers can be
   // linkified after `source_index_map` has been fully populated.  Emitting
-  // per-chunk would always see an empty map because Perplexity delivers
-  // citations on the *last* chunk, after the text deltas.
-  let citations = [];
+  // per-delta would risk an incomplete map because search results can still
+  // arrive after text deltas have started.
+  let searchResults = [];
   let textBuffer = '';
 
-  for await (const chunk of response) {
-    if (Array.isArray(chunk.citations)) {
-      citations = chunk.citations;
-    }
+  for await (const event of response) {
+    switch (event?.type) {
+      case 'response.output_text.delta':
+        if (typeof event.delta === 'string') {
+          textBuffer += event.delta;
+        }
+        break;
 
-    const delta = chunk?.choices?.[0]?.delta;
-    if (!delta) continue;
+      case 'response.reasoning.search_results':
+        if (Array.isArray(event.results) && event.results.length > 0) {
+          searchResults = event.results;
+        }
+        break;
 
-    let text = '';
+      // Both terminals carry a full response snapshot, and both are handled the
+      // same way: the snapshot's results win when present. An incomplete run
+      // keeps its partial answer, whose [n] markers still need those sources
+      // to linkify.
+      //
+      // This is complete only for a single search round, which is what the
+      // default `max_steps` produces (measured live: always 1 round, 15
+      // results, ids 1-15). With `max_steps` > 1 each round's event carries
+      // its own results under ids numbered across rounds (1-15, 16-30, ...),
+      // but the snapshot keeps only round 1, so markers citing later rounds
+      // cannot linkify. Raising `max_steps` therefore requires merging every
+      // round's event and mapping markers by id rather than URL, since rounds
+      // return the same URL under different ids.
+      case 'response.incomplete':
+      case 'response.completed': {
+        if (event.type === 'response.incomplete') {
+          // Usually `incomplete_details.reason === 'max_output_tokens'` (the
+          // old `finish_reason: 'length'`).
+          logger?.warn?.(
+            `Perplexity response incomplete: ${event.response?.incomplete_details?.reason || 'unknown reason'}`,
+          );
+        }
 
-    if (typeof delta.content === 'string') {
-      text = delta.content;
-    } else if (Array.isArray(delta.content)) {
-      text = delta.content
-        .map((part) => {
-          if (typeof part === 'string') return part;
-          if (typeof part?.text === 'string') return part.text;
-          return '';
-        })
-        .join('');
-    } else if (typeof delta.content === 'object' && delta.content !== null) {
-      text = delta.content.text || '';
-    }
+        const snapshot = event.response;
+        if (
+          Array.isArray(snapshot?.search_results) ||
+          (Array.isArray(snapshot?.output) && snapshot.output.some((item) => item?.type === 'search_results'))
+        ) {
+          searchResults = extractSearchResults(snapshot);
+        }
+        break;
+      }
 
-    if (text) {
-      textBuffer += text;
+      case 'response.failed':
+      case 'response.cancelled':
+      case 'error':
+        // Failed and cancelled runs arrive over a successful HTTP 200, so the
+        // stream terminal is the only signal that the run did not succeed.
+        throw new Error(
+          `Perplexity run ended with ${event.type}: ${
+            event.response?.error?.message || event.error?.message || 'no error detail'
+          }`,
+        );
+
+      default:
+        // Unrecognized event types are ignorable by design (forward-compat).
+        break;
     }
   }
 
-  // Aggregate citations into the metadata envelope so source_index_map is
+  // Aggregate sources into the metadata envelope so source_index_map is
   // fully populated before we linkify.
-  if (citations.length > 0 && streamer?.__citation_metadata) {
-    aggregatePerplexityMetadata(streamer.__citation_metadata, { citations });
+  if (searchResults.length > 0 && streamer?.__citation_metadata) {
+    aggregatePerplexityMetadata(streamer.__citation_metadata, { search_results: searchResults });
   }
 
   // Linkify [n] markers using the now-populated source_index_map, then emit
@@ -420,11 +661,11 @@ export async function callPerplexityChat(streamer, prompts) {
   let botText = '';
   if (textBuffer) {
     const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap);
+    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap, searchResults);
     await streamer.append({ markdown_text: botText });
   }
 
-  return { botText, citations };
+  return { botText, citations: searchResults.map((result) => result?.url).filter(Boolean) };
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────
@@ -454,7 +695,11 @@ export async function callLLM(streamer, prompts, logger) {
 
   let botText = '';
   try {
-    ({ botText } = await callPerplexityChat(streamer, [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts]));
+    ({ botText } = await callPerplexityChat(
+      streamer,
+      [{ role: 'system', content: SYSTEM_PROMPT }, ...prompts],
+      logger,
+    ));
 
     // Gate finalization: transition to READY_TO_FINALIZE from any pre-finalize state once
     // the LLM call has completed synchronously.
@@ -559,15 +804,27 @@ export async function summarizeForEscalation(transcriptText, logger) {
   if (!transcriptText || !transcriptText.trim()) return null;
 
   try {
-    const response = await perplexityClient.chat.completions.create({
+    // No `tools` here: this summarizes a transcript we already have, so web
+    // search would add cost and latency without grounding anything.
+    const response = await perplexityClient.responses.create({
       model: PERPLEXITY_API_MODEL,
-      messages: [
-        { role: 'system', content: ESCALATION_SUMMARY_SYSTEM_PROMPT },
-        { role: 'user', content: transcriptText },
-      ],
+      instructions: ESCALATION_SUMMARY_SYSTEM_PROMPT,
+      input: [{ type: 'message', role: 'user', content: transcriptText }],
       stream: false,
     });
-    const summary = response?.choices?.[0]?.message?.content;
+
+    // Failed and cancelled runs arrive over HTTP 200 with a populated `error`,
+    // so the resolved promise alone does not mean the run succeeded.
+    if (response?.status && response.status !== 'completed' && response.status !== 'incomplete') {
+      logger?.warn?.(
+        `Failed to generate escalation summary: run ended with ${response.status}: ${
+          response.error?.message || 'no error detail'
+        }`,
+      );
+      return null;
+    }
+
+    const summary = response?.output_text;
     return typeof summary === 'string' && summary.trim() ? summary.trim() : null;
   } catch (error) {
     logger?.warn?.(`Failed to generate escalation summary: ${error.message}`);
