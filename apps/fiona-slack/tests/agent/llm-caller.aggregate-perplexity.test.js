@@ -28,12 +28,27 @@ process.env.PERPLEXITY_API_KEY = 'test-key';
 
 const { aggregatePerplexityMetadata, callPerplexityChat, callLLM, assertLLMConfigured, NO_SOURCES_DECLINE_TEXT } =
   await import('../../src/agent/llm-caller.js');
+const { incrementDegradedNoMetadataCount } = await import('../../src/agent/utils/citation-telemetry.js');
 
 describe('assertLLMConfigured', () => {
   it('does not throw when PERPLEXITY_API_KEY is set at module load', () => {
     expect(() => assertLLMConfigured()).not.toThrow();
   });
 });
+
+function toAsyncIterable(events) {
+  return {
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        async next() {
+          if (i >= events.length) return { done: true, value: undefined };
+          return { done: false, value: events[i++] };
+        },
+      };
+    },
+  };
+}
 
 function makeMetadata() {
   return {
@@ -130,8 +145,9 @@ describe('callPerplexityChat – buffer and linkify', () => {
    * Each element may have { text, searchResults }, producing the typed SSE
    * events the Agent API emits (`response.output_text.delta` and
    * `response.reasoning.search_results`), followed by `response.completed`.
+   * Pass `terminalEvent` to end the stream with that exact event instead.
    */
-  function makeStream(chunks, { terminal = 'response.completed', finalResults } = {}) {
+  function makeStream(chunks, { terminal = 'response.completed', finalResults, terminalEvent } = {}) {
     const events = [];
 
     for (const chunk of chunks) {
@@ -143,29 +159,20 @@ describe('callPerplexityChat – buffer and linkify', () => {
       }
     }
 
-    if (terminal) {
+    if (terminalEvent) {
+      events.push(terminalEvent);
+    } else if (terminal) {
       events.push({
         type: terminal,
         response: {
-          status: terminal === 'response.completed' ? 'completed' : 'failed',
+          status: terminal === 'response.completed' ? 'completed' : 'incomplete',
           ...(finalResults !== undefined ? { output: [{ type: 'search_results', results: finalResults }] } : {}),
-          ...(terminal === 'response.failed' ? { error: { message: 'upstream refused' } } : {}),
           ...(terminal === 'response.incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {}),
         },
       });
     }
 
-    return {
-      [Symbol.asyncIterator]() {
-        let i = 0;
-        return {
-          async next() {
-            if (i >= events.length) return { done: true, value: undefined };
-            return { done: false, value: events[i++] };
-          },
-        };
-      },
-    };
+    return toAsyncIterable(events);
   }
 
   const urlsToResults = (urls) => urls.map((url) => ({ url }));
@@ -409,15 +416,23 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(botText).toBe('Answer [[1]](https://streamed.example.com).');
   });
 
-  it('throws when the run terminates with response.failed over a 200 response', async () => {
+  // Failed and cancelled runs arrive over a successful HTTP 200. The SDK's
+  // `ResponseFailedEvent` carries a top-level `error` and no `response`.
+  it.each([
+    ['response.failed', { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } }, 'upstream refused'],
+    ['response.cancelled', { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } }, 'run cancelled'],
+    ['bare error', { type: 'error', error: { message: 'stream broke' } }, 'stream broke'],
+    ['detail-less response.failed', { type: 'response.failed', sequence_number: 3 }, 'no error detail'],
+  ])('throws on a %s terminal event without appending the partial answer', async (_label, terminalEvent, expectedDetail) => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
-    mockCreate.mockResolvedValue(makeStream([{ text: 'partial' }], { terminal: 'response.failed' }));
+    mockCreate.mockResolvedValue(makeStream([{ text: 'partial' }], { terminalEvent }));
 
     await expect(callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }])).rejects.toThrow(
-      /response\.failed: upstream refused/,
+      `Perplexity run ended with ${terminalEvent.type}: ${expectedDetail}`,
     );
+    expect(streamer.append).not.toHaveBeenCalled();
   });
 
   it('keeps the partial answer and warns when the run terminates as incomplete', async () => {
@@ -821,6 +836,27 @@ describe('callLLM error path does not mask original failure', () => {
   function makeStreamer() {
     return { append: jest.fn().mockResolvedValue(undefined) };
   }
+
+  it('marks the envelope degraded and counts it once when the stream ends with response.failed', async () => {
+    // HTTP-200 failures surface as a throw from inside the stream loop, so this
+    // is the primary failure path — no envelope pre-seeding.
+    incrementDegradedNoMetadataCount.mockClear();
+    mockCreate.mockResolvedValue(
+      toAsyncIterable([
+        { type: 'response.output_text.delta', delta: 'partial' },
+        { type: 'response.failed', sequence_number: 2, error: { message: 'upstream refused' } },
+      ]),
+    );
+
+    const streamer = makeStreamer();
+
+    await expect(callLLM(streamer, [{ role: 'user', content: 'hi' }], makeLogger())).rejects.toThrow(
+      'Perplexity run ended with response.failed: upstream refused',
+    );
+    expect(streamer.__citation_metadata.finalize_state).toBe('degraded_no_metadata');
+    expect(incrementDegradedNoMetadataCount).toHaveBeenCalledTimes(1);
+    expect(streamer.append).not.toHaveBeenCalled();
+  });
 
   it('rethrows the original LLM error when metadata is already DEGRADED_NO_METADATA', async () => {
     const llmError = new Error('upstream LLM exploded');
