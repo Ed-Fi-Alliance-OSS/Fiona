@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 78,
+  "title": "[AI-181] feat: create GitHub issues (bug/feature) from Slack via Fiona",
+  "state": "merged",
+  "jiraKey": "AI-181",
+  "authorKind": "human",
+  "stats": {
+    "additions": 3251,
+    "deletions": 7,
+    "changedFiles": 32,
+    "commits": 32,
+    "reviewCycles": 1,
+    "reviewComments": 2,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 25786,
+    "ciRuns": {
+      "total": 11,
+      "failed": 0,
+      "cancelled": 1
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "yml": 1,
+      "md": 2,
+      "sample": 1,
+      "json": 3,
+      "js": 24,
+      "bicep": 1
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 2,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 5,
+      "feature": 20
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-08-07T19:49:04.688Z"
+}

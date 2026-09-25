@@ -1,0 +1,50 @@
+{
+  "prNumber": 87,
+  "title": "build(deps): bump body-parser from 2.2.2 to 2.3.0 in /apps/fiona-slack in the npm_and_yarn group across 1 directory",
+  "state": "merged",
+  "jiraKey": null,
+  "stats": {
+    "additions": 44,
+    "deletions": 14,
+    "changedFiles": 1,
+    "commits": 2,
+    "reviewCycles": 0,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 4089,
+    "timeToMergeMinutes": 4102,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "json": 1
+    },
+    "testToSourceRatio": null,
+    "docsTouched": false,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:09:42.297Z"
+}

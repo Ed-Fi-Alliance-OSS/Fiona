@@ -1,0 +1,55 @@
+{
+  "prNumber": 65,
+  "title": "build(deps): bump the npm_and_yarn group across 2 directories with 1 update",
+  "state": "merged",
+  "jiraKey": null,
+  "stats": {
+    "additions": 16,
+    "deletions": 16,
+    "changedFiles": 2,
+    "commits": 1,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 2,
+    "timeToMergeMinutes": 1674,
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "json": 2
+    },
+    "testToSourceRatio": null,
+    "docsTouched": false,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false,
+    "changeRequestThemes": []
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "MEMBER"
+    }
+  ],
+  "capturedAt": "2026-07-29T22:09:55.482Z"
+}
