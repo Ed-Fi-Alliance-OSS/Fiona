@@ -88,7 +88,10 @@ Users see text appear progressively rather than waiting for a complete response.
 #### 2.2.2 System Prompt
 
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
-can be overridden via the `SYSTEM_PROMPT` environment variable.
+can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
+versioned by `SYSTEM_PROMPT_VERSION` (default `v2`), which is stored with each
+captured conversation. `v2` added the citation-numbering rules in §2.2.3; an
+overridden `SYSTEM_PROMPT` must carry them too.
 
 > **Known issue (AI-49):** This keyword routing operates on untrusted user input
 > and should be reviewed for potential abuse.
@@ -102,15 +105,33 @@ streamed response.
 
 **How it works:**
 
-1. The system prompt instructs the LLM to place numeric citation markers
-   (`[1]`, `[2]`, …) at the end of factual claims grounded in external sources.
-2. As Perplexity streams its response, citation URLs are collected, normalized,
-   deduplicated, and assigned stable 1-based indices.
-3. Each `[n]` marker in the streamed text is replaced in real time with a Slack
-   mrkdwn hyperlink: `[[n]](url)`.
+1. The system prompt instructs the LLM to cite each web search result by its
+   own Agent API result number (`[7]` for result 7), never to renumber
+   results, and not to end its answer with its own source list.
+2. As Perplexity streams its response, search results are collected,
+   normalized and deduplicated.
+3. Each `[n]` marker is replaced with a Slack mrkdwn hyperlink, `[[n]](url)`,
+   to result `n`.
+4. A numbered Sources block is appended (see below).
 
-No separate "Sources" block is appended to the message; citations appear only
-as inline links within the answer text.
+**When the model writes its own source list anyway.** Measured against
+production with the earlier prompt, the model appended its own list in 8 of 12
+answers, and in those it numbered its sources 1, 2, 3… itself instead of by
+result id, so linking `[n]` to result `n` pointed at the wrong page. If the
+answer ends with lines like `[n] … URL` that read as a bibliography (a
+*Sources* / *References* / *Citations* heading, or, without one, every listed
+number cited earlier in the answer and every listed URL a search result), Fiona
+treats that list as the meaning of its numbers. A closing list of numbered
+steps with links normally fails that test, even if the answer cites one of its
+numbers, so it is kept as answer content; a missed list only falls back to
+result-id linking. Each
+`[n]` links to the URL the model listed, matched to a search result: exactly,
+or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
+case) when only one result matches. A URL the search did not return, or one
+that loosely matches several results, leaves its marker as plain text. The list
+is removed from the answer, so only the Sources block lists sources. With the
+`v2` prompt the model wrote no list in 12 of 12 runs. A model that renumbers *without* a list cannot be
+detected from the text; the prompt is the only guard against that.
 
 **Metadata lifecycle (strict consistency):**
 
@@ -128,7 +149,45 @@ before the stream is finalized:
 
 If the metadata does not arrive within `CITATION_METADATA_TIMEOUT_MS`
 (default: 2 000 ms), the envelope transitions to `degraded_no_metadata` and
-the response is finalized with plain `[n]` markers left as-is.
+the response is finalized with plain `[n]` markers left as-is and no
+Sources block.
+
+**Sources block:** every answer that cites anything ends with a numbered
+Sources list, placed before the feedback buttons, on both the assistant-thread
+and @-mention paths. Each entry shows the marker number(s) and the source title
+as a clickable link. Publication dates are deliberately not shown, because the
+dates on search results are not currently reliable.
+Sources the answer actually cites come first, under *Cited in this answer*; the
+other retrieved sources follow under *Also retrieved*, so a reader checking a
+claim finds its source immediately. Numbers stay the inline marker numbers, so
+the cited list can have gaps (e.g. `[2]`, `[7]`, `[12]`). When the answer cites
+nothing, everything is listed under a single *Sources* heading.
+Numbering comes from the same marker-to-URL map the inline `[n]` links use, so
+the list and the links cannot disagree. A result that repeats an earlier URL is
+listed once under all its numbers, with runs of three or more collapsed into a
+range (e.g. `[1, 2]`, `[4–9]`). A marker the model invents beyond the result
+count (e.g. `[16]` of 15) stays plain text and has no entry.
+
+The list is split across section blocks to stay within Slack's 3 000-character
+section limit, and capped at 10 blocks. The cap is a deliberate product
+limit, not a Slack one: Slack allows 50 blocks per message, and 10 keeps the
+list from dwarfing the answer. An entry too long for a section shows its title and host unlinked; its
+inline `[n]` marker still links.
+
+**What the list guarantees.** Whenever the list fits within the 10-block cap, every
+source is shown and every linked marker has an entry. That covers every real
+answer: a typical answer has 15 sources, which use one or two blocks. Only
+entries too long to share a block can reach the cap. When they do:
+
+- The *Also retrieved* sources are dropped first, and the list ends with a
+  note counting them ("+N more sources not cited in this answer").
+- Every cited source is still listed, unlinked if needed to fit. That holds for at
+  least 130 cited sources, even when every title is at the 150-character cap.
+- Beyond that, the cap is deliberately not raised, because no real answer
+  comes close (every measured answer had 15 results). The cited sources left
+  out keep their inline links but have no entry, and the note counts exactly
+  how many are not shown. Raising the cap toward Slack's 50-block limit would
+  list more, if this ever matters.
 
 **Source normalization:**
 
@@ -143,16 +202,18 @@ the response is finalized with plain `[n]` markers left as-is.
 
 - The `source_index_map` is created with `Object.create(null)` to prevent
   prototype pollution from external URL keys.
-- mrkdwn special characters (including underscores) in evidence snippets are
-  escaped before rendering.
+- `&`, `<` and `>` in source titles are escaped before rendering, so a title
+  cannot break its Slack link.
+- `<`, `>`, `|` and whitespace in source URLs are percent-encoded when sources
+  are normalized, so a URL cannot close a link or inject Slack syntax such as
+  `<!here>`. Every rendered link, inline or in the Sources block, uses the
+  normalized URL.
 
 **Citation policy env vars** (see also §7):
 
 | Variable                       | Default | Purpose                                         |
 | ------------------------------ | ------- | ----------------------------------------------- |
-| `CITATION_RENDERING_ENABLED`   | `true` in non-prod, `false` when `NODE_ENV=production` | Master switch for inline link rendering |
 | `CITATION_METADATA_TIMEOUT_MS` | `2000`  | Milliseconds to wait for citation metadata      |
-| `CITATION_INCLUDE_EVIDENCE`    | `false` | Include evidence snippets (feature flag)        |
 
 **Telemetry:** `citation-telemetry.js` records per-response metadata wait
 durations and source counts (bounded arrays, capped at 1 000 entries) for
@@ -511,7 +572,7 @@ documentation. Key groups:
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Slack         | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_API_URL`, `LOG_LEVEL`                                     |
 | LLM           | `PERPLEXITY_API_KEY`, `PERPLEXITY_API_MODEL`, `PERPLEXITY_DOMAIN_FILTER`, `SYSTEM_PROMPT`              |
-| Citations     | `CITATION_RENDERING_ENABLED`, `CITATION_METADATA_TIMEOUT_MS`, `CITATION_INCLUDE_EVIDENCE` |
+| Citations     | `CITATION_METADATA_TIMEOUT_MS`                                                                         |
 | Rate Limiting | `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`                                                      |
 | Cosmos DB     | `COSMOS_CONNECTION_STRING`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`, `COSMOS_INTERACTIONS_CONTAINER`, `COSMOS_USERS_CONTAINER` |
 | Deployment    | `DEPLOYMENT_TYPE`                                                                                      |
