@@ -12,11 +12,26 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
   recordInteraction: mockRecordInteraction,
 }));
 
-// Guard: fiona.js must not directly import llm-caller (use search-caller instead).
-// This guard intercepts static imports only; dynamic import() calls would bypass it.
-jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => {
-  throw new Error('llm-caller must not be directly imported by /fiona slash command handlers');
-});
+// Stub llm-caller: /fiona ask streams a real LLM answer, the other sub-commands must not.
+const mockCallLLM = jest.fn().mockResolvedValue({ metadata: null, botText: 'test response', systemPromptVersion: 'v1' });
+const mockFinalizeMetadataEnvelope = jest.fn();
+jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
+  callLLM: mockCallLLM,
+  finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
+  LLM_MODEL: 'test-model',
+  SYSTEM_PROMPT_VERSION: 'v1',
+  CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
+}));
+
+jest.unstable_mockModule('../../../src/agent/interaction-telemetry.js', () => ({
+  waitForMetadataReady: jest.fn().mockResolvedValue(undefined),
+  handleInteractionWithTelemetry: jest.fn(),
+}));
+
+const mockCaptureConversation = jest.fn().mockResolvedValue(undefined);
+jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () => ({
+  captureConversation: mockCaptureConversation,
+}));
 
 // Mock search-caller so tests control search results without hitting the LLM.
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
@@ -68,6 +83,7 @@ describe('fionaCommandCallback', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCallLLM.mockResolvedValue({ metadata: null, botText: 'test response', systemPromptVersion: 'v1' });
     mockAck = jest.fn().mockResolvedValue(undefined);
     mockLogger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
     mockCommand = {
@@ -189,32 +205,149 @@ describe('fionaCommandCallback', () => {
     });
   });
 
-  describe('ask sub-command', () => {
+  describe('ask sub-command — empty question falls back to help', () => {
+    let mockRespond;
+    let mockClient;
+
     beforeEach(() => {
       mockCommand.text = 'ask';
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockClient = { chatStream: jest.fn() };
     });
 
     it('calls ack() exactly once', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
       expect(mockAck).toHaveBeenCalledTimes(1);
     });
 
-    it('ack() response indicates the feature is not yet available', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).toHaveBeenCalledWith(expect.stringMatching(/not yet available|coming soon/i));
+    it('ack() shows the help response when no question is provided', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
-    it('ack() response does not show the full help menu', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-      expect(mockAck).not.toHaveBeenCalledWith(expect.stringContaining('Available commands'));
+    it('does not call callLLM when the question is empty', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockCallLLM).not.toHaveBeenCalled();
     });
 
-    it('records slash_ask telemetry', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+    it('records slash_help telemetry (not slash_ask) when the question is empty', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
       await flushMicrotasks();
       expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_ask' }),
+        expect.objectContaining({ interactionType: 'slash_help' }),
       );
+    });
+  });
+
+  describe('ask sub-command — with a question invokes the LLM', () => {
+    let mockRespond;
+    let mockClient;
+
+    beforeEach(() => {
+      mockCommand.text = 'ask What is the Ed-Fi Data Standard?';
+      // Own user id: the rate limiter is real and its per-user budget is shared
+      // across suites, so spending U12345's on this suite starves the later ones.
+      mockCommand.user_id = 'U_ASK_SUITE';
+      mockRespond = jest.fn().mockResolvedValue(undefined);
+      mockClient = { chatStream: jest.fn() };
+      mockCallLLM.mockImplementation(async (sink) => {
+        await sink.append({ markdown_text: 'test response' });
+        return { metadata: null, botText: 'test response', systemPromptVersion: 'v1' };
+      });
+    });
+
+    it('calls ack() exactly once with no text argument', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledTimes(1);
+      expect(mockAck).toHaveBeenCalledWith();
+    });
+
+    it('answers ephemerally so the exchange stays private in a public channel', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: 'test response' }),
+      );
+    });
+
+    it('never posts the answer into the channel via chatStream', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
+    });
+
+    it('calls callLLM with the question as a standalone prompt', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockCallLLM).toHaveBeenCalledTimes(1);
+      const [, prompts] = mockCallLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'What is the Ed-Fi Data Standard?' }]);
+    });
+
+    it('attaches the feedback block to the ephemeral answer', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      const [{ blocks }] = mockRespond.mock.calls[0];
+      expect(blocks.at(-1).block_id).toBe('feedback|ask|slash_ask');
+      expect(blocks[0]).toMatchObject({ type: 'section', text: { type: 'mrkdwn', text: 'test response' } });
+    });
+
+    it('captures the conversation with entryPoint slash_ask', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockCaptureConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entryPoint: 'slash_ask',
+          userMessage: 'What is the Ed-Fi Data Standard?',
+          botResponse: 'test response',
+        }),
+      );
+    });
+
+    it('records slash_ask telemetry on success', async () => {
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'success', rateLimited: false }),
+      );
+    });
+
+    it('sends an ephemeral error and records error telemetry when callLLM throws', async () => {
+      mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining(':warning:') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'llm_failed' }),
+      );
+    });
+
+    it('does not capture a conversation when the LLM fails', async () => {
+      mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+
+    it('sends an ephemeral rate-limit message and records rate-limited telemetry', async () => {
+      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+      for (let i = 0; i < 25; i++) checkRateLimit('U_RL_ASK');
+      mockCommand.user_id = 'U_RL_ASK';
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+      expect(mockCallLLM).not.toHaveBeenCalled();
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.any(String) }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'rate_limited', rateLimited: true }),
+      );
+    });
+
+    it('logs citation info when metadata is present', async () => {
+      mockCallLLM.mockResolvedValueOnce({
+        metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://docs.ed-fi.org' }] },
+        botText: 'answer',
+        systemPromptVersion: 'v1',
+      });
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
     });
   });
 

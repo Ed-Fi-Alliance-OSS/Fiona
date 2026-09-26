@@ -5,6 +5,8 @@
 
 import { escalateViaSay } from '../../agent/escalation.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
+import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
+import { buildAskResponse, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
   handleSearchEphemeral,
@@ -16,7 +18,8 @@ import {
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
  * @-mention event or the assistant panel). The `escalate` keyword needs the
  * conversation context (client, ids, thread) and routes to `escalateViaSay`;
- * `help`/`ask`/`search` fall through to `routeCommandViaSay`.
+ * `ask` and `search` answer through their own pipelines; `help` falls through
+ * to `routeCommandViaSay`.
  *
  * Shared by the app_mention and assistant message listeners so the
  * escalate-vs-route branch — and the "record the escalate turn exactly once"
@@ -28,6 +31,10 @@ import {
  * @param {import("@slack/logger").Logger} [params.logger]
  * @param {() => void} params.markInteractionRecorded - Suppresses the telemetry
  *   wrapper's turn record for escalate (postEscalation records it exactly once).
+ * @param {(errorType: string) => void} params.markInteractionError - Records a
+ *   handled failure without triggering the telemetry wrapper's public warning.
+ * @param {(responseId: string) => void} params.claimResponseId - Registers the
+ *   claimed response so the telemetry wrapper can release it if an error escapes.
  * @param {import("@slack/web-api").WebClient} params.client
  * @param {string} params.userId
  * @param {string} [params.teamId]
@@ -41,6 +48,8 @@ export async function dispatchKeywordViaSay({
   say,
   logger,
   markInteractionRecorded,
+  markInteractionError,
+  claimResponseId,
   client,
   userId,
   teamId,
@@ -81,6 +90,57 @@ export async function dispatchKeywordViaSay({
       say,
       logger,
     });
+    return;
+  }
+  if (cmd.keyword === 'ask') {
+    // Held in lock step with the slash command: same prompt, feedback block, and
+    // capture record. For an @-mention, the question is already visible to the
+    // channel but the answer is ephemeral. In the private assistant panel, the
+    // answer streams into the thread like any other response.
+    const responseId = generateResponseId(channelId, threadTs, messageTs);
+    claimResponseId(responseId);
+    if (!shouldFinalize(responseId, logger)) {
+      return;
+    }
+
+    if (interactionType === 'app_mention') {
+      const { response, errorType } = await buildAskResponse({
+        question: cmd.rawArgs,
+        logger,
+        interactionType,
+        userId,
+        teamId,
+        channelId,
+        threadTs,
+        messageTs,
+      });
+      if (errorType) markInteractionError(errorType);
+      try {
+        await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
+          ...response,
+        });
+      } catch (err) {
+        rollbackFinalization(responseId);
+        markInteractionError('post_failed');
+        logger?.error?.(`Failed to send ephemeral ask response: ${err.name}: ${err.message}`);
+      }
+      return;
+    }
+    const streamResult = await streamAskResponse({
+      client,
+      logger,
+      question: cmd.rawArgs,
+      interactionType,
+      userId,
+      teamId,
+      channelId,
+      threadTs,
+      messageTs,
+    });
+    if (streamResult?.errorType) markInteractionError(streamResult.errorType);
     return;
   }
   if (cmd.keyword === 'search' && interactionType === 'app_mention') {

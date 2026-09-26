@@ -10,8 +10,8 @@ import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
+import { ASK_ERROR_TEXT, buildAskResponse } from './ask-handler.js';
 import {
-  ASK_NOT_YET_TEXT,
   buildHelpText,
   buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
@@ -42,7 +42,7 @@ function isDisabledByFeatureFlag(subCommand) {
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
- * back to help for unrecognized / missing input. Never invokes the LLM.
+ * back to help for unrecognized / missing input.
  */
 export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
@@ -61,7 +61,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleHelp({ command, ack, logger });
       break;
     case 'ask':
-      await handleComingSoon({ command, ack, logger, subCommand: 'ask', text: ASK_NOT_YET_TEXT });
+      await handleAsk({ command, ack, respond, logger });
       break;
     case 'search':
       await handleSearch({ command, ack, respond, logger });
@@ -135,15 +135,73 @@ async function handleHelp({ command, ack, logger }) {
   fireAndForgetRecord({ command, logger, interactionType: 'slash_help' });
 }
 
-async function handleComingSoon({ command, ack, logger, subCommand, text }) {
-  try {
-    // ack(string) sends an immediate ephemeral response that only the invoking user sees
-    await ack(text);
-  } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona ${subCommand}: ${err.name}`);
+/**
+ * Handles the `/fiona ask <question>` sub-command.
+ *
+ * Answers privately: `respond()` with response_type ephemeral, so the question
+ * and the answer stay between Fiona and the person who asked even when the
+ * command is typed in a public channel. The answer itself comes from
+ * buildAskResponse, shared with the `ask` keyword path.
+ *
+ * Falls back to the help response when no question is provided.
+ */
+async function handleAsk({ command, ack, respond, logger }) {
+  const question = (command.text ?? '').trim().slice('ask'.length).trim();
+
+  // Empty question: fall back to help (same as /fiona with no sub-command)
+  if (!question) {
+    await handleHelp({ command, ack, logger });
     return;
   }
-  fireAndForgetRecord({ command, logger, interactionType: `slash_${subCommand}` });
+
+  try {
+    await ack();
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ask: ${err.name}`);
+    return;
+  }
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.('Missing required slash command fields; skipping ask');
+    await respond({ response_type: 'ephemeral', text: ASK_ERROR_TEXT });
+    return;
+  }
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    recordInteraction({
+      ...slashInteractionRecord(command, 'slash_ask'),
+      status: 'error',
+      errorType: 'rate_limited',
+      rateLimited: true,
+      logger,
+    }).catch((err) => logger?.warn?.(`Failed to record slash_ask interaction: ${err.name}`));
+    return;
+  }
+
+  // buildAskResponse never throws on LLM failure — it substitutes an error
+  // message and reports the failure via errorType, so carry that into telemetry.
+  let response;
+  let errorType;
+  try {
+    ({ response, errorType } = await buildAskResponse({
+      question,
+      logger,
+      interactionType: 'slash_ask',
+      userId: command.user_id,
+      teamId: command.team_id,
+      channelId: command.channel_id,
+      threadTs: command.trigger_id,
+      messageTs: command.trigger_id,
+    }));
+    await respond({ response_type: 'ephemeral', ...response });
+  } catch (err) {
+    logger?.error?.(`Failed to respond to /fiona ask: ${err.name}`);
+    return;
+  }
+
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
 }
 
 async function handleSearch({ command, ack, respond, logger }) {

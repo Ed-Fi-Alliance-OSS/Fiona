@@ -600,7 +600,7 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when message starts with "ask "', async () => {
+    it('streams an answer when the message starts with "ask "', async () => {
       mockMessage.text = 'ask how do I set up ODS?';
 
       await messageHandler({
@@ -612,9 +612,42 @@ describe('message (assistant thread handler)', () => {
         setStatus: mockSetStatus,
       });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chatStream).toHaveBeenCalled();
+      expect(mockSay).not.toHaveBeenCalled();
+    });
+
+    it('skips a duplicate ask retry before calling the LLM', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+      mockMessage.text = 'ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
       expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
+    });
+
+    it('strips the "ask" keyword before prompting the LLM', async () => {
+      mockMessage.text = 'ask how do I set up ODS?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
     });
 
     it('responds with search results when message starts with "search "', async () => {
@@ -653,7 +686,7 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text for "fiona ask <question>"', async () => {
+    it('streams an answer for "fiona ask <question>" too', async () => {
       mockMessage.text = 'fiona ask how do I set up ODS?';
 
       await messageHandler({
@@ -665,9 +698,8 @@ describe('message (assistant thread handler)', () => {
         setStatus: mockSetStatus,
       });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
-      expect(callLLM).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     it('rate-limited user typing "help" receives rate-limit message, not help text', async () => {
