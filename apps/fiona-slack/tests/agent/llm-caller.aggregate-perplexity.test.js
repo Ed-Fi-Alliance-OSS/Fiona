@@ -26,9 +26,8 @@ jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
 // picks it up and assigns `perplexityClient`.
 process.env.PERPLEXITY_API_KEY = 'test-key';
 
-const { aggregatePerplexityMetadata, callPerplexityChat, callLLM, assertLLMConfigured } = await import(
-  '../../src/agent/llm-caller.js'
-);
+const { aggregatePerplexityMetadata, callPerplexityChat, callLLM, assertLLMConfigured, NO_SOURCES_DECLINE_TEXT } =
+  await import('../../src/agent/llm-caller.js');
 const { incrementDegradedNoMetadataCount } = await import('../../src/agent/utils/citation-telemetry.js');
 
 describe('assertLLMConfigured', () => {
@@ -212,16 +211,97 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(emittedText).toBe('See [[1]](https://first.example.com) and [[2]](https://second.example.com) for details.');
   });
 
-  it('emits the buffered text as-is when no citations are returned', async () => {
+  it('emits the buffered text as-is when results arrive but the answer cites none', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
-    mockCreate.mockResolvedValue(makeStream([{ text: 'No citations here.' }, { text: ' Done.' }]));
+    mockCreate.mockResolvedValue(
+      makeStream([
+        { text: 'No citations here.' },
+        { text: ' Done.', searchResults: urlsToResults(['https://a.example.com']) },
+      ]),
+    );
 
     await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
     expect(streamer.append).toHaveBeenCalledTimes(1);
     expect(streamer._appended[0]).toBe('No citations here. Done.');
+    expect(metadata.grounding).toBeUndefined();
+  });
+
+  describe('when search returns no results', () => {
+    // Search is forced, so an answer with no results means retrieval failed
+    // and anything the model wrote came from background knowledge (Q-005).
+    it('sends the decline instead of the model answer', async () => {
+      const streamer = makeStreamer(makeMetadata());
+      mockCreate.mockResolvedValue(makeStream([{ text: 'South Carolina, Texas and Colorado implement Ed-Fi.' }]));
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'Which states?' }]);
+
+      expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+      expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+      expect(NO_SOURCES_DECLINE_TEXT).toMatch(/could(?: not|n't) find/i);
+    });
+
+    it('records the decline in metadata so telemetry need not match on text', async () => {
+      const metadata = makeMetadata();
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim.' }]));
+
+      await callPerplexityChat(makeStreamer(metadata), [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.grounding).toBe('declined_no_results');
+      expect(metadata.citation_index).toEqual({});
+      expect(metadata.cited_markers).toEqual([]);
+    });
+
+    it('declines even when the model produced no text', async () => {
+      const streamer = makeStreamer(makeMetadata());
+      mockCreate.mockResolvedValue(makeStream([]));
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+    });
+
+    // Results whose URLs the normalizer rejects leave nothing to cite, which
+    // is the same as no results.
+    const unusableResults = [
+      { url: 'not a url', title: 'Malformed' },
+      { url: 'javascript:alert(1)', title: 'Script scheme' },
+      { title: 'No URL at all' },
+    ];
+
+    it('declines when every result has an unusable URL', async () => {
+      const metadata = makeMetadata();
+      const streamer = makeStreamer(metadata);
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(metadata.sources).toEqual([]);
+      expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+      expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+      expect(metadata.grounding).toBe('declined_no_results');
+    });
+
+    it('declines on unusable URLs when no metadata envelope is attached', async () => {
+      const streamer = { append: jest.fn(async () => {}) };
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));
+
+      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+      expect(streamer.append).toHaveBeenCalledWith({ markdown_text: NO_SOURCES_DECLINE_TEXT });
+    });
+
+    it('declines when an incomplete run returned no results', async () => {
+      const streamer = makeStreamer(makeMetadata());
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Partial unsourced' }], { terminal: 'response.incomplete' }));
+
+      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], { warn: jest.fn() });
+
+      expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
+    });
   });
 
   it('returns the collected citation URLs', async () => {
@@ -316,8 +396,10 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
     const { botText, citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
+    // The snapshot is authoritative, so the answer has no sources and is
+    // declined rather than shown with a marker linking a stale URL.
     expect(citations).toEqual([]);
-    expect(botText).toBe('Answer [1].');
+    expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
     expect(metadata.sources).toEqual([]);
   });
 
@@ -358,7 +440,11 @@ describe('callPerplexityChat – buffer and linkify', () => {
     const streamer = makeStreamer(metadata);
     const logger = { warn: jest.fn() };
 
-    mockCreate.mockResolvedValue(makeStream([{ text: 'Truncated answer' }], { terminal: 'response.incomplete' }));
+    mockCreate.mockResolvedValue(
+      makeStream([{ text: 'Truncated answer', searchResults: urlsToResults(['https://a.example.com']) }], {
+        terminal: 'response.incomplete',
+      }),
+    );
 
     const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }], logger);
 
@@ -723,6 +809,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
           { type: 'response.created' },
           { type: 'response.unknown' },
           { type: 'response.output_text.delta', delta: 'ok' },
+          { type: 'response.reasoning.search_results', results: [{ url: 'https://a.example.com' }] },
           { type: 'response.completed', response: { status: 'completed' } },
         ];
         let i = 0;
@@ -834,6 +921,7 @@ describe('callLLM returns botText alongside metadata', () => {
     mockCreate.mockResolvedValueOnce(
       (async function* () {
         yield { type: 'response.output_text.delta', delta: 'Hello world' };
+        yield { type: 'response.reasoning.search_results', results: [{ url: 'https://a.example.com' }] };
         yield { type: 'response.completed', response: { status: 'completed' } };
       })(),
     );
@@ -846,7 +934,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
-    expect(result).toHaveProperty('systemPromptVersion', 'v2');
+    expect(result).toHaveProperty('systemPromptVersion', 'v3');
   });
 
   it('instructs the model to cite result numbers and not to write its own source list', async () => {
@@ -869,5 +957,47 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toMatch(/never renumber/i);
     expect(system).toMatch(/do not (?:end|finish) your answer with a list of sources/i);
     expect(system).not.toMatch(/numeric markers \[1\], \[2\], etc\./);
+  });
+  it('instructs the model to ground every claim and decline on high-risk topics without a source', async () => {
+    // Q-005: the model named implementing states from background knowledge.
+    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield { type: 'response.completed', response: { status: 'completed' } };
+      })(),
+    );
+
+    await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+    });
+
+    const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    expect(system).toMatch(/do not answer from background knowledge/i);
+    expect(system).toMatch(/could not find (?:this|that|it) in (?:the )?Ed-Fi documentation/i);
+    for (const topic of [/states or agencies/i, /adoption/i, /implementation status/i, /licensing/i, /legal/i]) {
+      expect(system).toMatch(topic);
+    }
+    // Measured: v3 without this called the homepage's case-study states "implemented".
+    expect(system).toMatch(/use the source's own label/i);
+    expect(system).toMatch(/case stud(?:y|ies) (?:is|are) not (?:a list of )?(?:states )?implementing/i);
+    // Measured: two runs of the same commercial-use question gave opposite answers.
+    expect(system).toMatch(/licensing or legal question/i);
+    expect(system).toMatch(/do not give a (?:definitive )?yes or no/i);
+    expect(system).toContain('https://www.ed-fi.org/contact/');
+    // Scope: Ed-Fi implementation coding is in, general coding and trivia are out,
+    // and out-of-scope questions are declined as out of scope, not as "not found".
+    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi/i);
+    expect(system).toMatch(/general programming/i);
+    expect(system).toMatch(/outside what you can help with/i);
+    // Measured: a generic SQL question was answered by recasting it onto Ed-Fi's Admin database.
+    expect(system).toMatch(/do not recast it as an Ed-Fi question/i);
+    // Search is forced now, and "general productivity" invited ungrounded answers.
+    expect(system).not.toMatch(/offer to search/i);
+    expect(system).not.toMatch(/general productivity/i);
+    // Both contradicted the rules above: uncited "general knowledge", and a remit wider than Ed-Fi.
+    expect(system).not.toMatch(/general knowledge\./i);
+    expect(system).not.toMatch(/education data standards, APIs, implementation guidance, and related tools/);
   });
 });
