@@ -6,13 +6,26 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 const mockCallLLM = jest.fn();
-const mockFinalizeMetadataEnvelope = jest.fn();
+// Transitions the state the way the real one does, so a Sources block built
+// after finalizing — which would render nothing — fails the tests below.
+const mockFinalizeMetadataEnvelope = jest.fn((metadata) => {
+  if (metadata && ['ready_to_finalize', 'degraded_no_metadata'].includes(metadata.finalize_state)) {
+    metadata.finalize_state = 'finalized';
+  }
+});
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: mockCallLLM,
   finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   LLM_MODEL: 'test-model',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
+  MetadataLifecycleState: {
+    STREAMING_TEXT: 'streaming_text',
+    COLLECTING_METADATA: 'collecting_metadata',
+    READY_TO_FINALIZE: 'ready_to_finalize',
+    FINALIZED: 'finalized',
+    DEGRADED_NO_METADATA: 'degraded_no_metadata',
+  },
 }));
 
 const mockWaitForMetadataReady = jest.fn().mockResolvedValue(undefined);
@@ -46,6 +59,17 @@ const ids = {
   threadTs: '111.000',
   messageTs: '222.000',
 };
+
+// Two retrieved sources, both cited, as llm-caller leaves them once ready.
+const readyMetadata = () => ({
+  finalize_state: 'ready_to_finalize',
+  sources: [
+    { url: 'https://docs.ed-fi.org/a', title: 'A' },
+    { url: 'https://docs.ed-fi.org/b', title: 'B' },
+  ],
+  citation_index: { 1: 'https://docs.ed-fi.org/a', 2: 'https://docs.ed-fi.org/b' },
+});
+const SOURCES_TEXT = '*Sources*\n*[1]* <https://docs.ed-fi.org/a|A>\n*[2]* <https://docs.ed-fi.org/b|B>';
 
 let mockLogger;
 
@@ -190,6 +214,61 @@ describe('buildAskResponse', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to capture conversation'));
   });
 
+  it('logs the grounding outcome when the answer was declined', async () => {
+    const metadata = { ...readyMetadata(), grounding: 'declined_no_results' };
+    mockCallLLM.mockImplementation(answersWith('declined', metadata));
+
+    await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
+  });
+
+  describe('Sources block', () => {
+    it('renders the numbered Sources block between the answer and the divider', async () => {
+      mockCallLLM.mockImplementation(answersWith('A [1] B [2]', readyMetadata()));
+
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'section', 'divider', 'context_actions']);
+      expect(response.blocks[0].text.text).toBe('A [1] B [2]');
+      expect(response.blocks[1].text.text).toBe(SOURCES_TEXT);
+    });
+
+    it('omits the Sources block when metadata degraded', async () => {
+      mockCallLLM.mockImplementation(
+        answersWith('answer', { ...readyMetadata(), finalize_state: 'degraded_no_metadata' }),
+      );
+
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'divider', 'context_actions']);
+    });
+
+    it('omits the Sources block from the empty-answer fallback', async () => {
+      mockCallLLM.mockImplementation(answersWith('', readyMetadata()));
+
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(response.text).toBe(ASK_ERROR_TEXT);
+      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'divider', 'context_actions']);
+    });
+  });
+
   describe('when the LLM fails', () => {
     beforeEach(() => {
       mockCallLLM.mockRejectedValue(new Error('perplexity exploded'));
@@ -289,6 +368,37 @@ describe('streamAskResponse', () => {
 
     const [{ blocks }] = mockStreamer.stop.mock.calls[0];
     expect(blocks[0].block_id).toBe('feedback|ask|assistant_message');
+  });
+
+  it('stops the stream with the Sources block ahead of the feedback block', async () => {
+    mockCallLLM.mockImplementation(answersWith('A [1] B [2]', readyMetadata()));
+
+    await streamAskResponse({
+      client: mockClient,
+      logger: mockLogger,
+      question: 'q',
+      interactionType: 'assistant_message',
+      ...ids,
+    });
+
+    const [{ blocks }] = mockStreamer.stop.mock.calls[0];
+    expect(blocks.map((block) => block.type)).toEqual(['section', 'context_actions']);
+    expect(blocks[0].text.text).toBe(SOURCES_TEXT);
+  });
+
+  it('stops an empty answer without a Sources block', async () => {
+    mockCallLLM.mockImplementation(answersWith('', readyMetadata()));
+
+    await streamAskResponse({
+      client: mockClient,
+      logger: mockLogger,
+      question: 'q',
+      interactionType: 'assistant_message',
+      ...ids,
+    });
+
+    const [{ blocks }] = mockStreamer.stop.mock.calls[0];
+    expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
   });
 
   it('captures the conversation like the ephemeral path does', async () => {

@@ -93,6 +93,10 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    use @-mentions in a thread instead.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
+6. The numbered Sources block (AI-230) sits between the answer and the feedback
+   buttons, exactly as on a standard `app_mention` answer, and the grounding rules
+   (AI-231) apply unchanged — a question with no usable sources gets the same
+   decline.
 
 **Ephemeral, therefore not streamed.** Slack has no ephemeral equivalent of
 `chat.startStream` — `recipient_user_id` on a stream is a routing field required

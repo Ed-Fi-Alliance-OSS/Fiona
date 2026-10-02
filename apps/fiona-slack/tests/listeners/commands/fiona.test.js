@@ -21,6 +21,13 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   LLM_MODEL: 'test-model',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
+  MetadataLifecycleState: {
+    STREAMING_TEXT: 'streaming_text',
+    COLLECTING_METADATA: 'collecting_metadata',
+    READY_TO_FINALIZE: 'ready_to_finalize',
+    FINALIZED: 'finalized',
+    DEGRADED_NO_METADATA: 'degraded_no_metadata',
+  },
 }));
 
 jest.unstable_mockModule('../../../src/agent/interaction-telemetry.js', () => ({
