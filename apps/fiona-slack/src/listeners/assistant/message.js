@@ -85,7 +85,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       logger,
       say,
     },
-    async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       if (
         await handleRateLimitedInteraction({
           userId,
@@ -112,6 +112,8 @@ export const message = async ({ client, context, logger, message, say, setStatus
           say,
           logger,
           markInteractionRecorded,
+          markInteractionError,
+          claimResponseId,
           client,
           userId,
           teamId,

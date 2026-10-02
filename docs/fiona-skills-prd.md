@@ -84,7 +84,7 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 
 1. The user types `/fiona ask <question>` in any channel or DM.
 2. Fiona sends an **ephemeral message** (visible only to the invoking user) with
-   a streamed LLM response.
+   the LLM response.
 3. The response follows the same LLM pipeline as a standard `app_mention` —
    including system prompt, citation handling, and domain filtering — but is
    delivered ephemerally rather than in-thread.
@@ -94,6 +94,20 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
 
+**Ephemeral, therefore not streamed.** Slack has no ephemeral equivalent of
+`chat.startStream` — `recipient_user_id` on a stream is a routing field required
+outside a DM, not a privacy control, so streaming the answer would post it to the
+whole channel. The answer is buffered and delivered in one ephemeral message
+instead. Nothing is lost in the LLM pipeline by doing so: `callPerplexityChat`
+already buffers the full response and emits a single `append()`, because citation
+markers cannot be linkified until Perplexity sends the citations on the last chunk.
+
+**The `ask` keyword behaves identically.** `@fiona ask <question>` in a channel or
+thread answers ephemerally through the same pipeline, so the phrasing a user
+happens to reach for does not change who can see the answer. In the assistant
+panel and DMs the surface is already private, so the answer streams there and
+reads like any other reply.
+
 **Edge cases:**
 
 - If `<question>` is empty or blank, Fiona responds with the help output
@@ -101,7 +115,8 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 
 **Acceptance criteria:**
 
-- [ ] Response is ephemeral and streamed.
+- [ ] Response is ephemeral (see "Ephemeral, therefore not streamed" above).
+- [ ] `@fiona ask <question>` is held in lock step with the slash command.
 - [ ] LLM pipeline (system prompt, citations, domain filtering) is reused.
 - [ ] Empty questions fall back to `/fiona help`.
 - [ ] Rate limiting applies (counts toward the user's rate-limit window).
