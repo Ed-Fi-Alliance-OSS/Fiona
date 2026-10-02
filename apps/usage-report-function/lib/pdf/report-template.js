@@ -356,21 +356,6 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
   const errorRates = weeklyTrend.map((w) => w.errorRate);
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
-  const hasSegments = weeklyTrend.length > 0 && weeklyTrend.every((week) => week.segments);
-  const hasUnknown =
-    hasSegments &&
-    weeklyTrend.some(
-      (week) =>
-        week.segments.unknown.totalInteractions > 0 ||
-        week.segments.unknown.goodFeedback > 0 ||
-        week.segments.unknown.badFeedback > 0,
-    );
-  const series = [
-    SEGMENTS[0],
-    SEGMENTS[1],
-    ...(hasUnknown ? [SEGMENTS[2]] : []),
-    { key: null, label: 'Total', color: '#6a329f' },
-  ];
 
   const reportPeriodLabel = period
     ? `${period.startISO.split('T')[0]} to ${period.endISO.split('T')[0]}`
@@ -380,23 +365,12 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     : 'the rolling weekly trend window (Mon-Sun buckets)';
 
   const errorRateConfig = {
-    type: hasSegments ? 'line' : 'bar',
-    data: {
-      labels,
-      datasets: hasSegments
-        ? series.map(({ key, label, color }) => ({
-            label,
-            data: weeklyTrend.map((week) => (key ? week.segments[key].errorRate : week.errorRate)),
-            borderColor: color,
-            backgroundColor: color,
-            borderWidth: key ? 2 : 3,
-          }))
-        : [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }],
-    },
+    type: 'bar',
+    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }] },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: hasSegments }, title: { display: true, text: 'Weekly Error Rate by Segment' } },
+      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate' } },
       scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } } },
     },
   };
@@ -405,27 +379,10 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     type: 'bar',
     data: {
       labels,
-      datasets: hasSegments
-        ? series.flatMap(({ key, label, color }) => [
-            {
-              label: `${label} good`,
-              data: weeklyTrend.map((week) => (key ? week.segments[key].goodFeedback : week.goodFeedback)),
-              backgroundColor: color,
-              stack: key ?? 'total',
-            },
-            {
-              label: `${label} bad`,
-              data: weeklyTrend.map((week) => (key ? week.segments[key].badFeedback : week.badFeedback)),
-              backgroundColor: color,
-              borderColor: '#be2525',
-              borderWidth: 2,
-              stack: key ?? 'total',
-            },
-          ])
-        : [
-            { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
-            { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
-          ],
+      datasets: [
+        { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
+        { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
+      ],
     },
     options: {
       responsive: false,

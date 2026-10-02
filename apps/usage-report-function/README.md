@@ -22,8 +22,9 @@ Segmentation uses the current email recorded in the `slack-users` Cosmos DB cont
 (`COSMOS_USERS_CONTAINER`, default `slack-users`), populated by Fiona's Slack user
 loader. The executive PDF presents the summary, readout, and detailed usage
 comparisons as metric rows with Internal, External, Unknown, and Total columns.
-Its weekly usage, reliability, and feedback charts compare Internal, External,
-and Total (with Unknown plotted when it has activity). Feedback entries include
+Its weekly usage charts compare Internal, External, and Total (with Unknown
+plotted when it has activity); reliability and feedback charts show overall
+trends only for a concise legend. Feedback entries include
 each author's current email and segment
 (or **Email unavailable** and **Unknown email** when absent). Overall KPIs
 remain alongside the segmented views. Unlike the Slack summary, the PDF contains

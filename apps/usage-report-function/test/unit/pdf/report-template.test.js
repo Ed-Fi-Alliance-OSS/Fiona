@@ -237,7 +237,7 @@ describe('renderReliabilityPage', () => {
     expect(html).toContain('"data":[0,1]');
   });
 
-  it('splits the weekly reliability and feedback graphics by segment', () => {
+  it('keeps reliability and feedback charts overall even when weekly segments are available', () => {
     const weeks = weeklyTrendWithFeedback.map((week) => ({
       ...week,
       segments: {
@@ -247,14 +247,11 @@ describe('renderReliabilityPage', () => {
       },
     }));
     const html = renderReliabilityPage(weeks, reliabilityTakeaways);
-    expect(html).toContain('Weekly Error Rate by Segment');
-    expect(html).toContain('Internal (@ed-fi.org) good');
-    expect(html).toContain('External bad');
-    expect(html).toContain('Unknown email bad');
-    expect(html).toContain('"data":[1,1]');
-    expect(html).toContain('"label":"Total","data":[0,1.1]');
-    expect(html).toContain('"label":"Total good"');
-    expect(html).toContain('"label":"Total bad"');
+    expect(html).toContain('"label":"%","data":[0,1.1]');
+    expect(html).toContain('"label":"Good","data":[2,0]');
+    expect(html).toContain('"label":"Bad","data":[0,1]');
+    expect(html).not.toContain('"label":"Internal (@ed-fi.org) good"');
+    expect(html).not.toContain('"label":"External bad"');
   });
 
   it('renders every takeaway row', () => {
@@ -517,7 +514,8 @@ describe('renderExecutiveReportHtml', () => {
     expect(html).toContain('Segment comparison');
     expect(html).toContain('segment-users-chart');
     expect(html).toContain('segment-interactions-chart');
-    expect(html).toContain('Weekly Error Rate by Segment');
+    expect(html).toContain('Weekly Error Rate');
+    expect(html).not.toContain('Weekly Error Rate by Segment');
     expect(html).toContain('Feedback by User');
     expect(html).toContain('first@ed-fi.org');
     expect(html).toContain('someone@outside.org');
