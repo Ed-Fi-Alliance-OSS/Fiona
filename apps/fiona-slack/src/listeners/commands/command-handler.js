@@ -47,7 +47,7 @@ ${commands.join('\n')}
 *Question privacy:*
 • *Slash command* — your question and answer are private
 • *DM or agent panel* — your question and answer are private
-• *@-mention* — your question is visible to the channel; Fiona's answer is private
+• *@-mention* — your question is visible to the channel. With \`@fiona ask\` or \`@fiona search\`, Fiona's answer is private; any other @-mention gets a reply the whole channel can see
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 }
