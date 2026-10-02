@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it, jest } from '@jest/globals';
-import { getUserSegmentKpis } from '../../lib/user-segments.js';
+import { getUserDirectory, getUserSegmentKpis } from '../../lib/user-segments.js';
 
 function container(resources) {
   return { items: { query: jest.fn(() => ({ fetchAll: async () => ({ resources }) })) } };
@@ -49,6 +49,7 @@ describe('getUserSegmentKpis', () => {
       avgInteractionsPerUser: 2,
       feedbackResponseRate: 50,
     });
+
     expect(result.external).toMatchObject({
       uniqueUsers: 1,
       sessions: 1,
@@ -61,6 +62,7 @@ describe('getUserSegmentKpis', () => {
       errorRate: 50,
       feedbackResponseRate: 100,
     });
+
     expect(result.unknown).toMatchObject({
       uniqueUsers: 1,
       totalInteractions: 2,
@@ -87,5 +89,21 @@ describe('getUserSegmentKpis', () => {
     expect(result.unknown).toMatchObject({ uniqueUsers: 0, badFeedback: 1, feedbackResponseRate: 0 });
     expect(result.internal.uniqueUsers).toBe(0);
     expect(result.external.uniqueUsers).toBe(0);
+  });
+});
+
+describe('getUserDirectory', () => {
+  it('returns trimmed emails and classifies users by exact, case-insensitive domain', async () => {
+    const users = container([
+      { id: 'a', email: '  Person@ED-FI.ORG  ' },
+      { id: 'b', email: 'member@sub.ed-fi.org' },
+      { id: 'c', email: '' },
+    ]);
+    const directory = await getUserDirectory(users, ['a', 'b', 'c', 'missing', 'a']);
+    expect(directory.get('a')).toEqual({ email: 'Person@ED-FI.ORG', segment: 'internal' });
+    expect(directory.get('b').segment).toBe('external');
+    expect(directory.get('c')).toEqual({ email: null, segment: 'unknown' });
+    expect(directory.has('missing')).toBe(false);
+    expect(users.items.query.mock.calls[0][0].parameters[0].value).toEqual(['a', 'b', 'c', 'missing']);
   });
 });

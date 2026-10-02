@@ -14,7 +14,7 @@ import { formatWeekLabel } from './format.js';
  * genuinely analytical observations a human/agent might notice.
  */
 
-export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO) {
+export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO, userSegments) {
   const periodStartDate = periodStartISO ? periodStartISO.split('T')[0] : 'the report start date';
 
   const engagement = `During the report period, ${kpiSummary.uniqueUsers} unique users generated ${kpiSummary.totalSessions} sessions and ${kpiSummary.totalInteractions} interactions.`;
@@ -29,7 +29,14 @@ export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO) {
 
   const feedback = `Feedback included ${kpiSummary.feedbackTotal} ratings (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad), with ${kpiSummary.positiveFeedbackPct.toFixed(1)}% positive.`;
 
-  return [engagement, newUserCallout, reliability, feedback];
+  const bullets = [engagement, newUserCallout, reliability, feedback];
+  if (userSegments) {
+    const { internal, external, unknown } = userSegments;
+    bullets.push(
+      `Internal (@ed-fi.org): ${internal.uniqueUsers} users and ${internal.totalInteractions} interactions; external: ${external.uniqueUsers} users and ${external.totalInteractions} interactions; unknown email: ${unknown.uniqueUsers} users and ${unknown.totalInteractions} interactions.`,
+    );
+  }
+  return bullets;
 }
 
 export function buildUsageObservations(weeklyTrend) {

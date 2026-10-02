@@ -14,11 +14,22 @@ Every week it computes these KPIs from the `interactions` and `feedback` Cosmos 
   sessions, interactions, errors, rate limits, feedback and engagement. Users with
   missing/invalid directory emails appear under **Unknown email** rather than external.
 
+The Slack summary presents metrics as rows and Internal, External, and Total as
+columns. If any activity cannot be classified, an Unknown column appears before
+Total; Total always includes that activity.
+
 Segmentation uses the current email recorded in the `slack-users` Cosmos DB container
 (`COSMOS_USERS_CONTAINER`, default `slack-users`), populated by Fiona's Slack user
-loader. The executive PDF includes a separate comparison page for the report period;
-historical trend charts and overall KPIs remain unsegmented. If the user directory is
-unavailable, report generation fails rather than publishing misleading segment counts.
+loader. The executive PDF presents the summary, readout, and detailed usage
+comparisons as metric rows with Internal, External, Unknown, and Total columns.
+Its weekly usage, reliability, and feedback charts compare Internal, External,
+and Total (with Unknown plotted when it has activity). Feedback entries include
+each author's current email and segment
+(or **Email unavailable** and **Unknown email** when absent). Overall KPIs
+remain alongside the segmented views. Unlike the Slack summary, the PDF contains
+email addresses: treat its shareable link as sensitive and distribute it only to
+authorized recipients. If the user directory is unavailable, report generation
+fails rather than publishing misleading segment counts.
 
 When a matching executive PDF report is available (generated separately by
 the `generate-usage-report-pdf` GitHub Actions workflow — see

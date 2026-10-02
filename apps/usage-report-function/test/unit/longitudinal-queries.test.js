@@ -175,4 +175,46 @@ describe('getWeeklyTrendSeries', () => {
     expect(weeks).toEqual([]);
     expect(mockInteractionsContainer.items.query).toHaveBeenCalledTimes(1);
   });
+
+  it('buckets internal, external and unknown activity for each trend week', async () => {
+    const interactions = makeQueryable([
+      [
+        ...weekAInteractions,
+        ...weekBInteractions,
+        { userId: 'u5', threadTs: 't6', status: 'success', rateLimited: false, timestamp: '2026-04-21T10:00:00.000Z' },
+      ],
+      ['u4'],
+    ]);
+    const feedback = makeQueryable([
+      [
+        { userId: 'u1', feedbackValue: 'good-feedback', timestamp: '2026-04-13T12:00:00.000Z' },
+        { userId: 'u3', feedbackValue: 'bad-feedback', timestamp: '2026-04-22T12:00:00.000Z' },
+      ],
+    ]);
+    const users = makeQueryable([
+      [
+        { id: 'u1', email: 'One@ED-FI.ORG' },
+        { id: 'u2', email: 'two@external.org' },
+        { id: 'u3', email: 'three@external.org' },
+        { id: 'u4', email: 'four@external.org' },
+      ],
+    ]);
+    const weeks = await getWeeklyTrendSeries(interactions, feedback, deploymentType, startISO, endISO, users);
+    expect(weeks[0].segments.internal).toMatchObject({
+      uniqueUsers: 1,
+      totalInteractions: 2,
+      newUsers: 1,
+      sessions: 1,
+      goodFeedback: 1,
+    });
+    expect(weeks[0].segments.external).toMatchObject({ uniqueUsers: 0, totalInteractions: 1, errors: 1 });
+    expect(weeks[1].segments.internal).toMatchObject({ uniqueUsers: 1, newUsers: 0 });
+    expect(weeks[1].segments.external).toMatchObject({
+      uniqueUsers: 2,
+      newUsers: 1,
+      badFeedback: 1,
+    });
+    expect(weeks[1].segments.unknown).toMatchObject({ uniqueUsers: 1, newUsers: 1, totalInteractions: 1 });
+    expect(weeks[1].uniqueUsers).toBe(4);
+  });
 });

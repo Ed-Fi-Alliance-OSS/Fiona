@@ -3,9 +3,30 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-function segmentForEmail(email) {
+export function segmentForEmail(email) {
   if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'unknown';
   return email.trim().split('@')[1].toLowerCase() === 'ed-fi.org' ? 'internal' : 'external';
+}
+
+export async function getUserDirectory(usersContainer, userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const { resources: users } = await usersContainer.items
+    .query({
+      query: 'SELECT u.id, u.email FROM u WHERE ARRAY_CONTAINS(@userIds, u.id)',
+      parameters: [{ name: '@userIds', value: ids }],
+    })
+    .fetchAll();
+  return new Map(
+    users.map((user) => [
+      user.id,
+      {
+        segment: segmentForEmail(user.email),
+        email: typeof user.email === 'string' ? user.email.trim() || null : null,
+      },
+    ]),
+  );
 }
 
 function emptySegment() {
@@ -71,15 +92,8 @@ export async function getUserSegmentKpis(
       interactions.filter((row) => row.status === 'success' && row.rateLimited === false).map((row) => row.userId),
     ),
   ];
-  const [{ resources: users }, { resources: priorUsers }] = await Promise.all([
-    userIds.length
-      ? usersContainer.items
-          .query({
-            query: 'SELECT u.id, u.email FROM u WHERE ARRAY_CONTAINS(@userIds, u.id)',
-            parameters: [{ name: '@userIds', value: userIds }],
-          })
-          .fetchAll()
-      : { resources: [] },
+  const [directory, { resources: priorUsers }] = await Promise.all([
+    getUserDirectory(usersContainer, userIds),
     successIds.length
       ? interactionsContainer.items
           .query({
@@ -93,7 +107,6 @@ export async function getUserSegmentKpis(
       : { resources: [] },
   ]);
 
-  const segmentById = new Map(users.map((user) => [user.id, segmentForEmail(user.email)]));
   const priorIds = new Set(priorUsers);
   const result = { internal: emptySegment(), external: emptySegment(), unknown: emptySegment() };
   const successfulUsers = { internal: new Set(), external: new Set(), unknown: new Set() };
@@ -101,7 +114,7 @@ export async function getUserSegmentKpis(
   const successCounts = { internal: 0, external: 0, unknown: 0 };
 
   for (const row of interactions) {
-    const segment = segmentById.get(row.userId) ?? 'unknown';
+    const segment = directory.get(row.userId)?.segment ?? 'unknown';
     const kpi = result[segment];
     kpi.totalInteractions++;
     if (row.status === 'error') kpi.errors++;
@@ -113,7 +126,7 @@ export async function getUserSegmentKpis(
     }
   }
   for (const row of feedback) {
-    const kpi = result[segmentById.get(row.userId) ?? 'unknown'];
+    const kpi = result[directory.get(row.userId)?.segment ?? 'unknown'];
     if (row.feedbackValue === 'good-feedback') kpi.goodFeedback++;
     if (row.feedbackValue === 'bad-feedback') kpi.badFeedback++;
   }

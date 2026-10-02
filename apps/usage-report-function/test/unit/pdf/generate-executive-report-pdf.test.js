@@ -39,6 +39,7 @@ describe('generateExecutiveReportPdf', () => {
         badFeedback: 7,
         feedbackTotal: 40,
         positiveFeedbackPct: 82.5,
+        feedbackResponseRate: 13.5,
         newUsers: 6,
         returningUsers: 24,
         newUserPct: 20,
@@ -163,6 +164,23 @@ describe('generateExecutiveReportPdf', () => {
         },
       ],
     };
+
+    reportData.trendWeekly = reportData.trendWeekly.map((week) => ({
+      ...week,
+      segments: Object.fromEntries(
+        ['internal', 'external', 'unknown'].map((key) => [
+          key,
+          {
+            uniqueUsers: 1,
+            totalInteractions: 2,
+            newUsers: 0,
+            errorRate: 0,
+            goodFeedback: 0,
+            badFeedback: 0,
+          },
+        ]),
+      ),
+    }));
 
     const result = await generateExecutiveReportPdf(reportData, tmpFile);
 

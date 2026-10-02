@@ -154,6 +154,9 @@ design, including this pipeline.
   without a link (with a warning logged) rather than blocking.
 - Trigger a run manually via the Actions tab (`workflow_dispatch`) to
   regenerate the PDF/link outside the schedule.
+- The PDF now includes individual feedback authors' email addresses. The SAS
+  URL in `latest-link.json` grants access to this personal data until it
+  expires; share the Slack message and URL only with authorized recipients.
 
 ## Testing
 

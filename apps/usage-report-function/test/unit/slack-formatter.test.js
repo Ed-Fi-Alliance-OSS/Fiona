@@ -50,11 +50,39 @@ describe('formatWeeklyReport', () => {
       ...baseKpis,
       userSegments: { internal: segment, external: segment, unknown: segment },
     });
-    expect(message).toContain('Internal (@ed-fi.org): 1 users');
-    expect(message).toContain('External: 1 users');
-    expect(message).toContain('Unknown email: 1 users');
-    expect(message).toContain('1 errors (25.0%)');
-    expect(message).toContain('response rate 33.3%');
+    expect(message).toMatch(/Metric\s+Internal\s+External\s+Unknown\s+Total/);
+    expect(message).toMatch(/Unique users\s+1\s+1\s+1\s+42/);
+    expect(message).toMatch(/Interactions\s+4\s+4\s+4\s+347/);
+    expect(message).toMatch(/Error rate\s+25\.0%\s+25\.0%\s+25\.0%\s+2\.3%/);
+    expect(message).toMatch(/Feedback response\s+33\.3%\s+33\.3%\s+33\.3%\s+9\.8%/);
+    expect(message).not.toContain('Internal (@ed-fi.org):');
+  });
+
+  it('uses just Internal, External and Total columns when no activity is unclassified', () => {
+    const empty = {
+      uniqueUsers: 0,
+      newUsers: 0,
+      newUserPct: 0,
+      returningUsers: 0,
+      repeatRate: 0,
+      sessions: 0,
+      totalInteractions: 0,
+      errors: 0,
+      errorRate: 0,
+      rateLimited: 0,
+      goodFeedback: 0,
+      badFeedback: 0,
+      feedbackRatio: 0,
+      avgInteractionsPerUser: 0,
+      feedbackResponseRate: 0,
+    };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      userSegments: { internal: empty, external: empty, unknown: empty },
+    });
+    expect(message).toMatch(/Metric\s+Internal\s+External\s+Total/);
+    expect(message).not.toMatch(/Metric\s+Internal\s+External\s+Unknown/);
+    expect(message).toMatch(/New users\s+0\s+0\s+15/);
   });
 
   it('formats the week label correctly', () => {

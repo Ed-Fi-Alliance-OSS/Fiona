@@ -5,6 +5,12 @@
 
 import { formatCompactTimestamp, formatWeekLabel } from './format.js';
 
+const SEGMENTS = [
+  { key: 'internal', label: 'Internal (@ed-fi.org)', color: '#1a5490' },
+  { key: 'external', label: 'External', color: '#2e8b57' },
+  { key: 'unknown', label: 'Unknown email', color: '#a0522d' },
+];
+
 function escapeHtml(value) {
   return String(value).replace(
     /[&<>"']/g,
@@ -21,7 +27,35 @@ function kpiCard(value, label, subtitle) {
     </div>`;
 }
 
-export function renderCoverPage(kpiSummary, readoutBullets, period) {
+function totalAsSegment(kpi) {
+  return {
+    uniqueUsers: kpi.uniqueUsers,
+    newUsers: kpi.newUsers,
+    newUserPct: kpi.newUserPct,
+    returningUsers: kpi.returningUsers,
+    repeatRate: kpi.uniqueUsers ? (kpi.returningUsers / kpi.uniqueUsers) * 100 : 0,
+    sessions: kpi.totalSessions,
+    totalInteractions: kpi.totalInteractions,
+    errors: kpi.errorCount,
+    errorRate: kpi.errorRate,
+    rateLimited: kpi.rateLimitedEvents,
+    goodFeedback: kpi.goodFeedback,
+    badFeedback: kpi.badFeedback,
+    feedbackRatio: kpi.positiveFeedbackPct,
+    avgInteractionsPerUser: kpi.avgInteractionsPerUser,
+    feedbackResponseRate: kpi.feedbackResponseRate,
+  };
+}
+
+function segmentMatrix(segments, total, metrics) {
+  const columns = [segments.internal, segments.external, segments.unknown, totalAsSegment(total)];
+  return dataTable(['Metric', 'Internal (@ed-fi.org)', 'External', 'Unknown', 'Total'], metrics, [
+    (row) => row[0],
+    ...columns.map((segment) => (row) => row[1](segment)),
+  ]);
+}
+
+export function renderCoverPage(kpiSummary, readoutBullets, period, userSegments) {
   const startDate = period.startISO.split('T')[0];
   const endDate = period.endISO.split('T')[0];
 
@@ -37,32 +71,59 @@ export function renderCoverPage(kpiSummary, readoutBullets, period) {
 
     <h2>Executive Summary</h2>
     <p>
-      This summary covers the report period shown above. KPI cards below focus on unique users, sessions,
-      interactions, new-user acquisition, reliability, and feedback quality for that exact period.
+      This summary covers the report period shown above. ${
+        userSegments
+          ? 'Counts are compared by current user email domain; Total includes Unknown.'
+          : 'KPI cards focus on users, sessions, interactions, reliability, and feedback.'
+      }
     </p>
 
-    <div class="kpi-grid">
+    ${
+      userSegments
+        ? ''
+        : `<div class="kpi-grid">
       ${kpiCard(kpiSummary.uniqueUsers.toLocaleString(), 'Unique Users', 'Distinct successful users in period')}
       ${kpiCard(kpiSummary.totalSessions.toLocaleString(), 'Total Sessions', 'Distinct successful sessions in period')}
       ${kpiCard(kpiSummary.totalInteractions.toLocaleString(), 'Total Interactions', 'All captured user-bot interactions')}
       ${kpiCard(kpiSummary.newUsers.toLocaleString(), 'New Users', 'No successful interactions before this period')}
       ${kpiCard(`${kpiSummary.errorCount.toLocaleString()} (${kpiSummary.errorRate.toFixed(1)}%)`, 'Errors', 'Count and rate across all interactions')}
       ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${kpiSummary.positiveFeedbackPct.toFixed(1)}%)`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
-    </div>
+    </div>`
+    }
 
+    ${
+      userSegments
+        ? `
+    <h3>Segment comparison</h3>
+    ${segmentMatrix(userSegments, kpiSummary, [
+      ['Unique users', (s) => s.uniqueUsers],
+      ['New users', (s) => s.newUsers],
+      ['Returning users', (s) => s.returningUsers],
+      ['Sessions', (s) => s.sessions],
+      ['Interactions', (s) => s.totalInteractions],
+      ['Errors', (s) => s.errors],
+      ['Good feedback', (s) => s.goodFeedback],
+      ['Bad feedback', (s) => s.badFeedback],
+    ])}
     <h2>Readout</h2>
+    <p>Rates and engagement use each segment's own denominator; Total uses the full report-period population.</p>
+    ${segmentMatrix(userSegments, kpiSummary, [
+      ['New user %', (s) => `${s.newUserPct.toFixed(1)}%`],
+      ['Repeat rate', (s) => `${s.repeatRate.toFixed(1)}%`],
+      ['Avg interactions/user', (s) => s.avgInteractionsPerUser.toFixed(1)],
+      ['Error rate', (s) => `${s.errorRate.toFixed(1)}%`],
+      ['Positive feedback', (s) => `${s.feedbackRatio.toFixed(1)}%`],
+      ['Feedback response', (s) => `${s.feedbackResponseRate.toFixed(1)}%`],
+    ])}`
+        : `<h2>Readout</h2>
     <ul class="readout">
       ${readoutBullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
-    </ul>
+    </ul>`
+    }
   </section>`;
 }
 
-export function renderUserSegmentsPage(segments) {
-  const rows = [
-    ['Internal (@ed-fi.org)', segments.internal],
-    ['External', segments.external],
-    ['Unknown email', segments.unknown],
-  ];
+export function renderUserSegmentsPage(segments, kpiSummary) {
   return `
   <section class="page">
     <h2>Internal vs External Usage</h2>
@@ -70,23 +131,25 @@ export function renderUserSegmentsPage(segments) {
     reported separately as Unknown; historical activity is classified using the current directory snapshot.
     Each rate and average uses only its own segment as the denominator.</p>
     <h3>Adoption and Engagement</h3>
-    ${dataTable(['Segment', 'Users', 'New (%)', 'Returning (%)', 'Sessions', 'Interactions', 'Avg/User'], rows, [
-      (r) => r[0],
-      (r) => r[1].uniqueUsers,
-      (r) => `${r[1].newUsers} (${r[1].newUserPct.toFixed(1)}%)`,
-      (r) => `${r[1].returningUsers} (${r[1].repeatRate.toFixed(1)}%)`,
-      (r) => r[1].sessions,
-      (r) => r[1].totalInteractions,
-      (r) => r[1].avgInteractionsPerUser.toFixed(1),
+    ${segmentMatrix(segments, kpiSummary, [
+      ['Unique users', (s) => s.uniqueUsers],
+      ['New users', (s) => s.newUsers],
+      ['New user %', (s) => `${s.newUserPct.toFixed(1)}%`],
+      ['Returning users', (s) => s.returningUsers],
+      ['Repeat rate', (s) => `${s.repeatRate.toFixed(1)}%`],
+      ['Sessions', (s) => s.sessions],
+      ['Interactions', (s) => s.totalInteractions],
+      ['Avg interactions/user', (s) => s.avgInteractionsPerUser.toFixed(1)],
     ])}
     <h3>Reliability and Feedback</h3>
-    ${dataTable(['Segment', 'Errors (Rate)', 'Rate Limited', 'Good / Bad', 'Positive %', 'Feedback Response %'], rows, [
-      (r) => r[0],
-      (r) => `${r[1].errors} (${r[1].errorRate.toFixed(1)}%)`,
-      (r) => r[1].rateLimited,
-      (r) => `${r[1].goodFeedback} / ${r[1].badFeedback}`,
-      (r) => r[1].feedbackRatio.toFixed(1),
-      (r) => r[1].feedbackResponseRate.toFixed(1),
+    ${segmentMatrix(segments, kpiSummary, [
+      ['Errors', (s) => s.errors],
+      ['Error rate', (s) => `${s.errorRate.toFixed(1)}%`],
+      ['Rate-limited', (s) => s.rateLimited],
+      ['Good feedback', (s) => s.goodFeedback],
+      ['Bad feedback', (s) => s.badFeedback],
+      ['Positive feedback', (s) => `${s.feedbackRatio.toFixed(1)}%`],
+      ['Feedback response', (s) => `${s.feedbackResponseRate.toFixed(1)}%`],
     ])}
   </section>`;
 }
@@ -211,7 +274,80 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
       window.__chartConfigs['usage-trends-chart'] = ${JSON.stringify(chartConfig)};
     </script>
     ${observationTable('Metric', 'Observation', usageObservations, 'metric', 'observation')}
+  </section>
+  <section class="page">
+    <h2>Weekly Trend Detail</h2>
     ${trendTable}
+  </section>`;
+}
+
+export function renderSegmentTrendsPage(weeklyTrend) {
+  const labels = weeklyTrend.map((week) => formatWeekLabel(week.weekStart, week.weekEnd));
+  const hasUnknown = weeklyTrend.some(
+    (week) => week.segments.unknown.uniqueUsers > 0 || week.segments.unknown.totalInteractions > 0,
+  );
+  const chartSeries = [
+    SEGMENTS[0],
+    SEGMENTS[1],
+    ...(hasUnknown ? [SEGMENTS[2]] : []),
+    { key: null, label: 'Total', color: '#6a329f' },
+  ];
+  const chart = (metric, title) => ({
+    type: 'line',
+    data: {
+      labels,
+      datasets: chartSeries.map(({ key, label, color }) => ({
+        label,
+        data: weeklyTrend.map((week) => (key ? week.segments[key][metric] : week[metric])),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: key ? 2 : 3,
+        tension: 0.2,
+      })),
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: title } },
+      scales: {
+        x: { ticks: { autoSkip: true, maxTicksLimit: 12, maxRotation: 45, minRotation: 45 } },
+        y: { beginAtZero: true },
+      },
+    },
+  });
+  const columns = [
+    ['Week', (week) => formatWeekLabel(week.weekStart, week.weekEnd)],
+    ['Internal users', (week) => week.segments.internal.uniqueUsers],
+    ['External users', (week) => week.segments.external.uniqueUsers],
+    ...(hasUnknown ? [['Unknown users', (week) => week.segments.unknown.uniqueUsers]] : []),
+    ['Total users', (week) => week.uniqueUsers],
+    ['Internal interactions', (week) => week.segments.internal.totalInteractions],
+    ['External interactions', (week) => week.segments.external.totalInteractions],
+    ...(hasUnknown ? [['Unknown interactions', (week) => week.segments.unknown.totalInteractions]] : []),
+    ['Total interactions', (week) => week.totalInteractions],
+  ];
+  return `
+  <section class="page">
+    <h2>Internal vs External Weekly Trends</h2>
+    <p>Monday-Sunday buckets compare Internal (@ed-fi.org), External, and Total users and interactions.
+    Unknown users are shown separately when present and are included in Total. Classification reflects current emails.</p>
+    <canvas id="segment-users-chart" width="900" height="290"></canvas>
+    <script>
+      window.__chartConfigs = window.__chartConfigs || {};
+      window.__chartConfigs['segment-users-chart'] = ${JSON.stringify(chart('uniqueUsers', 'Weekly Unique Users by Segment'))};
+    </script>
+    <canvas id="segment-interactions-chart" width="900" height="290"></canvas>
+    <script>
+      window.__chartConfigs['segment-interactions-chart'] = ${JSON.stringify(chart('totalInteractions', 'Weekly Interactions by Segment'))};
+    </script>
+  </section>
+  <section class="page">
+    <h2>Segment Trend Detail</h2>
+    ${dataTable(
+      columns.map(([label]) => label),
+      weeklyTrend,
+      columns.map(([, render]) => render),
+    )}
   </section>`;
 }
 
@@ -220,6 +356,21 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
   const errorRates = weeklyTrend.map((w) => w.errorRate);
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
+  const hasSegments = weeklyTrend.length > 0 && weeklyTrend.every((week) => week.segments);
+  const hasUnknown =
+    hasSegments &&
+    weeklyTrend.some(
+      (week) =>
+        week.segments.unknown.totalInteractions > 0 ||
+        week.segments.unknown.goodFeedback > 0 ||
+        week.segments.unknown.badFeedback > 0,
+    );
+  const series = [
+    SEGMENTS[0],
+    SEGMENTS[1],
+    ...(hasUnknown ? [SEGMENTS[2]] : []),
+    { key: null, label: 'Total', color: '#6a329f' },
+  ];
 
   const reportPeriodLabel = period
     ? `${period.startISO.split('T')[0]} to ${period.endISO.split('T')[0]}`
@@ -229,12 +380,23 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     : 'the rolling weekly trend window (Mon-Sun buckets)';
 
   const errorRateConfig = {
-    type: 'bar',
-    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }] },
+    type: hasSegments ? 'line' : 'bar',
+    data: {
+      labels,
+      datasets: hasSegments
+        ? series.map(({ key, label, color }) => ({
+            label,
+            data: weeklyTrend.map((week) => (key ? week.segments[key].errorRate : week.errorRate)),
+            borderColor: color,
+            backgroundColor: color,
+            borderWidth: key ? 2 : 3,
+          }))
+        : [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }],
+    },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate' } },
+      plugins: { legend: { display: hasSegments }, title: { display: true, text: 'Weekly Error Rate by Segment' } },
       scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } } },
     },
   };
@@ -243,10 +405,27 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     type: 'bar',
     data: {
       labels,
-      datasets: [
-        { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
-        { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
-      ],
+      datasets: hasSegments
+        ? series.flatMap(({ key, label, color }) => [
+            {
+              label: `${label} good`,
+              data: weeklyTrend.map((week) => (key ? week.segments[key].goodFeedback : week.goodFeedback)),
+              backgroundColor: color,
+              stack: key ?? 'total',
+            },
+            {
+              label: `${label} bad`,
+              data: weeklyTrend.map((week) => (key ? week.segments[key].badFeedback : week.badFeedback)),
+              backgroundColor: color,
+              borderColor: '#be2525',
+              borderWidth: 2,
+              stack: key ?? 'total',
+            },
+          ])
+        : [
+            { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
+            { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
+          ],
     },
     options: {
       responsive: false,
@@ -284,7 +463,7 @@ function truncateForCard(text, limit = 200) {
   return str.length > limit ? `${str.slice(0, limit - 1)}…` : str;
 }
 
-export function renderFeedbackPage(representativeFeedback) {
+export function renderFeedbackPage(representativeFeedback, feedbackDetails = []) {
   const feedbackWithConversation = representativeFeedback.filter((f) => {
     const hasQuestion = String(f.userMessage ?? '').trim().length > 0;
     const hasAnswer = String(f.botResponse ?? '').trim().length > 0;
@@ -296,12 +475,13 @@ export function renderFeedbackPage(representativeFeedback) {
       ? '<p class="empty">No feedback recorded for this period.</p>'
       : feedbackWithConversation
           .map((f) => {
-            const sentiment = f.value === 'good-feedback' ? 'good' : 'bad';
-            const sentimentLabel = f.value === 'good-feedback' ? 'Good' : 'Bad';
+            const sentiment = f.value === 'good-feedback' ? 'good' : f.value === 'bad-feedback' ? 'bad' : '';
+            const sentimentLabel = f.value === 'good-feedback' ? 'Good' : f.value === 'bad-feedback' ? 'Bad' : 'Other';
             const date = f.timestamp.split('T')[0];
             return `
     <div class="feedback-card ${sentiment}">
       <div class="feedback-card-header">${escapeHtml(sentimentLabel)} feedback - ${escapeHtml(date)}</div>
+      <p class="feedback-author">${escapeHtml(SEGMENTS.find((s) => s.key === f.segment)?.label ?? 'Unknown email')} · ${escapeHtml(f.email || 'Email unavailable')}</p>
       <p class="feedback-q">Q: ${escapeHtml(truncateForCard(f.userMessage, 150))}</p>
       <p class="feedback-a">A: ${escapeHtml(truncateForCard(f.botResponse, 220))}</p>
     </div>`;
@@ -316,6 +496,18 @@ export function renderFeedbackPage(representativeFeedback) {
       representative feedback as reviewable cards and keeps raw detail out of the main flow.
     </p>
     ${body}
+    ${
+      feedbackDetails.length
+        ? `
+    <h3>Feedback by User (latest ${feedbackDetails.length})</h3>
+    ${dataTable(['Date', 'Rating', 'Segment', 'Email'], feedbackDetails, [
+      (f) => formatCompactTimestamp(f.timestamp),
+      (f) => (f.value === 'good-feedback' ? 'Good' : f.value === 'bad-feedback' ? 'Bad' : 'Other'),
+      (f) => SEGMENTS.find((s) => s.key === f.segment)?.label ?? 'Unknown email',
+      (f) => f.email || 'Email unavailable',
+    ])}`
+        : ''
+    }
   </section>`;
 }
 
@@ -340,20 +532,27 @@ export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions) {
   const feedbackRows = topUsersByFeedback.slice(0, 5);
   const interactionRows = topUsersByInteractions.slice(0, 6);
 
-  const feedbackTable = dataTable(['User', 'Feedback', 'Good', 'Bad', 'Last Feedback', 'Positive %'], feedbackRows, [
-    (r) => r.userId,
-    (r) => r.feedbackCount,
-    (r) => r.goodFeedback,
-    (r) => r.badFeedback,
-    (r) => formatCompactTimestamp(r.lastFeedback),
-    (r) => r.positiveRatioPct.toFixed(1),
-  ]);
+  const feedbackTable = dataTable(
+    ['User', 'Segment', 'Email', 'Feedback', 'Good', 'Bad', 'Last Feedback', 'Positive %'],
+    feedbackRows,
+    [
+      (r) => r.userId,
+      (r) => SEGMENTS.find((s) => s.key === r.segment)?.label ?? 'Unknown email',
+      (r) => r.email || 'Email unavailable',
+      (r) => r.feedbackCount,
+      (r) => r.goodFeedback,
+      (r) => r.badFeedback,
+      (r) => formatCompactTimestamp(r.lastFeedback),
+      (r) => r.positiveRatioPct.toFixed(1),
+    ],
+  );
 
   const interactionsTable = dataTable(
-    ['User', 'Interactions', 'Sessions', 'Errors', 'Error Rate', 'Avg / Session', 'Last Seen'],
+    ['User', 'Segment', 'Interactions', 'Sessions', 'Errors', 'Error Rate', 'Avg / Session', 'Last Seen'],
     interactionRows,
     [
       (r) => r.userId,
+      (r) => SEGMENTS.find((s) => s.key === r.segment)?.label ?? 'Unknown email',
       (r) => r.interactions,
       (r) => r.sessions,
       (r) => r.errors,
@@ -520,13 +719,15 @@ const PAGE_STYLES = `
   .readout li { font-size: 13px; margin-bottom: 8px; }
   .data-table, .observation-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
   .data-table th, .observation-table th { background: #366092; color: #fff; padding: 6px 8px; text-align: left; }
-  .data-table td, .observation-table td { padding: 6px 8px; border-bottom: 1px solid #e8ecef; }
+  .data-table td, .observation-table td { padding: 6px 8px; border-bottom: 1px solid #e8ecef; overflow-wrap: anywhere; }
   .data-table tr:nth-child(even) td, .observation-table tr:nth-child(even) td { background: #f9fbfd; }
   .feedback-card { border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; border: 1px solid #d0d7de; }
   .feedback-card.good { background: #f0f7f2; }
   .feedback-card.bad { background: #fdf2f0; }
   .feedback-card-header { font-weight: bold; text-align: center; margin-bottom: 6px; }
   .feedback-q, .feedback-a { font-size: 12px; margin: 4px 0; }
+  .feedback-author { font-size: 11px; color: #444; text-align: center; overflow-wrap: anywhere; }
+  canvas { max-width: 100%; height: auto; }
   .empty { font-style: italic; color: #666; }
 `;
 
@@ -556,18 +757,23 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
     trendWeekly = weeklyTrend,
     dailySummary,
     representativeFeedback,
+    feedbackDetails = [],
     topUsersByFeedback,
     topUsersByInteractions,
     period,
   } = reportData;
   const { readoutBullets, usageObservations, reliabilityTakeaways } = narrative;
 
+  if (reportData.userSegments && trendWeekly.some((week) => !week.segments)) {
+    throw new Error('Executive report segment trend data is missing');
+  }
   const pages = [
-    renderCoverPage(kpiSummary, readoutBullets, period),
-    ...(reportData.userSegments ? [renderUserSegmentsPage(reportData.userSegments)] : []),
+    renderCoverPage(kpiSummary, readoutBullets, period, reportData.userSegments),
+    ...(reportData.userSegments ? [renderUserSegmentsPage(reportData.userSegments, kpiSummary)] : []),
     renderUsageTrendsPage(trendWeekly, usageObservations),
+    ...(reportData.userSegments ? [renderSegmentTrendsPage(trendWeekly)] : []),
     renderReliabilityPage(trendWeekly, reliabilityTakeaways, { period, trendWindow: reportData.trendWindow }),
-    renderFeedbackPage(representativeFeedback),
+    renderFeedbackPage(representativeFeedback, feedbackDetails),
     renderTopUsersPage(topUsersByFeedback, topUsersByInteractions),
     renderAppendixPage(weeklyTrend, dailySummary),
   ].join('\n');
