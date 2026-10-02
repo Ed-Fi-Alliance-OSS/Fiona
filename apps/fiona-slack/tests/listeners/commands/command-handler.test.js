@@ -610,7 +610,16 @@ describe('buildHelpText — ticket line is flag-gated', () => {
 
     expect(text).toMatch(/slash command.*question and answer are private/i);
     expect(text).toMatch(/DM.*question and answer are private/i);
-    expect(text).toMatch(/@-mention.*question is visible to the channel.*answer is private/i);
+    expect(text).toMatch(/@-mention.*question is visible to the channel/i);
+  });
+
+  it('limits the private @-mention answer to ask and search', () => {
+    const text = buildHelpText();
+
+    // A plain @fiona question is answered in the thread for everyone, so the
+    // help text must not promise privacy for every @-mention answer.
+    expect(text).toMatch(/`@fiona ask`.*`@fiona search`.*answer is private/i);
+    expect(text).toMatch(/any other @-mention.*whole channel can see/i);
   });
 });
 
