@@ -21,6 +21,7 @@ const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feedback';
+const COSMOS_USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
 const OUTPUT_DIR = process.env.REPORT_OUTPUT_DIR || path.join(process.cwd(), 'reports');
 
@@ -43,11 +44,13 @@ async function main() {
   const database = cosmosClient.database(COSMOS_DATABASE);
   const interactionsContainer = database.container(COSMOS_INTERACTIONS_CONTAINER);
   const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
+  const usersContainer = database.container(COSMOS_USERS_CONTAINER);
 
   console.log(`Building executive report data for ${DEPLOYMENT_TYPE} ${startDate} to ${endDate}...`);
   const reportData = await buildExecutiveReportData({
     interactionsContainer,
     feedbackContainer,
+    usersContainer,
     deploymentType: DEPLOYMENT_TYPE,
     startISO: oneWeekAgo.toISOString(),
     endISO: endOfReport.toISOString(),

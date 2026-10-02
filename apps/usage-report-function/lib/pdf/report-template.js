@@ -57,6 +57,40 @@ export function renderCoverPage(kpiSummary, readoutBullets, period) {
   </section>`;
 }
 
+export function renderUserSegmentsPage(segments) {
+  const rows = [
+    ['Internal (@ed-fi.org)', segments.internal],
+    ['External', segments.external],
+    ['Unknown email', segments.unknown],
+  ];
+  return `
+  <section class="page">
+    <h2>Internal vs External Usage</h2>
+    <p>Users are classified by their current Slack directory email domain. Missing or invalid emails are
+    reported separately as Unknown; historical activity is classified using the current directory snapshot.
+    Each rate and average uses only its own segment as the denominator.</p>
+    <h3>Adoption and Engagement</h3>
+    ${dataTable(['Segment', 'Users', 'New (%)', 'Returning (%)', 'Sessions', 'Interactions', 'Avg/User'], rows, [
+      (r) => r[0],
+      (r) => r[1].uniqueUsers,
+      (r) => `${r[1].newUsers} (${r[1].newUserPct.toFixed(1)}%)`,
+      (r) => `${r[1].returningUsers} (${r[1].repeatRate.toFixed(1)}%)`,
+      (r) => r[1].sessions,
+      (r) => r[1].totalInteractions,
+      (r) => r[1].avgInteractionsPerUser.toFixed(1),
+    ])}
+    <h3>Reliability and Feedback</h3>
+    ${dataTable(['Segment', 'Errors (Rate)', 'Rate Limited', 'Good / Bad', 'Positive %', 'Feedback Response %'], rows, [
+      (r) => r[0],
+      (r) => `${r[1].errors} (${r[1].errorRate.toFixed(1)}%)`,
+      (r) => r[1].rateLimited,
+      (r) => `${r[1].goodFeedback} / ${r[1].badFeedback}`,
+      (r) => r[1].feedbackRatio.toFixed(1),
+      (r) => r[1].feedbackResponseRate.toFixed(1),
+    ])}
+  </section>`;
+}
+
 function observationTable(headerA, headerB, rows, keyA, keyB) {
   if (rows.length === 0) {
     return '<p class="empty">No data available.</p>';
@@ -530,6 +564,7 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
 
   const pages = [
     renderCoverPage(kpiSummary, readoutBullets, period),
+    ...(reportData.userSegments ? [renderUserSegmentsPage(reportData.userSegments)] : []),
     renderUsageTrendsPage(trendWeekly, usageObservations),
     renderReliabilityPage(trendWeekly, reliabilityTakeaways, { period, trendWindow: reportData.trendWindow }),
     renderFeedbackPage(representativeFeedback),

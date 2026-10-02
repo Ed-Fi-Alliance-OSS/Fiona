@@ -22,6 +22,7 @@ import {
 import { getSlackWebhookUrl } from '../lib/key-vault-client.js';
 import { getLatestReportLink } from '../lib/report-link.js';
 import { formatWeeklyReport } from '../lib/slack-formatter.js';
+import { getUserSegmentKpis } from '../lib/user-segments.js';
 
 // Configure axios instance with timeout and retry policy
 const axiosInstance = axios.create({
@@ -60,6 +61,7 @@ const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT;
 const COSMOS_DATABASE = process.env.COSMOS_DATABASE || 'chatbot';
 const COSMOS_INTERACTIONS_CONTAINER = process.env.COSMOS_INTERACTIONS_CONTAINER || 'interactions';
 const COSMOS_FEEDBACK_CONTAINER = process.env.COSMOS_FEEDBACK_CONTAINER || 'feedback';
+const COSMOS_USERS_CONTAINER = process.env.COSMOS_USERS_CONTAINER || 'slack-users';
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
 const SLACK_WEBHOOK_SECRET_NAME = process.env.SLACK_WEBHOOK_KEYVAULT_SECRET_NAME || 'slack-fiona-weekly-report-webhook';
 
@@ -82,6 +84,7 @@ const cosmosClient = COSMOS_ENDPOINT.includes('AccountKey=')
 const database = cosmosClient.database(COSMOS_DATABASE);
 const interactionsContainer = database.container(COSMOS_INTERACTIONS_CONTAINER);
 const feedbackContainer = database.container(COSMOS_FEEDBACK_CONTAINER);
+const usersContainer = database.container(COSMOS_USERS_CONTAINER);
 
 app.timer('WeeklyReportTrigger', {
   schedule: '%REPORT_SCHEDULE%',
@@ -108,6 +111,7 @@ app.timer('WeeklyReportTrigger', {
         feedbackResponseRate,
         newUsersCount,
         representativeFeedback,
+        userSegments,
       ] = await Promise.all([
         getDistinctUsers(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getSessionCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
@@ -119,6 +123,14 @@ app.timer('WeeklyReportTrigger', {
         getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getNewUsersCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
         getRepresentativeFeedback(feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
+        getUserSegmentKpis(
+          interactionsContainer,
+          feedbackContainer,
+          usersContainer,
+          DEPLOYMENT_TYPE,
+          oneWeekAgoISO,
+          now.toISOString(),
+        ),
       ]);
 
       logger(
@@ -165,6 +177,7 @@ app.timer('WeeklyReportTrigger', {
         startDate,
         endDate,
         representativeFeedback,
+        userSegments,
         reportUrl,
       };
 

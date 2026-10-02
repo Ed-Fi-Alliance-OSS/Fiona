@@ -43,6 +43,28 @@ describe('generateExecutiveReportPdf', () => {
         returningUsers: 24,
         newUserPct: 20,
       },
+      userSegments: Object.fromEntries(
+        ['internal', 'external', 'unknown'].map((segment) => [
+          segment,
+          {
+            uniqueUsers: 1,
+            newUsers: 1,
+            newUserPct: 100,
+            returningUsers: 0,
+            repeatRate: 0,
+            sessions: 1,
+            totalInteractions: 2,
+            avgInteractionsPerUser: 2,
+            errors: 0,
+            errorRate: 0,
+            rateLimited: 0,
+            goodFeedback: 1,
+            badFeedback: 0,
+            feedbackRatio: 100,
+            feedbackResponseRate: 50,
+          },
+        ]),
+      ),
       weeklyTrend: [
         {
           weekStart: '2026-04-13',

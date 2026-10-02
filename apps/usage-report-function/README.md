@@ -10,6 +10,15 @@ Every week it computes these KPIs from the `interactions` and `feedback` Cosmos 
 - Total interactions, error rate, and rate-limited requests
 - Good/bad feedback counts and response rate
 - Average interactions per user
+- Side-by-side internal (`@ed-fi.org`) and external KPIs for users, new/returning users,
+  sessions, interactions, errors, rate limits, feedback and engagement. Users with
+  missing/invalid directory emails appear under **Unknown email** rather than external.
+
+Segmentation uses the current email recorded in the `slack-users` Cosmos DB container
+(`COSMOS_USERS_CONTAINER`, default `slack-users`), populated by Fiona's Slack user
+loader. The executive PDF includes a separate comparison page for the report period;
+historical trend charts and overall KPIs remain unsegmented. If the user directory is
+unavailable, report generation fails rather than publishing misleading segment counts.
 
 When a matching executive PDF report is available (generated separately by
 the `generate-usage-report-pdf` GitHub Actions workflow — see

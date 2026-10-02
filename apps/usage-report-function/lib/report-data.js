@@ -8,6 +8,7 @@ import { getDailySummary } from './daily-queries.js';
 import { getKpiSummary } from './kpi-summary.js';
 import { getWeeklyTrendSeries } from './longitudinal-queries.js';
 import { getTopUsersByFeedback, getTopUsersByInteractions } from './user-queries.js';
+import { getUserSegmentKpis } from './user-segments.js';
 
 const HISTORICAL_BASELINE_START_ISO = '2026-04-01T00:00:00.000Z';
 
@@ -75,6 +76,7 @@ function resolveTrendWindow(startISO, endISO, historicalBaselineStartISO) {
 export async function buildExecutiveReportData({
   interactionsContainer,
   feedbackContainer,
+  usersContainer,
   deploymentType,
   startISO,
   endISO,
@@ -91,6 +93,7 @@ export async function buildExecutiveReportData({
     representativeFeedback,
     topUsersByFeedback,
     topUsersByInteractions,
+    userSegments,
   ] = await Promise.all([
     getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
     getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
@@ -106,6 +109,7 @@ export async function buildExecutiveReportData({
     getRepresentativeFeedbackInRange(feedbackContainer, deploymentType, startISO, endISO),
     getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO),
     getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO),
+    getUserSegmentKpis(interactionsContainer, feedbackContainer, usersContainer, deploymentType, startISO, endISO),
   ]);
 
   return {
@@ -119,5 +123,6 @@ export async function buildExecutiveReportData({
     representativeFeedback,
     topUsersByFeedback,
     topUsersByInteractions,
+    userSegments,
   };
 }

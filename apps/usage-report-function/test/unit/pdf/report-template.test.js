@@ -12,6 +12,7 @@ import {
   renderReliabilityPage,
   renderTopUsersPage,
   renderUsageTrendsPage,
+  renderUserSegmentsPage,
 } from '../../../lib/pdf/report-template.js';
 
 const kpiSummary = {
@@ -36,6 +37,35 @@ const period = {
   startISO: '2026-06-24T00:00:00.000Z',
   endISO: '2026-07-09T00:00:00.000Z',
 };
+
+describe('renderUserSegmentsPage', () => {
+  it('shows comparable totals and rates for internal, external and unknown users', () => {
+    const segment = {
+      uniqueUsers: 2,
+      newUsers: 1,
+      newUserPct: 50,
+      returningUsers: 1,
+      repeatRate: 50,
+      sessions: 3,
+      totalInteractions: 6,
+      errors: 1,
+      errorRate: 16.6667,
+      rateLimited: 0,
+      goodFeedback: 1,
+      badFeedback: 1,
+      feedbackRatio: 50,
+      avgInteractionsPerUser: 2.5,
+      feedbackResponseRate: 40,
+    };
+    const html = renderUserSegmentsPage({ internal: segment, external: segment, unknown: segment });
+    expect(html).toContain('Internal (@ed-fi.org)');
+    expect(html).toContain('External');
+    expect(html).toContain('Unknown email');
+    expect(html).toContain('1 (16.7%)');
+    expect(html).toContain('50.0');
+    expect(html).toContain('40.0');
+  });
+});
 
 describe('renderCoverPage', () => {
   it('renders report-period KPI cards including new users and errors', () => {

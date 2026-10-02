@@ -28,6 +28,35 @@ describe('formatWeeklyReport', () => {
     expect(message).toContain('Fiona Usage Report');
   });
 
+  it('compares internal and external KPIs and shows unclassified activity separately', () => {
+    const segment = {
+      uniqueUsers: 1,
+      newUsers: 1,
+      newUserPct: 100,
+      returningUsers: 0,
+      repeatRate: 0,
+      sessions: 2,
+      totalInteractions: 4,
+      errors: 1,
+      errorRate: 25,
+      rateLimited: 0,
+      goodFeedback: 1,
+      badFeedback: 0,
+      feedbackRatio: 100,
+      avgInteractionsPerUser: 3,
+      feedbackResponseRate: 33.33,
+    };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      userSegments: { internal: segment, external: segment, unknown: segment },
+    });
+    expect(message).toContain('Internal (@ed-fi.org): 1 users');
+    expect(message).toContain('External: 1 users');
+    expect(message).toContain('Unknown email: 1 users');
+    expect(message).toContain('1 errors (25.0%)');
+    expect(message).toContain('response rate 33.3%');
+  });
+
   it('formats the week label correctly', () => {
     const message = formatWeeklyReport(baseKpis);
     expect(message).toContain('Week of Mar 10–16, 2026');

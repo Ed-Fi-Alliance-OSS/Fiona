@@ -24,6 +24,7 @@ const mockGetRepresentativeFeedback = jest.fn();
 const mockGetSlackWebhookUrl = jest.fn();
 const mockGetLatestReportLink = jest.fn();
 const mockFormatWeeklyReport = jest.fn();
+const mockGetUserSegmentKpis = jest.fn();
 
 // -- Register all mocks before importing the module under test --
 
@@ -67,6 +68,9 @@ jest.unstable_mockModule('../../lib/report-link.js', () => ({
 jest.unstable_mockModule('../../lib/slack-formatter.js', () => ({
   formatWeeklyReport: mockFormatWeeklyReport,
 }));
+jest.unstable_mockModule('../../lib/user-segments.js', () => ({
+  getUserSegmentKpis: mockGetUserSegmentKpis,
+}));
 
 // Set required env vars before the module loads and captures them
 process.env.COSMOS_ENDPOINT = 'https://test.cosmos.azure.com';
@@ -74,9 +78,14 @@ process.env.COSMOS_ENDPOINT = 'https://test.cosmos.azure.com';
 // Configure CosmosClient mock before import so module-scope init resolves correctly
 const interactionsContainer = {};
 const feedbackContainer = {};
+const usersContainer = {};
 MockCosmosClient.mockImplementation(() => ({
   database: jest.fn().mockReturnValue({
-    container: jest.fn().mockReturnValueOnce(interactionsContainer).mockReturnValueOnce(feedbackContainer),
+    container: jest
+      .fn()
+      .mockReturnValueOnce(interactionsContainer)
+      .mockReturnValueOnce(feedbackContainer)
+      .mockReturnValueOnce(usersContainer),
   }),
 }));
 
@@ -160,6 +169,7 @@ describe('WeeklyReportTrigger', () => {
           hasReason: true,
         },
       ]);
+      mockGetUserSegmentKpis.mockResolvedValue({ internal: {}, external: {}, unknown: {} });
 
       mockGetSlackWebhookUrl.mockResolvedValue('https://hooks.slack.com/test');
       mockGetLatestReportLink.mockResolvedValue(null);
@@ -188,6 +198,14 @@ describe('WeeklyReportTrigger', () => {
       expect(mockGetFeedbackResponseRate).toHaveBeenCalledTimes(1);
       expect(mockGetNewUsersCount).toHaveBeenCalledTimes(1);
       expect(mockGetRepresentativeFeedback).toHaveBeenCalledTimes(1);
+      expect(mockGetUserSegmentKpis).toHaveBeenCalledWith(
+        interactionsContainer,
+        feedbackContainer,
+        usersContainer,
+        'production',
+        EXPECTED_ONE_WEEK_AGO_ISO,
+        FIXED_NOW.toISOString(),
+      );
     });
 
     it('queries with the correct deployment type and lookback window', async () => {

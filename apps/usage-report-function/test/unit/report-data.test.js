@@ -12,6 +12,7 @@ const mockGetFeedbackDetails = jest.fn();
 const mockGetRepresentativeFeedbackInRange = jest.fn();
 const mockGetTopUsersByFeedback = jest.fn();
 const mockGetTopUsersByInteractions = jest.fn();
+const mockGetUserSegmentKpis = jest.fn();
 
 jest.unstable_mockModule('../../lib/kpi-summary.js', () => ({
   getKpiSummary: mockGetKpiSummary,
@@ -30,12 +31,16 @@ jest.unstable_mockModule('../../lib/user-queries.js', () => ({
   getTopUsersByFeedback: mockGetTopUsersByFeedback,
   getTopUsersByInteractions: mockGetTopUsersByInteractions,
 }));
+jest.unstable_mockModule('../../lib/user-segments.js', () => ({
+  getUserSegmentKpis: mockGetUserSegmentKpis,
+}));
 
 const { buildExecutiveReportData } = await import('../../lib/report-data.js');
 
 describe('buildExecutiveReportData', () => {
   const interactionsContainer = {};
   const feedbackContainer = {};
+  const usersContainer = {};
   const deploymentType = 'production';
   const startISO = '2026-06-24T00:00:00.000Z';
   const endISO = '2026-07-09T00:00:00.000Z';
@@ -57,6 +62,7 @@ describe('buildExecutiveReportData', () => {
   ];
   const topUsersByFeedback = [{ userId: 'u1', feedbackCount: 2 }];
   const topUsersByInteractions = [{ userId: 'u1', interactions: 5 }];
+  const userSegments = { internal: { uniqueUsers: 2 }, external: { uniqueUsers: 1 }, unknown: { uniqueUsers: 0 } };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -67,12 +73,14 @@ describe('buildExecutiveReportData', () => {
     mockGetRepresentativeFeedbackInRange.mockResolvedValue(representativeFeedback);
     mockGetTopUsersByFeedback.mockResolvedValue(topUsersByFeedback);
     mockGetTopUsersByInteractions.mockResolvedValue(topUsersByInteractions);
+    mockGetUserSegmentKpis.mockResolvedValue(userSegments);
   });
 
   it('assembles all data slices into the expected shape', async () => {
     const result = await buildExecutiveReportData({
       interactionsContainer,
       feedbackContainer,
+      usersContainer,
       deploymentType,
       startISO,
       endISO,
@@ -92,11 +100,19 @@ describe('buildExecutiveReportData', () => {
       representativeFeedback,
       topUsersByFeedback,
       topUsersByInteractions,
+      userSegments,
     });
   });
 
   it('calls each slice function with the correct arguments', async () => {
-    await buildExecutiveReportData({ interactionsContainer, feedbackContainer, deploymentType, startISO, endISO });
+    await buildExecutiveReportData({
+      interactionsContainer,
+      feedbackContainer,
+      usersContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    });
 
     expect(mockGetKpiSummary).toHaveBeenCalledWith(
       interactionsContainer,
@@ -131,6 +147,14 @@ describe('buildExecutiveReportData', () => {
     );
     expect(mockGetTopUsersByFeedback).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
     expect(mockGetTopUsersByInteractions).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
+    expect(mockGetUserSegmentKpis).toHaveBeenCalledWith(
+      interactionsContainer,
+      feedbackContainer,
+      usersContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    );
   });
 
   it('supports a custom historical baseline start for trend window calculation', async () => {
