@@ -10,8 +10,10 @@ import {
   renderExecutiveReportHtml,
   renderFeedbackPage,
   renderReliabilityPage,
+  renderSegmentTrendsPage,
   renderTopUsersPage,
   renderUsageTrendsPage,
+  renderUserSegmentsPage,
 } from '../../../lib/pdf/report-template.js';
 
 const kpiSummary = {
@@ -29,6 +31,7 @@ const kpiSummary = {
   newUsers: 9,
   returningUsers: 23,
   newUserPct: 28.1,
+  feedbackResponseRate: 8.9,
 };
 const readoutBullets = ['Engagement bullet.', 'New-user bullet.', 'Reliability bullet.', 'Feedback bullet.'];
 const period = {
@@ -36,6 +39,39 @@ const period = {
   startISO: '2026-06-24T00:00:00.000Z',
   endISO: '2026-07-09T00:00:00.000Z',
 };
+
+describe('renderUserSegmentsPage', () => {
+  it('shows comparable totals and rates for internal, external and unknown users', () => {
+    const segment = {
+      uniqueUsers: 2,
+      newUsers: 1,
+      newUserPct: 50,
+      returningUsers: 1,
+      repeatRate: 50,
+      sessions: 3,
+      totalInteractions: 6,
+      errors: 1,
+      errorRate: 16.6667,
+      rateLimited: 0,
+      goodFeedback: 1,
+      badFeedback: 1,
+      feedbackRatio: 50,
+      avgInteractionsPerUser: 2.5,
+      feedbackResponseRate: 40,
+    };
+    const html = renderUserSegmentsPage({ internal: segment, external: segment, unknown: segment }, kpiSummary);
+    expect(html).toContain('Internal (@ed-fi.org)');
+    expect(html).toContain('External');
+    expect(html).toContain('<th>Unknown</th>');
+    expect(html).toMatch(
+      /<th>Metric<\/th><th>Internal \(@ed-fi.org\)<\/th><th>External<\/th><th>Unknown<\/th><th>Total<\/th>/,
+    );
+    expect(html).toMatch(/<td>Interactions<\/td><td>6<\/td><td>6<\/td><td>6<\/td><td>437<\/td>/);
+    expect(html).toContain('<td>16.7%</td>');
+    expect(html).toContain('50.0');
+    expect(html).toContain('40.0');
+  });
+});
 
 describe('renderCoverPage', () => {
   it('renders report-period KPI cards including new users and errors', () => {
@@ -61,6 +97,41 @@ describe('renderCoverPage', () => {
     expect(html).toContain('2026-07-09');
     expect(html).toContain('production');
   });
+
+  it('compares internal, external and unknown adoption on the executive summary', () => {
+    const segments = Object.fromEntries(
+      ['internal', 'external', 'unknown'].map((key) => [
+        key,
+        {
+          uniqueUsers: 2,
+          newUsers: 1,
+          newUserPct: 50,
+          returningUsers: 1,
+          repeatRate: 50,
+          totalInteractions: 5,
+          sessions: 3,
+          errors: 0,
+          errorRate: 0,
+          rateLimited: 0,
+          goodFeedback: 1,
+          badFeedback: 0,
+          feedbackRatio: 100,
+          avgInteractionsPerUser: 2.5,
+          feedbackResponseRate: 20,
+        },
+      ]),
+    );
+    const html = renderCoverPage(kpiSummary, readoutBullets, period, segments);
+    expect(html).toContain('Internal (@ed-fi.org)');
+    expect(html).toContain('External');
+    expect(html).toContain('<th>Unknown</th>');
+    expect(html).toMatch(/<h3>Segment comparison<\/h3>[\s\S]*<h2>Readout<\/h2>/);
+    expect(html).toMatch(/<td>Unique users<\/td><td>2<\/td><td>2<\/td><td>2<\/td><td>32<\/td>/);
+    expect(html).toMatch(
+      /<h2>Readout<\/h2>[\s\S]*<th>Metric<\/th><th>Internal \(@ed-fi.org\)<\/th><th>External<\/th><th>Unknown<\/th><th>Total<\/th>/,
+    );
+    expect(html).toMatch(/<td>Error rate<\/td><td>0\.0%<\/td><td>0\.0%<\/td><td>0\.0%<\/td><td>2\.7%<\/td>/);
+  });
 });
 
 const weeklyTrend = [
@@ -79,6 +150,50 @@ describe('renderUsageTrendsPage', () => {
     expect(html).toContain('window.__chartConfigs');
   });
 
+  describe('renderSegmentTrendsPage', () => {
+    it('plots weekly users and interactions for all three segments as trend lines', () => {
+      const segment = (users, interactions) => ({
+        uniqueUsers: users,
+        totalInteractions: interactions,
+        newUsers: 0,
+      });
+      const html = renderSegmentTrendsPage([
+        {
+          weekStart: '2026-04-13',
+          weekEnd: '2026-04-19',
+          uniqueUsers: 3,
+          totalInteractions: 7,
+          segments: {
+            internal: segment(1, 3),
+            external: segment(2, 4),
+            unknown: segment(0, 0),
+          },
+        },
+        {
+          weekStart: '2026-04-20',
+          weekEnd: '2026-04-26',
+          uniqueUsers: 5,
+          totalInteractions: 10,
+          segments: {
+            internal: segment(3, 7),
+            external: segment(1, 2),
+            unknown: segment(1, 1),
+          },
+        },
+      ]);
+      expect(html).toContain('segment-users-chart');
+      expect(html).toContain('segment-interactions-chart');
+      expect(html).toContain('Internal (@ed-fi.org)');
+      expect(html).toContain('"data":[1,3]');
+      expect(html).toContain('"data":[4,2]');
+      expect(html).toContain('Unknown email');
+      expect(html).toContain('Total');
+      expect(html).toContain('Segment Trend Detail');
+      expect(html).toContain('"data":[3,5]'); // total users (including unknown)
+      expect(html).toContain('"data":[7,10]'); // total interactions (including unknown)
+    });
+  });
+
   it('embeds weekly labels and users/new-users/interactions datasets in the chart config', () => {
     const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
     expect(html).toContain('Apr 13-19, 2026');
@@ -90,6 +205,7 @@ describe('renderUsageTrendsPage', () => {
 
   it('renders a new-user WoW metric table', () => {
     const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
+    expect(html).toContain('<h2>Weekly Trend Detail</h2>');
     expect(html).toContain('New User WoW %');
     expect(html).toContain('+200.0%');
   });
@@ -121,6 +237,23 @@ describe('renderReliabilityPage', () => {
     expect(html).toContain('"data":[0,1]');
   });
 
+  it('keeps reliability and feedback charts overall even when weekly segments are available', () => {
+    const weeks = weeklyTrendWithFeedback.map((week) => ({
+      ...week,
+      segments: {
+        internal: { errorRate: 1, goodFeedback: 2, badFeedback: 0 },
+        external: { errorRate: 0, goodFeedback: 0, badFeedback: 1 },
+        unknown: { errorRate: 0, totalInteractions: 1, goodFeedback: 0, badFeedback: 0 },
+      },
+    }));
+    const html = renderReliabilityPage(weeks, reliabilityTakeaways);
+    expect(html).toContain('"label":"%","data":[0,1.1]');
+    expect(html).toContain('"label":"Good","data":[2,0]');
+    expect(html).toContain('"label":"Bad","data":[0,1]');
+    expect(html).not.toContain('"label":"Internal (@ed-fi.org) good"');
+    expect(html).not.toContain('"label":"External bad"');
+  });
+
   it('renders every takeaway row', () => {
     const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
     expect(html).toContain('System error rate');
@@ -141,6 +274,9 @@ describe('renderReliabilityPage', () => {
 
 const representativeFeedback = [
   {
+    userId: 'U1',
+    email: 'first@ed-fi.org',
+    segment: 'internal',
     userMessage: 'How do I resolve this error?',
     botResponse: 'The error occurs because the API cannot map the route.',
     value: 'bad-feedback',
@@ -149,6 +285,9 @@ const representativeFeedback = [
     hasReason: false,
   },
   {
+    userId: 'U2',
+    email: 'someone@outside.org',
+    segment: 'external',
     userMessage: 'Do entity identities need to appear in order?',
     botResponse: 'No, identities do not need to appear in a specific order.',
     value: 'good-feedback',
@@ -163,6 +302,23 @@ describe('renderFeedbackPage', () => {
     const html = renderFeedbackPage(representativeFeedback);
     expect(html).toContain('Bad feedback - 2026-07-04');
     expect(html).toContain('Good feedback - 2026-06-30');
+  });
+
+  it('labels feedback with segment and email, escaping untrusted directory fields', () => {
+    const html = renderFeedbackPage([
+      ...representativeFeedback,
+      {
+        ...representativeFeedback[0],
+        email: '<person@ed-fi.org>',
+        segment: 'unknown',
+      },
+    ]);
+    expect(html).toContain('Internal (@ed-fi.org)');
+    expect(html).toContain('first@ed-fi.org');
+    expect(html).toContain('External');
+    expect(html).toContain('someone@outside.org');
+    expect(html).toContain('&lt;person@ed-fi.org&gt;');
+    expect(html).not.toContain('<person@ed-fi.org>');
   });
 
   it('renders the user message as Q: and the (truncated) bot response as A:', () => {
@@ -324,5 +480,44 @@ describe('renderExecutiveReportHtml', () => {
   it('inlines the given Chart.js source verbatim', () => {
     const html = renderExecutiveReportHtml(reportData, narrative, fakeChartJsSource);
     expect(html).toContain(fakeChartJsSource);
+  });
+
+  it('includes segmented charts, summary and identified feedback in the full PDF HTML', () => {
+    const segment = {
+      uniqueUsers: 1,
+      newUsers: 1,
+      newUserPct: 100,
+      returningUsers: 0,
+      repeatRate: 0,
+      sessions: 1,
+      totalInteractions: 2,
+      avgInteractionsPerUser: 2,
+      errors: 0,
+      errorRate: 0,
+      rateLimited: 0,
+      goodFeedback: 1,
+      badFeedback: 0,
+      feedbackRatio: 100,
+      feedbackResponseRate: 50,
+    };
+    const segments = { internal: segment, external: segment, unknown: segment };
+    const html = renderExecutiveReportHtml(
+      {
+        ...reportData,
+        userSegments: segments,
+        trendWeekly: weeklyTrend.map((w) => ({ ...w, segments })),
+        feedbackDetails: [{ ...representativeFeedback[0], value: 'bad-feedback' }],
+      },
+      narrative,
+      fakeChartJsSource,
+    );
+    expect(html).toContain('Segment comparison');
+    expect(html).toContain('segment-users-chart');
+    expect(html).toContain('segment-interactions-chart');
+    expect(html).toContain('Weekly Error Rate');
+    expect(html).not.toContain('Weekly Error Rate by Segment');
+    expect(html).toContain('Feedback by User');
+    expect(html).toContain('first@ed-fi.org');
+    expect(html).toContain('someone@outside.org');
   });
 });

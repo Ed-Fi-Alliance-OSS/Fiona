@@ -53,6 +53,7 @@ describe('getKpiSummary', () => {
     expect(kpi.newUsers).toBe(1); // u4 did not appear before startISO
     expect(kpi.returningUsers).toBe(1);
     expect(kpi.newUserPct).toBe(50);
+    expect(kpi.feedbackResponseRate).toBeCloseTo(66.6667, 3);
   });
 
   it('returns all-zero KPIs when there is no data in range', async () => {
@@ -76,6 +77,7 @@ describe('getKpiSummary', () => {
       newUsers: 0,
       returningUsers: 0,
       newUserPct: 0,
+      feedbackResponseRate: 0,
     });
   });
 

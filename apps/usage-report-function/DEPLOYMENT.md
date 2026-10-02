@@ -3,7 +3,8 @@
 ## Prerequisites
 
 1. Azure subscription with Fiona resource group (`fiona-rg`)
-2. Cosmos DB account with `fiona` database, `interactions` container, and `feedback` container
+2. Cosmos DB account with `chatbot` database, `interactions`, `feedback`, and
+   `slack-users` containers (the user directory must include emails for meaningful segmentation)
 3. Azure Key Vault instance for storing secrets
 4. GitHub secrets configured: `AZURE_CREDENTIALS`, `COSMOS_ENDPOINT`, `KEY_VAULT_URL`
 
@@ -81,6 +82,7 @@ az functionapp config appsettings set \
     COSMOS_DATABASE='chatbot' \
     COSMOS_INTERACTIONS_CONTAINER='interactions' \
     COSMOS_FEEDBACK_CONTAINER='feedback' \
+    COSMOS_USERS_CONTAINER='slack-users' \
     DEPLOYMENT_TYPE='production' \
     KEY_VAULT_URL='https://fiona-kv.vault.azure.net/' \
     SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook' \
@@ -123,6 +125,7 @@ design, including this pipeline.
 2. Create a dedicated service principal for the workflow, scoped to:
    - `Cosmos DB Data Reader` (data-plane role, via
      `az cosmosdb sql role assignment create`) on the `chatbot` database
+     (including read access to `slack-users`)
    - `Storage Blob Data Contributor` **and** `Storage Blob Delegator` (the
      latter is required for `az storage blob generate-sas --as-user`) on the
      `usage-reports` container
@@ -151,6 +154,9 @@ design, including this pipeline.
   without a link (with a warning logged) rather than blocking.
 - Trigger a run manually via the Actions tab (`workflow_dispatch`) to
   regenerate the PDF/link outside the schedule.
+- The PDF now includes individual feedback authors' email addresses. The SAS
+  URL in `latest-link.json` grants access to this personal data until it
+  expires; share the Slack message and URL only with authorized recipients.
 
 ## Testing
 
@@ -188,6 +194,8 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 ## Troubleshooting
 
 - **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `fiona` database
+- **Missing user segments:** Verify both report identities can read the `slack-users` container
+  in `chatbot`, and the Slack user loader has populated email addresses.
 - **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret
 - **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`
 - **Function timeout:** Check Cosmos DB query performance; ensure composite indexes are created by Bicep template

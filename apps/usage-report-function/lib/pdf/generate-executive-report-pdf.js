@@ -35,7 +35,12 @@ export async function generateExecutiveReportPdf(reportData, outputPath) {
   const trendWeekly = reportData.trendWeekly ?? reportData.weeklyTrend;
 
   const narrative = {
-    readoutBullets: buildReadoutBullets(reportData.kpiSummary, reportData.weeklyTrend, reportData.period.startISO),
+    readoutBullets: buildReadoutBullets(
+      reportData.kpiSummary,
+      reportData.weeklyTrend,
+      reportData.period.startISO,
+      reportData.userSegments,
+    ),
     usageObservations: buildUsageObservations(trendWeekly),
     reliabilityTakeaways: buildReliabilityTakeaways(reportData.kpiSummary, trendWeekly),
   };

@@ -119,6 +119,7 @@ export async function getKpiSummary(interactionsContainer, feedbackContainer, de
     badFeedback,
     feedbackTotal,
     positiveFeedbackPct: feedbackTotal > 0 ? (goodFeedback / feedbackTotal) * 100 : 0,
+    feedbackResponseRate: successRecords > 0 ? (feedbackTotal / successRecords) * 100 : 0,
     newUsers,
     returningUsers,
     newUserPct: uniqueUsers > 0 ? (newUsers / uniqueUsers) * 100 : 0,

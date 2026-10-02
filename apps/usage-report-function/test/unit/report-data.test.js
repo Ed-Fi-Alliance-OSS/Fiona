@@ -12,6 +12,8 @@ const mockGetFeedbackDetails = jest.fn();
 const mockGetRepresentativeFeedbackInRange = jest.fn();
 const mockGetTopUsersByFeedback = jest.fn();
 const mockGetTopUsersByInteractions = jest.fn();
+const mockGetUserSegmentKpis = jest.fn();
+const mockGetUserDirectory = jest.fn();
 
 jest.unstable_mockModule('../../lib/kpi-summary.js', () => ({
   getKpiSummary: mockGetKpiSummary,
@@ -30,12 +32,17 @@ jest.unstable_mockModule('../../lib/user-queries.js', () => ({
   getTopUsersByFeedback: mockGetTopUsersByFeedback,
   getTopUsersByInteractions: mockGetTopUsersByInteractions,
 }));
+jest.unstable_mockModule('../../lib/user-segments.js', () => ({
+  getUserSegmentKpis: mockGetUserSegmentKpis,
+  getUserDirectory: mockGetUserDirectory,
+}));
 
 const { buildExecutiveReportData } = await import('../../lib/report-data.js');
 
 describe('buildExecutiveReportData', () => {
   const interactionsContainer = {};
   const feedbackContainer = {};
+  const usersContainer = {};
   const deploymentType = 'production';
   const startISO = '2026-06-24T00:00:00.000Z';
   const endISO = '2026-07-09T00:00:00.000Z';
@@ -47,6 +54,7 @@ describe('buildExecutiveReportData', () => {
   const feedbackDetails = [{ userId: 'u1' }];
   const representativeFeedback = [
     {
+      userId: 'u1',
       userMessage: 'q',
       botResponse: 'a',
       value: 'good-feedback',
@@ -57,6 +65,7 @@ describe('buildExecutiveReportData', () => {
   ];
   const topUsersByFeedback = [{ userId: 'u1', feedbackCount: 2 }];
   const topUsersByInteractions = [{ userId: 'u1', interactions: 5 }];
+  const userSegments = { internal: { uniqueUsers: 2 }, external: { uniqueUsers: 1 }, unknown: { uniqueUsers: 0 } };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -67,12 +76,15 @@ describe('buildExecutiveReportData', () => {
     mockGetRepresentativeFeedbackInRange.mockResolvedValue(representativeFeedback);
     mockGetTopUsersByFeedback.mockResolvedValue(topUsersByFeedback);
     mockGetTopUsersByInteractions.mockResolvedValue(topUsersByInteractions);
+    mockGetUserSegmentKpis.mockResolvedValue(userSegments);
+    mockGetUserDirectory.mockResolvedValue(new Map([['u1', { segment: 'internal', email: 'test@ed-fi.org' }]]));
   });
 
   it('assembles all data slices into the expected shape', async () => {
     const result = await buildExecutiveReportData({
       interactionsContainer,
       feedbackContainer,
+      usersContainer,
       deploymentType,
       startISO,
       endISO,
@@ -88,15 +100,39 @@ describe('buildExecutiveReportData', () => {
       weeklyTrend,
       trendWeekly,
       dailySummary,
-      feedbackDetails,
-      representativeFeedback,
-      topUsersByFeedback,
-      topUsersByInteractions,
+      feedbackDetails: feedbackDetails.map((item) => ({
+        ...item,
+        segment: 'internal',
+        email: 'test@ed-fi.org',
+      })),
+      representativeFeedback: representativeFeedback.map((item) => ({
+        ...item,
+        segment: 'internal',
+        email: 'test@ed-fi.org',
+      })),
+      topUsersByFeedback: topUsersByFeedback.map((item) => ({
+        ...item,
+        segment: 'internal',
+        email: 'test@ed-fi.org',
+      })),
+      topUsersByInteractions: topUsersByInteractions.map((item) => ({
+        ...item,
+        segment: 'internal',
+        email: 'test@ed-fi.org',
+      })),
+      userSegments,
     });
   });
 
   it('calls each slice function with the correct arguments', async () => {
-    await buildExecutiveReportData({ interactionsContainer, feedbackContainer, deploymentType, startISO, endISO });
+    await buildExecutiveReportData({
+      interactionsContainer,
+      feedbackContainer,
+      usersContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    });
 
     expect(mockGetKpiSummary).toHaveBeenCalledWith(
       interactionsContainer,
@@ -112,6 +148,7 @@ describe('buildExecutiveReportData', () => {
       deploymentType,
       startISO,
       endISO,
+      usersContainer,
     );
     expect(mockGetWeeklyTrendSeries).toHaveBeenNthCalledWith(
       2,
@@ -120,6 +157,7 @@ describe('buildExecutiveReportData', () => {
       deploymentType,
       '2026-04-06T00:00:00.000Z',
       '2026-07-13T00:00:00.000Z',
+      usersContainer,
     );
     expect(mockGetDailySummary).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
     expect(mockGetFeedbackDetails).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
@@ -131,6 +169,15 @@ describe('buildExecutiveReportData', () => {
     );
     expect(mockGetTopUsersByFeedback).toHaveBeenCalledWith(feedbackContainer, deploymentType, startISO, endISO);
     expect(mockGetTopUsersByInteractions).toHaveBeenCalledWith(interactionsContainer, deploymentType, startISO, endISO);
+    expect(mockGetUserSegmentKpis).toHaveBeenCalledWith(
+      interactionsContainer,
+      feedbackContainer,
+      usersContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    );
+    expect(mockGetUserDirectory).toHaveBeenCalledWith(usersContainer, ['u1']);
   });
 
   it('supports a custom historical baseline start for trend window calculation', async () => {
@@ -140,6 +187,7 @@ describe('buildExecutiveReportData', () => {
     await buildExecutiveReportData({
       interactionsContainer,
       feedbackContainer,
+      usersContainer,
       deploymentType,
       startISO,
       endISO,
@@ -153,6 +201,7 @@ describe('buildExecutiveReportData', () => {
       deploymentType,
       '2026-04-27T00:00:00.000Z',
       '2026-07-13T00:00:00.000Z',
+      usersContainer,
     );
   });
 
@@ -160,7 +209,14 @@ describe('buildExecutiveReportData', () => {
     mockGetDailySummary.mockRejectedValue(new Error('cosmos boom'));
 
     await expect(
-      buildExecutiveReportData({ interactionsContainer, feedbackContainer, deploymentType, startISO, endISO }),
+      buildExecutiveReportData({
+        interactionsContainer,
+        feedbackContainer,
+        usersContainer,
+        deploymentType,
+        startISO,
+        endISO,
+      }),
     ).rejects.toThrow('cosmos boom');
   });
 });

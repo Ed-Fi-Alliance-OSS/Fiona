@@ -279,7 +279,7 @@ export async function getFeedbackDetails(container, deploymentType, startISO, en
 export async function getRepresentativeFeedbackInRange(container, deploymentType, startISO, endISO, limit = 5) {
   const { resources } = await container.items
     .query({
-      query: `SELECT f.userMessage, f.botResponse, f["value"], f.reason, f.timestamp
+      query: `SELECT f.userId, f.userMessage, f.botResponse, f["value"], f.reason, f.timestamp
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp >= @startISO
@@ -298,6 +298,7 @@ export async function getRepresentativeFeedbackInRange(container, deploymentType
   const withoutReason = visibleConversation.filter((f) => !f.reason);
 
   return [...withReason, ...withoutReason].slice(0, limit).map((f) => ({
+    userId: f.userId,
     userMessage: f.userMessage,
     botResponse: f.botResponse,
     value: f.value,

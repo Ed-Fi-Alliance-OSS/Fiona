@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { getUserDirectory } from './user-segments.js';
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function getWeekStartISO(timestamp) {
@@ -33,6 +35,23 @@ function createWeekBucket() {
   };
 }
 
+function countInteraction(bucket, record) {
+  bucket.totalInteractions += 1;
+  if (record.status === 'error') bucket.errors += 1;
+  if (record.rateLimited === true) bucket.rateLimited += 1;
+  if (record.status === 'success' && record.rateLimited === false) {
+    bucket.successRecords += 1;
+    bucket.successUserIds.add(record.userId);
+    bucket.successThreadTs.add(record.threadTs);
+  }
+}
+
+function countFeedback(bucket, record) {
+  bucket.feedbackCount += 1;
+  if (record.feedbackValue === 'good-feedback') bucket.goodFeedback += 1;
+  if (record.feedbackValue === 'bad-feedback') bucket.badFeedback += 1;
+}
+
 /**
  * Returns week-over-week KPI trend data for [startISO, endISO), bucketed into
  * Monday-Sunday weeks. Fetches raw interaction/feedback documents for the
@@ -42,7 +61,14 @@ function createWeekBucket() {
  *
  * @returns {Promise<Array<Object>>} weeks ordered oldest to newest
  */
-export async function getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO) {
+export async function getWeeklyTrendSeries(
+  interactionsContainer,
+  feedbackContainer,
+  deploymentType,
+  startISO,
+  endISO,
+  usersContainer,
+) {
   const { resources: interactions } = await interactionsContainer.items
     .query({
       query: `SELECT i.userId, i.threadTs, i.status, i.rateLimited, i.timestamp
@@ -61,7 +87,7 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
   const { resources: feedback } = await feedbackContainer.items
     .query({
       // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
-      query: `SELECT f["value"] AS feedbackValue, f.timestamp
+      query: `SELECT f.userId, f["value"] AS feedbackValue, f.timestamp
        FROM feedback f
        WHERE f.deploymentType = @deploymentType
          AND f.timestamp >= @startISO
@@ -74,12 +100,26 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
     })
     .fetchAll();
 
+  const directory = usersContainer
+    ? await getUserDirectory(
+        usersContainer,
+        [...interactions, ...feedback].map((row) => row.userId),
+      )
+    : null;
   const weekBuckets = new Map();
   const successUsersByWeek = new Map();
 
   const ensureWeekBucket = (weekKey) => {
     if (!weekBuckets.has(weekKey)) {
-      weekBuckets.set(weekKey, createWeekBucket());
+      const bucket = createWeekBucket();
+      if (directory) {
+        bucket.segments = {
+          internal: createWeekBucket(),
+          external: createWeekBucket(),
+          unknown: createWeekBucket(),
+        };
+      }
+      weekBuckets.set(weekKey, bucket);
       successUsersByWeek.set(weekKey, new Set());
     }
     return weekBuckets.get(weekKey);
@@ -88,17 +128,11 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
   for (const record of interactions) {
     const weekKey = getWeekStartISO(record.timestamp);
     const bucket = ensureWeekBucket(weekKey);
-    bucket.totalInteractions += 1;
-    if (record.status === 'error') {
-      bucket.errors += 1;
-    }
-    if (record.rateLimited === true) {
-      bucket.rateLimited += 1;
+    countInteraction(bucket, record);
+    if (directory) {
+      countInteraction(bucket.segments[directory.get(record.userId)?.segment ?? 'unknown'], record);
     }
     if (record.status === 'success' && record.rateLimited === false) {
-      bucket.successRecords += 1;
-      bucket.successUserIds.add(record.userId);
-      bucket.successThreadTs.add(record.threadTs);
       successUsersByWeek.get(weekKey).add(record.userId);
     }
   }
@@ -106,11 +140,9 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
   for (const record of feedback) {
     const weekKey = getWeekStartISO(record.timestamp);
     const bucket = ensureWeekBucket(weekKey);
-    bucket.feedbackCount += 1;
-    if (record.feedbackValue === 'good-feedback') {
-      bucket.goodFeedback += 1;
-    } else if (record.feedbackValue === 'bad-feedback') {
-      bucket.badFeedback += 1;
+    countFeedback(bucket, record);
+    if (directory) {
+      countFeedback(bucket.segments[directory.get(record.userId)?.segment ?? 'unknown'], record);
     }
   }
 
@@ -205,6 +237,36 @@ export async function getWeeklyTrendSeries(interactionsContainer, feedbackContai
       interactionsWowPct,
       errorRateWowPp,
     };
+
+    if (directory) {
+      week.segments = Object.fromEntries(
+        Object.entries(bucket.segments).map(([segment, segmentBucket]) => {
+          const segmentUsers = segmentBucket.successUserIds;
+          const segmentNewUsers = [...segmentUsers].filter(
+            (id) => firstWeekSeenByUser.get(id) === weekKey && !priorHistoryUsers.has(id),
+          ).length;
+          const segmentFeedback = segmentBucket.goodFeedback + segmentBucket.badFeedback;
+          return [
+            segment,
+            {
+              uniqueUsers: segmentUsers.size,
+              newUsers: segmentNewUsers,
+              returningUsers: segmentUsers.size - segmentNewUsers,
+              sessions: segmentBucket.successThreadTs.size,
+              totalInteractions: segmentBucket.totalInteractions,
+              errors: segmentBucket.errors,
+              errorRate: segmentBucket.totalInteractions
+                ? (segmentBucket.errors / segmentBucket.totalInteractions) * 100
+                : 0,
+              rateLimited: segmentBucket.rateLimited,
+              goodFeedback: segmentBucket.goodFeedback,
+              badFeedback: segmentBucket.badFeedback,
+              feedbackRatio: segmentFeedback ? (segmentBucket.goodFeedback / segmentFeedback) * 100 : 0,
+            },
+          ];
+        }),
+      );
+    }
 
     prevWeek = week;
     return week;

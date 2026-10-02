@@ -598,6 +598,7 @@ describe('cosmos-queries', () => {
         fetchAll: jest.fn().mockResolvedValue({
           resources: [
             {
+              userId: 'first-user',
               userMessage: 'no reason newest',
               botResponse: 'resp1',
               value: 'good-feedback',
@@ -605,6 +606,7 @@ describe('cosmos-queries', () => {
               timestamp: '2026-04-16T00:00:00.000Z',
             },
             {
+              userId: 'second-user',
               userMessage: 'has reason',
               botResponse: 'resp2',
               value: 'bad-feedback',
@@ -620,6 +622,8 @@ describe('cosmos-queries', () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({ userMessage: 'has reason', hasReason: true });
       expect(result[1]).toMatchObject({ userMessage: 'no reason newest', hasReason: false });
+      expect(result[0].userId).toBe('second-user');
+      expect(mockFeedbackContainer.items.query.mock.calls[0][0].query).toContain('SELECT f.userId');
     });
 
     it('caps results at the given limit', async () => {

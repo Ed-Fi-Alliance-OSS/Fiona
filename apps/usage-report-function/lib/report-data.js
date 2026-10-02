@@ -8,6 +8,7 @@ import { getDailySummary } from './daily-queries.js';
 import { getKpiSummary } from './kpi-summary.js';
 import { getWeeklyTrendSeries } from './longitudinal-queries.js';
 import { getTopUsersByFeedback, getTopUsersByInteractions } from './user-queries.js';
+import { getUserDirectory, getUserSegmentKpis } from './user-segments.js';
 
 const HISTORICAL_BASELINE_START_ISO = '2026-04-01T00:00:00.000Z';
 
@@ -75,6 +76,7 @@ function resolveTrendWindow(startISO, endISO, historicalBaselineStartISO) {
 export async function buildExecutiveReportData({
   interactionsContainer,
   feedbackContainer,
+  usersContainer,
   deploymentType,
   startISO,
   endISO,
@@ -91,22 +93,38 @@ export async function buildExecutiveReportData({
     representativeFeedback,
     topUsersByFeedback,
     topUsersByInteractions,
+    userSegments,
   ] = await Promise.all([
     getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
-    getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
+    getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO, usersContainer),
     getWeeklyTrendSeries(
       interactionsContainer,
       feedbackContainer,
       deploymentType,
       trendWindow.startISO,
       trendWindow.endISO,
+      usersContainer,
     ),
     getDailySummary(interactionsContainer, deploymentType, startISO, endISO),
     getFeedbackDetails(feedbackContainer, deploymentType, startISO, endISO),
     getRepresentativeFeedbackInRange(feedbackContainer, deploymentType, startISO, endISO),
     getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO),
     getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO),
+    getUserSegmentKpis(interactionsContainer, feedbackContainer, usersContainer, deploymentType, startISO, endISO),
   ]);
+
+  const directory = await getUserDirectory(usersContainer, [
+    ...new Set(
+      [...feedbackDetails, ...representativeFeedback, ...topUsersByFeedback, ...topUsersByInteractions].map(
+        (entry) => entry.userId,
+      ),
+    ),
+  ]);
+  const labelFeedback = (entry) => ({
+    ...entry,
+    segment: directory.get(entry.userId)?.segment ?? 'unknown',
+    email: directory.get(entry.userId)?.email ?? null,
+  });
 
   return {
     period: { deploymentType, startISO, endISO },
@@ -115,9 +133,10 @@ export async function buildExecutiveReportData({
     weeklyTrend,
     trendWeekly,
     dailySummary,
-    feedbackDetails,
-    representativeFeedback,
-    topUsersByFeedback,
-    topUsersByInteractions,
+    feedbackDetails: feedbackDetails.map(labelFeedback),
+    representativeFeedback: representativeFeedback.map(labelFeedback),
+    topUsersByFeedback: topUsersByFeedback.map(labelFeedback),
+    topUsersByInteractions: topUsersByInteractions.map(labelFeedback),
+    userSegments,
   };
 }
