@@ -48,7 +48,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       logger,
       say,
     },
-    async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       if (
         await handleRateLimitedInteraction({
           userId: user,
@@ -87,6 +87,8 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           say,
           logger,
           markInteractionRecorded,
+          markInteractionError,
+          claimResponseId,
           client,
           userId: user,
           teamId: team,

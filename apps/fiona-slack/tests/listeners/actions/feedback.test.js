@@ -258,6 +258,61 @@ describe('feedbackActionCallback', () => {
     expect(meta).not.toHaveProperty('searchQuery');
   });
 
+  // AI-182. An `ask` answer is ephemeral on every public surface, so the click is
+  // the only chance to keep its text — the same reason search stores it.
+  describe('ask response type', () => {
+    beforeEach(() => {
+      mockBody.actions[0].block_id = 'feedback|ask|slash_ask';
+      mockBody.message.text = 'The Ed-Fi Data Standard is a specification…';
+    });
+
+    it('carries the ask response type into the modal', async () => {
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta.responseType).toBe('ask');
+      expect(meta.interactionType).toBe('slash_ask');
+    });
+
+    it('stores the answer text at click time', async () => {
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta.botResponse).toBe('The Ed-Fi Data Standard is a specification…');
+    });
+
+    it('does not invent a searchQuery from the answer prose', async () => {
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      expect(JSON.parse(view.private_metadata)).not.toHaveProperty('searchQuery');
+    });
+
+    it('truncates an over-long answer rather than blowing the private_metadata limit', async () => {
+      mockBody.message.text = 'z'.repeat(5000);
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(view.private_metadata.length).toBeLessThanOrEqual(3000);
+      expect(meta.botResponse).toMatch(/…$/);
+    });
+
+    it('stores nothing extra for a synthesis answer, which stays re-fetchable', async () => {
+      mockBody.actions[0].block_id = 'feedback|synthesis|app_mention';
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta).not.toHaveProperty('botResponse');
+      expect(meta).not.toHaveProperty('searchQuery');
+    });
+  });
+
   it('logs error and does not throw when views.open rejects', async () => {
     mockClient.views.open.mockRejectedValueOnce(new Error('trigger expired'));
 
