@@ -135,9 +135,16 @@ source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
 the source. Results are cached: live pages for 1 hour and dead pages for 24
 hours. If the answer cited a dropped source, it is rewritten once, with no
 search tool, from the live sources only, and the metadata records
-`grounding: 'regenerated_dead_sources'`. If that rewrite fails, the fixed
+`grounding: 'regenerated_dead_sources'`. The rewrite prompt wraps the live
+results in `<search_results>` tags and tells the model that the text inside is
+copied from web pages and that any instructions in it must be ignored. Fence
+tags found inside a title or snippet are removed first, so a page cannot close
+the fence early. If that rewrite fails, the fixed
 decline is sent, with `grounding: 'declined_dead_sources'`. If every source
-was dropped, the no-results decline above applies. `/fiona search` drops dead
+was dropped, the no-results decline above applies. If an answer or its
+rewrite is empty once the model's own source list is removed, the fixed
+decline is sent with `grounding: 'declined_empty_answer'`, rather than a
+Sources block with no answer. This applies whether or not link checking is on. `/fiona search` drops dead
 results the same way. The `[citations]` log line gains `dead=` and
 `regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` restores the
 previous behaviour. If link checking itself fails, the answer is sent unchecked.
