@@ -48,7 +48,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       logger,
       say,
     },
-    async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       if (
         await handleRateLimitedInteraction({
           userId: user,
@@ -87,6 +87,8 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           say,
           logger,
           markInteractionRecorded,
+          markInteractionError,
+          claimResponseId,
           client,
           userId: user,
           teamId: team,
@@ -135,7 +137,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       // Telemetry: log finalize_state and source count for observability.
       if (metadata) {
-        logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+        logger.info(
+          `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+            (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+        );
       }
 
       await streamer.stop({

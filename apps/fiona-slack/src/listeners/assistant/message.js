@@ -80,7 +80,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       logger,
       say,
     },
-    async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       if (
         await handleRateLimitedInteraction({
           userId,
@@ -107,6 +107,8 @@ export const message = async ({ client, context, logger, message, say, setStatus
           say,
           logger,
           markInteractionRecorded,
+          markInteractionError,
+          claimResponseId,
           client,
           userId,
           teamId,
@@ -257,7 +259,10 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
         // Telemetry: log finalize_state and source count for observability.
         if (metadata) {
-          logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+          logger.info(
+            `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+              (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+          );
         }
 
         await streamer.stop({

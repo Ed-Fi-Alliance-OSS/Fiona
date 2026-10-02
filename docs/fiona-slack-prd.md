@@ -89,9 +89,45 @@ Users see text appear progressively rather than waiting for a complete response.
 
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
 can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
-versioned by `SYSTEM_PROMPT_VERSION` (default `v2`), which is stored with each
-captured conversation. `v2` added the citation-numbering rules in §2.2.3; an
-overridden `SYSTEM_PROMPT` must carry them too.
+versioned by `SYSTEM_PROMPT_VERSION` (default `v3`), which is stored with each
+captured conversation. `v2` added the citation-numbering rules in §2.2.3, and
+`v3` added the grounding rules below; an overridden `SYSTEM_PROMPT` must carry
+both.
+
+**Scope (AI-231).** Fiona helps only with Ed-Fi. Coding questions are in scope
+when they concern implementing, integrating, or extending Ed-Fi (calling an
+Ed-Fi API, mapping data to the Data Standard, working in an Ed-Fi code base).
+General programming and unrelated topics are declined as outside what Fiona
+can help with. That reply is distinct from "could not find this in the Ed-Fi
+documentation", and Fiona does not recast an unrelated question as an Ed-Fi
+one.
+
+**Grounding (AI-231).** On the chat path, every factual claim must come from a
+cited search result, never from the model's background knowledge. When the
+results do not answer the question, Fiona says it could not find this in the
+Ed-Fi documentation instead of guessing. Conversational replies (greetings,
+thanks, clarifying questions) need no citation but carry no factual claims. A
+named list of high-risk topics is answered only when a result states the fact
+directly: which states or agencies implement or use Ed-Fi, adoption or usage
+counts, the implementation status of a named organization, and licensing or
+legal questions. A list taken from a source keeps that source's label: the
+homepage's "Case Studies by State" is reported as states with published case
+studies, not as the states implementing Ed-Fi, and Fiona says it may not be
+complete. Licensing and legal questions get a summary of the cited licensing
+source but no yes or no on whether a specific use is permitted, a note that
+terms differ by component and version, and a pointer to the Alliance
+(`https://www.ed-fi.org/contact/`) for details or assistance.
+
+Because search is forced, an answer that arrives with **no search results**
+means retrieval failed. In that case the model's text is discarded and a fixed
+decline (`NO_SOURCES_DECLINE_TEXT`) is sent instead, the metadata envelope
+records `grounding: 'declined_no_results'`, and the `[citations]` log line
+includes `grounding=declined_no_results`. When results exist but do not cover
+the question, only the prompt prevents a guess.
+
+The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
+already holds, uses its own prompt with no tools, and does not pass through
+this check.
 
 > **Known issue (AI-49):** This keyword routing operates on untrusted user input
 > and should be reviewed for potential abuse.
