@@ -13,6 +13,7 @@ import {
   SYSTEM_PROMPT_VERSION,
 } from '../../agent/llm-caller.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
+import { createSourcesBlocks } from '../views/sources_block.js';
 
 export const ASK_ERROR_TEXT = ':warning: Sorry, I could not answer that right now. Please try again later.';
 
@@ -60,9 +61,10 @@ function chunkForSections(text) {
   return chunks;
 }
 
-function buildAskBlocks(text, interactionType) {
+function buildAskBlocks(text, interactionType, sourcesBlocks = []) {
   return [
     ...chunkForSections(text).map((chunk) => ({ type: 'section', text: { type: 'mrkdwn', text: chunk } })),
+    ...sourcesBlocks,
     { type: 'divider' },
     createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
   ];
@@ -104,7 +106,10 @@ async function generateAnswer(sink, question, logger) {
 
   // Telemetry: log finalize_state and source count for observability.
   if (metadata) {
-    logger?.info?.(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
+    logger?.info?.(
+      `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+        (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+    );
   }
 
   return { metadata, botText, systemPromptVersion, prompts };
@@ -180,6 +185,9 @@ export async function buildAskResponse({
   }
 
   const { metadata, botText, systemPromptVersion, prompts } = result;
+  // Built before finalizing: the Sources block renders only while the envelope
+  // is still READY_TO_FINALIZE.
+  const sourcesBlocks = createSourcesBlocks(metadata);
   finalizeMetadataEnvelope(metadata);
 
   if (isEmptyAnswer(botText)) {
@@ -205,7 +213,7 @@ export async function buildAskResponse({
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks(botText, interactionType),
+      blocks: buildAskBlocks(botText, interactionType, sourcesBlocks),
       unfurl_links: false,
       unfurl_media: false,
     },
@@ -256,7 +264,10 @@ export async function streamAskResponse({
   }
 
   await streamer.stop({
-    blocks: [createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType })],
+    blocks: [
+      ...(empty ? [] : createSourcesBlocks(metadata)),
+      createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
+    ],
   });
   finalizeMetadataEnvelope(metadata);
 
