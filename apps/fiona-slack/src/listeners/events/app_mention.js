@@ -137,7 +137,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (metadata) {
         logger.info(
           `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
-            (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+            (metadata.grounding ? ` grounding=${metadata.grounding}` : '') +
+            (metadata.link_check
+              ? ` dead=${metadata.link_check.dead} regenerated=${metadata.link_check.regenerated}`
+              : ''),
         );
       }
 

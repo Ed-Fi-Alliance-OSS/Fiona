@@ -317,7 +317,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://result.example.com']);
   });
 
-  it('does not call streamer.append when there is no text', async () => {
+  it('sends the decline instead of a bare Sources block when there is no text', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
@@ -326,7 +326,9 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
     await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
-    expect(streamer.append).not.toHaveBeenCalled();
+    expect(streamer.append).toHaveBeenCalledTimes(1);
+    expect(streamer.append).toHaveBeenCalledWith({ markdown_text: NO_SOURCES_DECLINE_TEXT });
+    expect(metadata.grounding).toBe('declined_empty_answer');
   });
 
   it('defaults to the perplexity/sonar model slug when PERPLEXITY_API_MODEL is unset', async () => {
