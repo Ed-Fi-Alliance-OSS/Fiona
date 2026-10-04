@@ -3,21 +3,35 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock dotenv so the test file's CWD doesn't need a real .env.
-jest.unstable_mockModule('dotenv', () => ({ config: jest.fn() }));
+const mockDotenvConfig = jest.fn();
+jest.unstable_mockModule('dotenv', () => ({ config: mockDotenvConfig }));
 
 // Mock llm-caller.js so no SDK, API key, or network call is ever needed.
 const mockAssertLLMConfigured = jest.fn();
 const mockCallLLM = jest.fn();
-jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({
-  assertLLMConfigured: mockAssertLLMConfigured,
-  callLLM: mockCallLLM,
-  LLM_MODEL: 'sonar-test',
-  SYSTEM_PROMPT_VERSION: 'v-test',
-}));
+// Each evaluation of the factory is one import of llm-caller.js; it records the env as seen at
+// import time and exports the model the way the real module does (`PERPLEXITY_API_MODEL || 'sonar'`).
+const importSnapshots = [];
+jest.unstable_mockModule('../../src/agent/llm-caller.js', () => {
+  importSnapshots.push({
+    model: process.env.PERPLEXITY_API_MODEL,
+    systemPrompt: process.env.SYSTEM_PROMPT,
+    domains: process.env.PERPLEXITY_DOMAIN_FILTER,
+  });
+  return {
+    assertLLMConfigured: mockAssertLLMConfigured,
+    callLLM: mockCallLLM,
+    LLM_MODEL: process.env.PERPLEXITY_API_MODEL || 'sonar',
+    SYSTEM_PROMPT_VERSION: 'v-test',
+  };
+});
 
 let chatTui;
 
@@ -402,7 +416,7 @@ describe('main — missing PERPLEXITY_API_KEY', () => {
       throw new Error('PERPLEXITY_API_KEY is not set. Refusing to start without an LLM provider.');
     });
 
-    await chatTui.main();
+    await chatTui.main({ argv: [] });
 
     expect(process.exitCode).toBe(1);
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -412,5 +426,479 @@ describe('main — missing PERPLEXITY_API_KEY', () => {
     expect(consoleErrorSpy.mock.calls[0]).toHaveLength(1);
     // The banner (and therefore the REPL) must never be reached.
     expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── CLI overrides ─────────────────────────────────────────────────────────────
+
+describe('parseArgs', () => {
+  it('parses each flag in --flag value form', () => {
+    expect(
+      chatTui.parseArgs(['--model', 'sonar-pro', '--system-prompt-file', 'p.txt', '--domains', 'a.com,b.com']),
+    ).toEqual({
+      help: false,
+      model: 'sonar-pro',
+      systemPromptFile: 'p.txt',
+      domains: 'a.com,b.com',
+    });
+  });
+
+  it('keeps "=" characters inside a value', () => {
+    expect(chatTui.parseArgs(['--system-prompt-file', 'a=b.txt']).systemPromptFile).toBe('a=b.txt');
+  });
+
+  it('parses --help', () => {
+    expect(chatTui.parseArgs(['--help']).help).toBe(true);
+  });
+
+  it('rejects an unknown flag and a stray positional argument', () => {
+    expect(() => chatTui.parseArgs(['--bogus'])).toThrow('Unknown argument: --bogus');
+    expect(() => chatTui.parseArgs(['extra'])).toThrow('Unknown argument: extra');
+  });
+
+  it('rejects a value flag with no value', () => {
+    expect(() => chatTui.parseArgs(['--model'])).toThrow('--model requires a value (use --model <value>)');
+  });
+
+  it('rejects a missing value at the end of argv', () => {
+    expect(() => chatTui.parseArgs(['--domains', 'a.com', '--system-prompt-file'])).toThrow(
+      '--system-prompt-file requires a value',
+    );
+  });
+
+  it('rejects a value flag followed by another flag instead of a value', () => {
+    expect(() => chatTui.parseArgs(['--model', '--domains', 'x'])).toThrow('--model requires a value');
+  });
+
+  it('rejects an empty or whitespace-only value', () => {
+    expect(() => chatTui.parseArgs(['--model', ''])).toThrow('--model requires a value');
+    expect(() => chatTui.parseArgs(['--model', '  '])).toThrow('--model requires a value');
+  });
+
+  it('rejects an empty value in the legacy --flag= form', () => {
+    expect(() => chatTui.parseArgs(['--domains='])).toThrow('--domains requires a value');
+  });
+
+  it('still accepts the legacy --flag=value form', () => {
+    expect(chatTui.parseArgs(['--model=sonar-pro', '--domains=a.com'])).toMatchObject({
+      model: 'sonar-pro',
+      domains: 'a.com',
+    });
+  });
+
+  it('lets the last occurrence of a repeated flag win', () => {
+    expect(chatTui.parseArgs(['--model', 'a', '--model', 'b']).model).toBe('b');
+  });
+
+  it('accepts -h as --help', () => {
+    expect(chatTui.parseArgs(['-h']).help).toBe(true);
+  });
+});
+
+describe('getSystemPromptSource with a prompt file', () => {
+  it('returns file:<path> regardless of SYSTEM_PROMPT', () => {
+    expect(chatTui.getSystemPromptSource('prompts/x.txt')).toBe('file:prompts/x.txt');
+  });
+});
+
+describe('main — CLI overrides', () => {
+  const originalEnv = { ...process.env };
+  let tmpDir;
+  let consoleErrorSpy;
+  let consoleLogSpy;
+  let repl;
+
+  function writePromptFile(name, contents) {
+    const file = path.join(tmpDir, name);
+    writeFileSync(file, contents);
+    return file;
+  }
+
+  function bannerText() {
+    return consoleLogSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+  }
+
+  beforeEach(() => {
+    // Re-evaluate the llm-caller.js mock factory for every test so each import is observable.
+    jest.resetModules();
+    importSnapshots.length = 0;
+    mockAssertLLMConfigured.mockReset();
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'chat-tui-'));
+    process.exitCode = undefined;
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    repl = jest.fn().mockResolvedValue(undefined);
+    delete process.env.PERPLEXITY_API_MODEL;
+    delete process.env.SYSTEM_PROMPT;
+    delete process.env.PERPLEXITY_DOMAIN_FILTER;
+    mockDotenvConfig.mockReset();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    process.exitCode = undefined;
+    rmSync(tmpDir, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('--model sets PERPLEXITY_API_MODEL before llm-caller.js is imported, and the banner shows it', async () => {
+    await chatTui.main({ argv: ['--model', 'sonar-pro'], repl });
+
+    expect(importSnapshots).toHaveLength(1);
+    expect(importSnapshots[0].model).toBe('sonar-pro');
+    expect(bannerText()).toContain('Model          : sonar-pro');
+    expect(repl).toHaveBeenCalledTimes(1);
+  });
+
+  it('--system-prompt-file sets SYSTEM_PROMPT to the file contents before the import', async () => {
+    const file = writePromptFile('prompt.txt', 'You are a pirate.\n');
+
+    await chatTui.main({ argv: ['--system-prompt-file', file], repl });
+
+    expect(importSnapshots[0].systemPrompt).toBe('You are a pirate.\n');
+    expect(bannerText()).toContain(`file:${file}`);
+  });
+
+  it('--domains sets PERPLEXITY_DOMAIN_FILTER before the import, and the banner shows it', async () => {
+    await chatTui.main({ argv: ['--domains', 'a.example.com,b.example.com'], repl });
+
+    expect(importSnapshots[0].domains).toBe('a.example.com,b.example.com');
+    expect(bannerText()).toContain('Domain filter  : a.example.com, b.example.com');
+  });
+
+  it('flags override values already loaded from .env', async () => {
+    mockDotenvConfig.mockImplementation(() => {
+      process.env.PERPLEXITY_API_MODEL = 'env-model';
+      process.env.SYSTEM_PROMPT = 'env prompt';
+      process.env.PERPLEXITY_DOMAIN_FILTER = 'env.example.com';
+    });
+    const file = writePromptFile('prompt.txt', 'file prompt');
+
+    await chatTui.main({
+      argv: ['--model', 'cli-model', '--system-prompt-file', file, '--domains', 'cli.example.com'],
+      repl,
+    });
+
+    expect(importSnapshots[0]).toEqual({
+      model: 'cli-model',
+      systemPrompt: 'file prompt',
+      domains: 'cli.example.com',
+    });
+  });
+
+  it('without flags, .env values are left alone and the prompt source is "env"', async () => {
+    mockDotenvConfig.mockImplementation(() => {
+      process.env.SYSTEM_PROMPT = 'env prompt';
+    });
+
+    await chatTui.main({ argv: [], repl });
+
+    expect(importSnapshots[0].systemPrompt).toBe('env prompt');
+    expect(bannerText()).toContain('Prompt source  : env');
+  });
+
+  it('banner shows the default prompt source when neither flag nor SYSTEM_PROMPT is set', async () => {
+    await chatTui.main({ argv: [], repl });
+
+    expect(bannerText()).toContain('Prompt source  : default (llm-caller.js)');
+  });
+
+  it('a missing prompt file exits 1 with a clear message, no stack trace, and no import', async () => {
+    const file = path.join(tmpDir, 'nope.txt');
+
+    await chatTui.main({ argv: ['--system-prompt-file', file], repl });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy.mock.calls[0]).toHaveLength(1);
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('Cannot read --system-prompt-file');
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain(file);
+    expect(consoleErrorSpy.mock.calls[0][0]).not.toMatch(/\n\s+at /);
+    expect(importSnapshots).toHaveLength(0);
+    expect(repl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', '  \n\t \n'],
+  ])('an %s prompt file exits 1 with a clear message', async (_label, contents) => {
+    const file = writePromptFile('blank.txt', contents);
+
+    await chatTui.main({ argv: ['--system-prompt-file', file], repl });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('is empty');
+    expect(importSnapshots).toHaveLength(0);
+  });
+
+  it('--help prints usage, exits 0, and never imports llm-caller.js or needs an API key', async () => {
+    await chatTui.main({ argv: ['--help'], repl });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(consoleLogSpy).toHaveBeenCalledWith(chatTui.USAGE_TEXT);
+    expect(importSnapshots).toHaveLength(0);
+    expect(mockAssertLLMConfigured).not.toHaveBeenCalled();
+    expect(repl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [['--help', '--bogus']],
+    [['--bogus', '--help']],
+    [['--model', '--help']],
+    [['--help', '--model']],
+    [['--model', '-h']],
+  ])('%j prints usage, exits 0, and never imports llm-caller.js', async (argv) => {
+    await chatTui.main({ argv, repl });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(consoleLogSpy).toHaveBeenCalledWith(chatTui.USAGE_TEXT);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+    expect(importSnapshots).toHaveLength(0);
+    expect(repl).not.toHaveBeenCalled();
+  });
+
+  it('a flag with a missing value prints an error plus usage, exits 1, and never imports llm-caller.js', async () => {
+    await chatTui.main({ argv: ['--model', '--domains', 'x'], repl });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('--model requires a value');
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('Usage:');
+    expect(importSnapshots).toHaveLength(0);
+  });
+
+  it('the legacy --flag=value form still works end to end', async () => {
+    await chatTui.main({ argv: ['--model=legacy-model'], repl });
+
+    expect(importSnapshots[0].model).toBe('legacy-model');
+  });
+
+  it('an unknown flag prints an error plus usage, exits 1, and never imports llm-caller.js', async () => {
+    await chatTui.main({ argv: ['--bogus'], repl });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('Unknown argument: --bogus');
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain('Usage:');
+    expect(importSnapshots).toHaveLength(0);
+  });
+});
+
+// ── /reload ───────────────────────────────────────────────────────────────────
+
+describe('/reload', () => {
+  const originalEnv = { ...process.env };
+  let tmpDir;
+  let promptFile;
+  let printed;
+  let session;
+
+  const print = (text) => printed.push(text);
+
+  function makeModule(label) {
+    return {
+      assertLLMConfigured: jest.fn(),
+      callLLM: jest.fn().mockResolvedValue({ metadata: {}, botText: label, systemPromptVersion: 'v' }),
+      LLM_MODEL: `model-${label}`,
+      SYSTEM_PROMPT_VERSION: `ver-${label}`,
+    };
+  }
+
+  function makeSession(callLLM) {
+    return chatSessionFactory({ callLLM, streamer: { append: jest.fn() }, logger: { error: jest.fn() } });
+  }
+
+  let chatSessionFactory;
+
+  beforeAll(async () => {
+    ({ createChatSession: chatSessionFactory } = await import('../../scripts/chat-session.js'));
+  });
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'chat-tui-reload-'));
+    promptFile = path.join(tmpDir, 'prompt.txt');
+    writeFileSync(promptFile, 'prompt one');
+    process.env.SYSTEM_PROMPT = 'prompt one';
+    process.env.PERPLEXITY_API_MODEL = 'cli-model';
+    process.env.PERPLEXITY_DOMAIN_FILTER = 'cli.example.com';
+    printed = [];
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('/help lists /reload', () => {
+    expect(chatTui.HELP_TEXT).toContain('/reload');
+  });
+
+  it('re-reads the file, re-imports with a new counter, swaps callLLM, keeps history, and reprints the banner', async () => {
+    const oldModule = makeModule('old');
+    const newModule = makeModule('new');
+    const importer = jest.fn().mockResolvedValue(newModule);
+    session = makeSession(oldModule.callLLM);
+    await session.send('first question');
+
+    writeFileSync(promptFile, 'prompt two\nsecond line');
+    const reload = chatTui.createReloader({ session, promptFile, print, importer });
+
+    await expect(reload()).resolves.toBe(true);
+    await reload();
+
+    expect(importer.mock.calls.map((call) => call[0])).toEqual([1, 2]);
+    expect(process.env.SYSTEM_PROMPT).toBe('prompt two\nsecond line');
+    // CLI overrides are untouched.
+    expect(process.env.PERPLEXITY_API_MODEL).toBe('cli-model');
+    expect(process.env.PERPLEXITY_DOMAIN_FILTER).toBe('cli.example.com');
+    expect(printed[0]).toContain('model-new');
+    expect(printed[0]).toContain('ver-new');
+    expect(printed[0]).toContain(`file:${promptFile}`);
+    expect(printed[0]).toContain('cli.example.com');
+    expect(printed[0]).toContain('chars, starts: prompt two');
+
+    await session.send('second question');
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+    expect(newModule.callLLM).toHaveBeenCalledTimes(1);
+    expect(session.history.map((turn) => turn.content)).toEqual(['first question', 'old', 'second question', 'new']);
+  });
+
+  it('is atomic when the prompt file was deleted: error printed, old callLLM and env kept, importer not called', async () => {
+    const oldModule = makeModule('old');
+    const importer = jest.fn();
+    session = makeSession(oldModule.callLLM);
+    rmSync(promptFile);
+
+    await expect(chatTui.createReloader({ session, promptFile, print, importer })()).resolves.toBe(false);
+
+    expect(printed.join('\n')).toContain('Reload failed');
+    expect(printed.join('\n')).toContain('Cannot read --system-prompt-file');
+    expect(importer).not.toHaveBeenCalled();
+    expect(process.env.SYSTEM_PROMPT).toBe('prompt one');
+    await session.send('q');
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('is atomic when the import rejects: old callLLM kept and SYSTEM_PROMPT restored to its previous value', async () => {
+    const oldModule = makeModule('old');
+    const importer = jest.fn().mockRejectedValue(new SyntaxError('Unexpected token'));
+    session = makeSession(oldModule.callLLM);
+    writeFileSync(promptFile, 'prompt two');
+
+    await expect(chatTui.createReloader({ session, promptFile, print, importer })()).resolves.toBe(false);
+
+    expect(printed.join('\n')).toContain('Reload failed');
+    expect(printed.join('\n')).toContain('Unexpected token');
+    expect(process.env.SYSTEM_PROMPT).toBe('prompt one');
+    await session.send('q');
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes SYSTEM_PROMPT again on failure if it was not set before', async () => {
+    delete process.env.SYSTEM_PROMPT;
+    session = makeSession(makeModule('old').callLLM);
+    const importer = jest.fn().mockRejectedValue(new Error('boom'));
+
+    await chatTui.createReloader({ session, promptFile, print, importer })();
+
+    expect(Object.hasOwn(process.env, 'SYSTEM_PROMPT')).toBe(false);
+  });
+
+  it('keeps the old callLLM when the new module is not configured or has no callLLM', async () => {
+    const oldModule = makeModule('old');
+    session = makeSession(oldModule.callLLM);
+    const unconfigured = makeModule('bad');
+    unconfigured.assertLLMConfigured.mockImplementation(() => {
+      throw new Error('no key');
+    });
+
+    await chatTui.createReloader({ session, promptFile, print, importer: async () => unconfigured })();
+    await chatTui.createReloader({
+      session,
+      promptFile,
+      print,
+      importer: async () => ({ assertLLMConfigured() {} }),
+    })();
+
+    expect(printed.filter((text) => text.startsWith('Reload failed'))).toHaveLength(2);
+    await session.send('q');
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a prompt file, leaves SYSTEM_PROMPT alone and still re-imports', async () => {
+    const importer = jest.fn().mockResolvedValue(makeModule('new'));
+    session = makeSession(makeModule('old').callLLM);
+
+    await chatTui.createReloader({ session, print, importer })();
+
+    expect(importer).toHaveBeenCalledWith(1);
+    expect(process.env.SYSTEM_PROMPT).toBe('prompt one');
+    expect(printed[0]).toContain('Prompt source  : env');
+  });
+
+  it('works end to end through the REPL: /reload is awaited, the REPL keeps running, the next send uses the new callLLM', async () => {
+    const oldModule = makeModule('old');
+    const newModule = makeModule('new');
+    const importer = jest.fn().mockResolvedValue(newModule);
+    session = makeSession(oldModule.callLLM);
+    const reload = chatTui.createReloader({ session, promptFile, print, importer });
+    const { input, output } = createStreams();
+
+    input.write('/reload\n');
+    input.write('hello\n');
+    input.write('/exit\n');
+    await chatTui.runRepl({ input, output, session, reload });
+
+    expect(importer).toHaveBeenCalledTimes(1);
+    expect(newModule.callLLM).toHaveBeenCalledTimes(1);
+    expect(oldModule.callLLM).not.toHaveBeenCalled();
+  });
+
+  it('llmCallerSpecifier returns the plain path for 0 and a ?reload=<n> path otherwise', () => {
+    expect(chatTui.llmCallerSpecifier(0)).toBe('../src/agent/llm-caller.js');
+    expect(chatTui.llmCallerSpecifier()).toBe('../src/agent/llm-caller.js');
+    expect(chatTui.llmCallerSpecifier(1)).toBe('../src/agent/llm-caller.js?reload=1');
+    expect(chatTui.llmCallerSpecifier(7)).toBe('../src/agent/llm-caller.js?reload=7');
+  });
+
+  it('importLLMCaller spells out the same path that llmCallerSpecifier uses (keeps the two in sync)', () => {
+    expect(chatTui.importLLMCaller.toString()).toContain(`\`${chatTui.llmCallerSpecifier(0)}$`);
+  });
+
+  it('importLLMCaller resolves for the plain and the ?reload=<n> specifiers', async () => {
+    const first = await chatTui.importLLMCaller(0);
+    expect(first.LLM_MODEL).toBeDefined();
+    const reloaded = await chatTui.importLLMCaller(1);
+    expect(typeof reloaded.callLLM).toBe('function');
+  });
+
+  it('a failed reload followed by a successful one uses counters 1 then 2 and activates the new callLLM', async () => {
+    const oldModule = makeModule('old');
+    const newModule = makeModule('new');
+    const importer = jest.fn().mockRejectedValueOnce(new Error('transient')).mockResolvedValueOnce(newModule);
+    session = makeSession(oldModule.callLLM);
+    const reload = chatTui.createReloader({ session, promptFile, print, importer });
+
+    await expect(reload()).resolves.toBe(false);
+    await session.send('q1');
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+
+    await expect(reload()).resolves.toBe(true);
+    await session.send('q2');
+
+    expect(importer.mock.calls.map((call) => call[0])).toEqual([1, 2]);
+    expect(newModule.callLLM).toHaveBeenCalledTimes(1);
+    expect(oldModule.callLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleCommand("/reload") without ctx.reload prints a message and resolves true', async () => {
+    const ctxPrint = jest.fn();
+    await expect(chatTui.handleCommand('/reload', { print: ctxPrint })).resolves.toBe(true);
+    expect(ctxPrint).toHaveBeenCalledWith('Reload is not available here.');
   });
 });

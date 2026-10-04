@@ -11,6 +11,7 @@
  * Run with `npm run chat` from `apps/fiona-slack/`.
  */
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -29,6 +30,7 @@ export const HELP_TEXT = [
   'Commands:',
   '  /reset    Clear conversation history',
   '  /history  Show the conversation so far',
+  '  /reload   Re-read the prompt file and re-import llm-caller.js (history is kept)',
   '  /help     Show this help',
   '  /exit     Quit (Ctrl+C / Ctrl+D also work)',
 ].join('\n');
@@ -60,31 +62,232 @@ export function getDomainFilter() {
 
 /**
  * Where the active system prompt came from, for the banner.
- * @returns {'env' | 'default (llm-caller.js)'}
+ *
+ * @param {string} [promptFile] - The `--system-prompt-file` path, if one was given (shown as typed).
+ * @returns {string} `file:<path>`, `env` (`SYSTEM_PROMPT` set, e.g. in `.env`), or
+ *   `default (llm-caller.js)`.
  */
-export function getSystemPromptSource() {
+export function getSystemPromptSource(promptFile) {
+  if (promptFile) {
+    return `file:${promptFile}`;
+  }
   return process.env.SYSTEM_PROMPT ? 'env' : 'default (llm-caller.js)';
 }
 
 /**
- * Build the startup banner shown once, before the REPL starts.
+ * Build the startup banner shown once, before the REPL starts. Also reusable by `/reload` to
+ * reprint the summary after re-importing `llm-caller.js`.
  *
  * @param {{ LLM_MODEL: string, SYSTEM_PROMPT_VERSION: string }} llmCaller - `LLM_MODEL` and
- *   `SYSTEM_PROMPT_VERSION` as exported by the imported `llm-caller.js`.
+ *   `SYSTEM_PROMPT_VERSION` as exported by the imported `llm-caller.js` (so the model shown is the
+ *   effective one, not just what was requested).
+ * @param {string} [promptFile] - The `--system-prompt-file` path, if one was given.
  * @returns {string}
  */
-export function buildBanner({ LLM_MODEL, SYSTEM_PROMPT_VERSION }) {
+export function buildBanner({ LLM_MODEL, SYSTEM_PROMPT_VERSION }, promptFile) {
   const divider = '─'.repeat(60);
   return [
     divider,
     'Fiona local chat harness — no Slack, no database, nothing recorded.',
     `Model          : ${LLM_MODEL}`,
-    `Prompt version : ${SYSTEM_PROMPT_VERSION} (${getSystemPromptSource()})`,
+    `Prompt version : ${SYSTEM_PROMPT_VERSION}`,
+    `Prompt source  : ${getSystemPromptSource(promptFile)}`,
     `Domain filter  : ${getDomainFilter().join(', ')}`,
     'History is in memory only — nothing is recorded.',
     'Type /help for commands.',
     divider,
   ].join('\n');
+}
+
+export const USAGE_TEXT = [
+  'Usage: npm run chat -- [options]',
+  '',
+  'Options (override the matching .env values):',
+  '  --model <name>               Perplexity model (sets PERPLEXITY_API_MODEL)',
+  '  --system-prompt-file <path>  Read the system prompt from a file (sets SYSTEM_PROMPT)',
+  '  --domains <a,b>              Comma-separated search domain filter (sets PERPLEXITY_DOMAIN_FILTER)',
+  '  --help, -h                   Show this help and exit',
+].join('\n');
+
+const VALUE_FLAGS = {
+  '--model': 'model',
+  '--system-prompt-file': 'systemPromptFile',
+  '--domains': 'domains',
+};
+
+/**
+ * Parse `--flag value` style arguments. The legacy `--flag=value` form is still accepted. A
+ * repeated flag is not an error: the last occurrence wins. A standalone `--help` / `-h` anywhere
+ * in `argv` short-circuits parsing (even `--model -h` means help), so it never errors.
+ *
+ * @param {string[]} argv - Arguments after the script name.
+ * @returns {{ help: boolean, model?: string, systemPromptFile?: string, domains?: string }}
+ * @throws {Error} On an unknown argument, or a value flag whose value is missing, empty, or
+ *   looks like another `--flag`.
+ */
+export function parseArgs(argv) {
+  // A standalone --help / -h anywhere wins over everything else, so it works even next to a bad
+  // or incomplete argument (`--bogus --help`, `--model --help`).
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { help: true };
+  }
+
+  const options = { help: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const eq = arg.indexOf('=');
+    const flag = eq === -1 ? arg : arg.slice(0, eq);
+    const key = VALUE_FLAGS[flag];
+    if (!key) {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+    let value;
+    if (eq !== -1) {
+      value = arg.slice(eq + 1);
+    } else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+      i += 1;
+      value = argv[i];
+    }
+    value = value?.trim();
+    if (!value) {
+      throw new Error(`${flag} requires a value (use ${flag} <value>)`);
+    }
+    options[key] = value;
+  }
+  return options;
+}
+
+/**
+ * Read a system prompt file. Reusable by `/reload` to re-read the file.
+ *
+ * @param {string} file - Path, resolved against the current working directory.
+ * @returns {string} The file contents.
+ * @throws {Error} With a concise message if the file is unreadable or blank.
+ */
+export function loadSystemPromptFile(file) {
+  let contents;
+  try {
+    contents = readFileSync(path.resolve(process.cwd(), file), 'utf8');
+  } catch (error) {
+    throw new Error(`Cannot read --system-prompt-file "${file}": ${error.code ?? error.message}`);
+  }
+  if (!contents.trim()) {
+    throw new Error(`--system-prompt-file "${file}" is empty.`);
+  }
+  return contents;
+}
+
+/**
+ * Apply CLI overrides to `process.env`. Call after `loadDotenv()` (flags win over `.env`) and
+ * before importing `llm-caller.js`, which reads these variables at import time.
+ *
+ * @param {ReturnType<typeof parseArgs>} options
+ * @throws {Error} If the system prompt file is missing or empty.
+ */
+export function applyOverrides(options) {
+  if (options.model) {
+    process.env.PERPLEXITY_API_MODEL = options.model;
+  }
+  if (options.systemPromptFile) {
+    process.env.SYSTEM_PROMPT = loadSystemPromptFile(options.systemPromptFile);
+  }
+  if (options.domains) {
+    process.env.PERPLEXITY_DOMAIN_FILTER = options.domains;
+  }
+}
+
+const LLM_CALLER_PATH = '../src/agent/llm-caller.js';
+
+/**
+ * Query suffix for the n-th (re)import: empty for the first import, `?reload=<n>` afterwards.
+ * @param {number} reloadN
+ */
+function reloadQuery(reloadN) {
+  return reloadN > 0 ? `?reload=${reloadN}` : '';
+}
+
+/**
+ * The specifier `importLLMCaller` imports for a given reload counter: the plain path for 0, and a
+ * `?reload=<n>` cache-busting variant for n > 0.
+ *
+ * @param {number} [reloadN]
+ * @returns {string}
+ */
+export function llmCallerSpecifier(reloadN = 0) {
+  return `${LLM_CALLER_PATH}${reloadQuery(reloadN)}`;
+}
+
+/**
+ * Import `llm-caller.js`, with a `?reload=<n>` cache-busting query when `reloadN` > 0 so Node
+ * evaluates the file again (picking up source edits and re-reading env vars). Shared by `main`
+ * and `/reload`; injectable for tests.
+ *
+ * The import expression is deliberately a template literal that spells out the path (rather than
+ * `import(llmCallerSpecifier(n))`): the isolation test statically walks import specifiers and
+ * could not see through a function call, which would let a forbidden import in `llm-caller.js`
+ * go undetected. Keep the path here in sync with `LLM_CALLER_PATH`.
+ *
+ * @param {number} [reloadN]
+ * @returns {Promise<typeof import('../src/agent/llm-caller.js')>}
+ */
+export function importLLMCaller(reloadN = 0) {
+  return import(`../src/agent/llm-caller.js${reloadQuery(reloadN)}`);
+}
+
+/**
+ * One-line summary of the active prompt, for `/reload`. Only the env-provided prompt (file or
+ * `.env`) is visible here; the built-in default is not exported by `llm-caller.js`.
+ */
+export function describePrompt() {
+  const prompt = process.env.SYSTEM_PROMPT;
+  if (!prompt) {
+    return 'Prompt text     : built-in default (see llm-caller.js)';
+  }
+  const firstLine = prompt.trim().split('\n')[0];
+  const preview = firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
+  return `Prompt text     : ${prompt.length} chars, starts: ${preview}`;
+}
+
+/**
+ * Build the `/reload` implementation. Atomic: the prompt file is re-read and `llm-caller.js`
+ * re-imported (with an incrementing `?reload=<n>`), and only if both succeed is the session
+ * switched to the new `callLLM`. On any failure the error is printed, `process.env.SYSTEM_PROMPT`
+ * is restored, and the previous `callLLM` stays active. History is never touched. CLI `--model`
+ * and `--domains` overrides remain in `process.env`, so the re-imported module sees them again.
+ *
+ * @param {Object} options
+ * @param {{ setCallLLM: Function }} options.session
+ * @param {string} [options.promptFile] - The `--system-prompt-file` path, if any.
+ * @param {(text: string) => void} options.print
+ * @param {typeof importLLMCaller} [options.importer]
+ * @returns {() => Promise<boolean>} Resolves true if the reload succeeded.
+ */
+export function createReloader({ session, promptFile, print, importer = importLLMCaller }) {
+  let reloadCount = 0;
+
+  return async function reload() {
+    reloadCount += 1;
+    const hadPrompt = Object.hasOwn(process.env, 'SYSTEM_PROMPT');
+    const previousPrompt = process.env.SYSTEM_PROMPT;
+    try {
+      if (promptFile) {
+        process.env.SYSTEM_PROMPT = loadSystemPromptFile(promptFile);
+      }
+      const llmCaller = await importer(reloadCount);
+      llmCaller.assertLLMConfigured();
+      session.setCallLLM(llmCaller.callLLM); // last step: throws (leaving the old one) if not a function
+      print(`Reloaded (#${reloadCount}).\n${buildBanner(llmCaller, promptFile)}\n${describePrompt()}`);
+      return true;
+    } catch (error) {
+      if (hadPrompt) {
+        process.env.SYSTEM_PROMPT = previousPrompt;
+      } else {
+        delete process.env.SYSTEM_PROMPT;
+      }
+      print(`Reload failed, keeping the previous prompt and model: ${error.message}`);
+      return false;
+    }
+  };
 }
 
 /**
@@ -149,7 +352,7 @@ export function createThinkingIndicator(output) {
  *
  * @param {string} line
  * @param {{ session: { reset: Function, history: Array }, print: (text: string) => void, exit: () => void }} ctx
- * @returns {boolean}
+ * @returns {boolean | Promise<boolean>} `true` when handled; `/reload` returns a promise to await.
  */
 export function handleCommand(line, ctx) {
   const trimmed = line.trim();
@@ -171,6 +374,9 @@ export function handleCommand(line, ctx) {
     case '/help':
       ctx.print(HELP_TEXT);
       return true;
+    case '/reload':
+      // Async: returns a (truthy) promise that `runRepl` awaits.
+      return ctx.reload ? ctx.reload() : Promise.resolve(ctx.print('Reload is not available here.')).then(() => true);
     case '/exit':
       ctx.exit();
       return true;
@@ -237,6 +443,7 @@ export function createSigintHandler({
  * @param {{ send: Function, reset: Function, history: Array }} options.session
  * @param {string} [options.prompt] - Defaults to `'> '`.
  * @param {ReturnType<typeof createThinkingIndicator>} [options.thinking] - Defaults to a fresh indicator bound to `output`.
+ * @param {() => Promise<boolean>} [options.reload] - Backs the `/reload` command.
  * @param {(code: number) => void} [options.exitProcess] - Defaults to `process.exit`. Injectable for tests; called
  *   with code `130` on a second Ctrl+C received while a request is in flight, to force-quit a hung call.
  */
@@ -247,6 +454,7 @@ export async function runRepl({
   prompt = '> ',
   thinking,
   exitProcess = process.exit,
+  reload,
 } = {}) {
   const indicator = thinking ?? createThinkingIndicator(output);
   const rl = createInterface({ input, output, terminal: Boolean(input.isTTY) });
@@ -262,6 +470,7 @@ export async function runRepl({
   const ctx = {
     session,
     print,
+    reload,
     exit: () => {
       exiting = true;
       rl.close();
@@ -286,7 +495,10 @@ export async function runRepl({
 
   for await (const line of rl) {
     if (line.trim()) {
-      if (!handleCommand(line, ctx)) {
+      const handled = handleCommand(line, ctx);
+      if (handled) {
+        await handled;
+      } else {
         indicator.show();
         requestInFlight = true;
         try {
@@ -318,17 +530,36 @@ export async function runRepl({
 }
 
 /**
- * Entry point. Loads `.env`, dynamically imports `llm-caller.js` (so Task 4's `--model` /
- * `--system-prompt-file` / `--domains` flags can set env vars before this import), fails fast
- * with a clean message (no stack trace) and exit code 1 if no LLM is configured, prints the
- * startup banner, then runs the REPL.
+ * Entry point. Parses CLI flags (`--help` exits before touching `.env` or `llm-caller.js`), loads
+ * `.env`, applies flag overrides on top, then dynamically imports `llm-caller.js` (which reads
+ * its env vars at import time), fails fast with a clean message (no stack trace) and exit code 1
+ * on bad input or if no LLM is configured, prints the startup banner, then runs the REPL.
+ *
+ * @param {Object} [options]
+ * @param {string[]} [options.argv] - Defaults to `process.argv.slice(2)`.
+ * @param {typeof runRepl} [options.repl] - Injectable for tests.
+ * @param {typeof importLLMCaller} [options.importer] - Injectable for tests.
  */
-export async function main() {
+export async function main({ argv = process.argv.slice(2), repl = runRepl, importer = importLLMCaller } = {}) {
+  let options;
+  try {
+    options = parseArgs(argv);
+  } catch (error) {
+    console.error(`Error: ${error.message}\n\n${USAGE_TEXT}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (options.help) {
+    console.log(USAGE_TEXT);
+    return;
+  }
+
   loadDotenv();
 
   let llmCaller;
   try {
-    llmCaller = await import('../src/agent/llm-caller.js');
+    applyOverrides(options);
+    llmCaller = await importer(0);
     llmCaller.assertLLMConfigured();
   } catch (error) {
     console.error(`Error: ${error.message}`);
@@ -342,9 +573,16 @@ export async function main() {
   const streamer = createConsoleStreamer({ write: thinking.write });
   const session = createChatSession({ callLLM, streamer, logger });
 
-  console.log(buildBanner({ LLM_MODEL, SYSTEM_PROMPT_VERSION }));
+  console.log(buildBanner({ LLM_MODEL, SYSTEM_PROMPT_VERSION }, options.systemPromptFile));
 
-  await runRepl({ session, thinking });
+  const reload = createReloader({
+    session,
+    promptFile: options.systemPromptFile,
+    print: (text) => console.log(text),
+    importer,
+  });
+
+  await repl({ session, thinking, reload });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

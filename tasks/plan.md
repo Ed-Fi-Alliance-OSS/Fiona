@@ -64,9 +64,9 @@ prompt or the Perplexity model.
 
 ### Phase 3: Prompt/model iteration + docs
 
-- [ ] Task 4: CLI overrides (`--model`, `--system-prompt-file`, `--domains`)
-- [ ] Task 5: `/reload` command (hot-reload system prompt / `llm-caller.js`)
-- [ ] Task 6: README documentation
+- [x] Task 4: CLI overrides (`--model`, `--system-prompt-file`, `--domains`)
+- [x] Task 5: `/reload` command (hot-reload system prompt / `llm-caller.js`)
+- [x] Task 6: README documentation
 
 ### Checkpoint: Complete
 

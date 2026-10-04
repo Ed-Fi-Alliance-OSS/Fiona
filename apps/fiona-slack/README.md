@@ -60,6 +60,9 @@ src/
       feedback.js              Feedback button click handler
     views/
       feedback_block.js        Feedback button UI component
+scripts/                       (chat harness files only; other scripts omitted)
+  chat-tui.js                  Local terminal chat harness (npm run chat)
+  chat-session.js              In-memory chat session used by the harness
 ```
 
 ## Development
@@ -70,6 +73,60 @@ npm run lint:fix      # Auto-fix lint issues
 npm test              # Run tests (Jest)
 npm run test:ci       # Tests with coverage and JUnit output
 ```
+
+## Local chat harness (no Slack)
+
+`npm run chat` starts a terminal chat with Fiona so you can iterate on the system prompt and model without deploying the Slack app. It calls `callLLM` from `src/agent/llm-caller.js` directly.
+
+**Setup:** first follow the [Setup](#setup) steps above (copy `.env.sample` to `.env`, run `npm ci`). The only thing needed in `.env` is `PERPLEXITY_API_KEY`. No Slack tokens and no Cosmos DB settings are required. If the key is missing, the harness prints an error and exits with code 1.
+
+Create your prompt file first (any text file, for example `./my-prompt.txt`), then:
+
+```sh
+npm run chat
+npm run chat -- --model sonar-pro --system-prompt-file ./my-prompt.txt --domains docs.ed-fi.org,www.ed-fi.org
+npm run chat -- --help
+```
+
+Flags take their value as the next argument and override the matching `.env` values:
+
+| Flag | Effect |
+| --- | --- |
+| `--model <name>` | Sets `PERPLEXITY_API_MODEL` |
+| `--system-prompt-file <path>` | Uses the file's contents as `SYSTEM_PROMPT` (path relative to the current directory). A missing, unreadable or empty file exits with code 1 |
+| `--domains <a,b>` | Sets `PERPLEXITY_DOMAIN_FILTER` (comma-separated) |
+| `--help` (or `-h`) | Prints usage and exits; no API key needed |
+
+A flag with a missing value, and unknown flags, print an error plus the usage text and exit with code 1.
+
+The startup banner shows the effective model, the prompt version, the domain filter, and the prompt source: `file:<path>` (from `--system-prompt-file`), `env` (`SYSTEM_PROMPT` set in `.env`, no flag), or `default (llm-caller.js)`.
+
+### Commands
+
+| Command | Effect |
+| --- | --- |
+| `/reset` | Clear the conversation history |
+| `/history` | Show the conversation so far |
+| `/reload` | Re-read the prompt file and re-import `llm-caller.js`; history is kept |
+| `/help` | List the commands |
+| `/exit` | Quit |
+
+Ctrl+D (end of input) also quits. Ctrl+C quits immediately when idle. While a request is in flight, the first Ctrl+C exits after that request finishes, and a second Ctrl+C force-quits (exit code 130), which is useful for a hung call.
+
+### Iterating on the prompt with `/reload`
+
+1. Start the harness, for example with `--system-prompt-file ./my-prompt.txt`, and ask a question.
+1. Edit the prompt file. Edit `DEFAULT_SYSTEM_PROMPT` in `src/agent/llm-caller.js` only when neither `--system-prompt-file` nor `SYSTEM_PROMPT` in `.env` is set.
+1. Run `/reload`. The harness re-reads the file, re-imports `llm-caller.js`, and reprints the banner plus a one-line prompt summary (character count and first line when the prompt comes from a file or `SYSTEM_PROMPT`).
+1. Ask again. The history is kept, so use `/reset` for a clean conversation.
+
+`/reload` does not re-read `.env`; restart the harness after changing it. `--model` and `--domains` stay in force across reloads. If a reload fails (the prompt file was deleted or is empty, `llm-caller.js` has a syntax error, and so on), the error is printed and the previous prompt and model stay active.
+
+### Notes and limitations
+
+- **Nothing is recorded.** History lives only in process memory and is discarded on exit. The harness makes no database or Slack connection, and an isolation test (`tests/scripts/chat-tui.isolation.test.js`) fails if `chat-tui.js` can reach a store, Cosmos or telemetry module.
+- **Output is not token-streamed.** The whole answer appears at once after a "Thinking…" indicator.
+- **`/reload` re-evaluates only `llm-caller.js` itself.** Its dependencies, such as the Perplexity SDK, citation telemetry and the source normalizer, stay cached. Each reload keeps one more module instance in memory, which is fine for a development tool.
 
 ## Slack CLI Setup
 
