@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 83,
+  "title": "[AI-182] [Automation]: Implement /fiona ask — private LLM queries via slash command",
+  "state": "merged",
+  "jiraKey": "AI-182",
+  "authorKind": "agent",
+  "stats": {
+    "additions": 1942,
+    "deletions": 140,
+    "changedFiles": 21,
+    "commits": 4,
+    "reviewCycles": 0,
+    "reviewComments": 4,
+    "timeToFirstGreenCiMinutes": 101072,
+    "timeToMergeMinutes": 101134,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 18,
+      "md": 3
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 4,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "agent",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-04T14:45:41.902Z"
+}
