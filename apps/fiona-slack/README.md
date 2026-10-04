@@ -84,7 +84,7 @@ Create your prompt file first (any text file, for example `./my-prompt.txt`), th
 
 ```sh
 npm run chat
-npm run chat -- --model sonar-pro --system-prompt-file ./my-prompt.txt --domains docs.ed-fi.org,www.ed-fi.org
+npm run chat -- --model perplexity/sonar --system-prompt-file ./my-prompt.txt --domains docs.ed-fi.org,www.ed-fi.org
 npm run chat -- --help
 ```
 
@@ -92,7 +92,7 @@ Flags take their value as the next argument and override the matching `.env` val
 
 | Flag | Effect |
 | --- | --- |
-| `--model <name>` | Sets `PERPLEXITY_API_MODEL` |
+| `--model <name>` | Sets `PERPLEXITY_API_MODEL` (Agent API `provider/model` slug, e.g. `perplexity/sonar`) |
 | `--system-prompt-file <path>` | Uses the file's contents as `SYSTEM_PROMPT` (path relative to the current directory). A missing, unreadable or empty file exits with code 1 |
 | `--domains <a,b>` | Sets `PERPLEXITY_DOMAIN_FILTER` (comma-separated) |
 | `--help` (or `-h`) | Prints usage and exits; no API key needed |
