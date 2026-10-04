@@ -302,6 +302,53 @@ describe('createChatSession — overlapping send guard', () => {
   });
 });
 
+describe('createChatSession — empty model response', () => {
+  it.each([
+    ['an empty string', ''],
+    ['whitespace only', '   \n '],
+    ['undefined', undefined],
+    ['a non-string', 42],
+  ])('rejects %s, leaves history unchanged, and the next send alternates correctly', async (_label, botText) => {
+    const callLLM = jest
+      .fn()
+      .mockResolvedValueOnce({ metadata: { sources: [] }, botText: 'First answer' })
+      .mockResolvedValueOnce({ metadata: { sources: [] }, botText })
+      .mockResolvedValueOnce({ metadata: { sources: [] }, botText: 'Third answer' });
+    const session = createChatSession({
+      callLLM,
+      streamer: createConsoleStreamer({ write: jest.fn() }),
+      logger: { error: jest.fn() },
+    });
+
+    await session.send('Q1');
+    const before = [...session.history];
+
+    await expect(session.send('Q2')).rejects.toThrow('The model returned an empty response; please try again.');
+    expect(session.history).toEqual(before);
+
+    await session.send('Q3');
+    expect(session.history.map((turn) => `${turn.role}:${turn.content}`)).toEqual([
+      'user:Q1',
+      'assistant:First answer',
+      'user:Q3',
+      'assistant:Third answer',
+    ]);
+    // The retry sent the prior history plus Q3 only: no orphaned Q2 turn.
+    expect(callLLM.mock.calls[2][1].map((turn) => turn.role)).toEqual(['user', 'assistant', 'user']);
+  });
+
+  it('also rejects when callLLM resolves with no result object', async () => {
+    const session = createChatSession({
+      callLLM: jest.fn().mockResolvedValue(undefined),
+      streamer: createConsoleStreamer({ write: jest.fn() }),
+      logger: { error: jest.fn() },
+    });
+
+    await expect(session.send('Q')).rejects.toThrow('empty response');
+    expect(session.history).toEqual([]);
+  });
+});
+
 // ── formatSources ─────────────────────────────────────────────────────────────
 
 describe('formatSources', () => {

@@ -223,9 +223,10 @@ export function llmCallerSpecifier(reloadN = 0) {
  * and `/reload`; injectable for tests.
  *
  * The import expression is deliberately a template literal that spells out the path (rather than
- * `import(llmCallerSpecifier(n))`): the isolation test statically walks import specifiers and
- * could not see through a function call, which would let a forbidden import in `llm-caller.js`
- * go undetected. Keep the path here in sync with `LLM_CALLER_PATH`.
+ * passing the result of `llmCallerSpecifier` to the dynamic import): the isolation test statically
+ * walks import specifiers and fails on any it cannot resolve, since it cannot see through a call,
+ * which would let a forbidden import in `llm-caller.js` go undetected. Keep the path here in sync
+ * with `LLM_CALLER_PATH`.
  *
  * @param {number} [reloadN]
  * @returns {Promise<typeof import('../src/agent/llm-caller.js')>}
@@ -296,14 +297,17 @@ export function createReloader({ session, promptFile, print, importer = importLL
  *
  * @param {Object} [options]
  * @param {(text: string) => void} [options.write] - Defaults to `process.stderr.write`.
+ * @param {() => void} [options.beforeWrite] - Called before every write; the TUI passes the thinking
+ *   indicator's `clear` so log output never lands on the same line as "Thinking…".
  */
-export function createConciseLogger({ write = (text) => process.stderr.write(text) } = {}) {
+export function createConciseLogger({ write = (text) => process.stderr.write(text), beforeWrite = () => {} } = {}) {
   return {
     error(...args) {
       const message = args
         .map((arg) => (arg instanceof Error ? arg.message : typeof arg === 'string' ? arg : String(arg)))
         .filter(Boolean)
         .join(' ');
+      beforeWrite();
       write(`[error] ${message}\n`);
     },
   };
@@ -568,8 +572,8 @@ export async function main({ argv = process.argv.slice(2), repl = runRepl, impor
   }
 
   const { callLLM, LLM_MODEL, SYSTEM_PROMPT_VERSION } = llmCaller;
-  const logger = createConciseLogger();
   const thinking = createThinkingIndicator(process.stdout);
+  const logger = createConciseLogger({ beforeWrite: thinking.clear });
   const streamer = createConsoleStreamer({ write: thinking.write });
   const session = createChatSession({ callLLM, streamer, logger });
 

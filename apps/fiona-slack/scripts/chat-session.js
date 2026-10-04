@@ -99,7 +99,8 @@ export function createChatSession({ callLLM, streamer, logger = console } = {}) 
     /**
      * Send a user message, calling `callLLM` with the full prior history plus the new turn.
      * On success, both the user and assistant turns are appended to history (with `text` trimmed).
-     * On rejection, history is left unchanged and the error propagates to the caller.
+     * On rejection, history is left unchanged and the error propagates to the caller. An empty,
+     * whitespace-only or non-string `botText` counts as a failure (neither turn is committed).
      *
      * Rejects immediately, without calling `callLLM`, when `text` is not a string or is
      * empty/whitespace-only, and when another `send` call on this session is already in flight.
@@ -120,6 +121,12 @@ export function createChatSession({ callLLM, streamer, logger = console } = {}) 
       try {
         const userTurn = { role: 'user', content: trimmedText };
         const result = await activeCallLLM(streamer, [...history, userTurn], logger);
+        // An empty assistant turn would be dropped by `llm-caller.js` (falsy content), leaving two
+        // consecutive `user` turns that Perplexity rejects on every later request. Treat it as a
+        // failure instead and commit neither turn.
+        if (typeof result?.botText !== 'string' || result.botText.trim() === '') {
+          throw new Error('The model returned an empty response; please try again.');
+        }
         history = [...history, userTurn, { role: 'assistant', content: result.botText }];
         return result;
       } finally {

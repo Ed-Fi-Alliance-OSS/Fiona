@@ -185,6 +185,20 @@ describe('createConciseLogger', () => {
   });
 });
 
+describe('createConciseLogger — beforeWrite hook', () => {
+  it('calls beforeWrite before writing', () => {
+    const calls = [];
+    const logger = chatTui.createConciseLogger({
+      write: () => calls.push('write'),
+      beforeWrite: () => calls.push('beforeWrite'),
+    });
+
+    logger.error('x');
+
+    expect(calls).toEqual(['beforeWrite', 'write']);
+  });
+});
+
 // ── createSigintHandler ───────────────────────────────────────────────────────
 
 describe('createSigintHandler', () => {
@@ -305,6 +319,54 @@ describe('runRepl', () => {
     await chatTui.runRepl({ input, output, session });
 
     expect(getOutput()).toContain('[1] Doc A — https://docs.ed-fi.org/a');
+  });
+
+  it('a callLLM that logs then rejects: the indicator is cleared before the log line, so output is not garbled (TTY)', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.isTTY = true;
+    const events = [];
+    output.clearLine = jest.fn(() => {
+      events.push('clearLine');
+      // Simulate a terminal: erase the current (unterminated) line.
+      buffered = buffered.slice(0, buffered.lastIndexOf('\n') + 1);
+      return true;
+    });
+    output.cursorTo = jest.fn();
+    let buffered = '';
+    output.on('data', (chunk) => {
+      buffered += chunk.toString();
+    });
+
+    const thinking = chatTui.createThinkingIndicator(output);
+    const logger = chatTui.createConciseLogger({
+      write: (text) => {
+        events.push('log');
+        output.write(text);
+      },
+      beforeWrite: thinking.clear,
+    });
+    const { createChatSession } = await import('../../scripts/chat-session.js');
+    const session = createChatSession({
+      callLLM: async (_streamer, _prompts, log) => {
+        const error = new Error('upstream 500');
+        log.error('Error during LLM call:', error);
+        throw error;
+      },
+      streamer: { append: jest.fn() },
+      logger,
+    });
+
+    input.write('hi\n');
+    input.write('/exit\n');
+    await chatTui.runRepl({ input, output, session, thinking });
+
+    expect(events.indexOf('clearLine')).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf('clearLine')).toBeLessThan(events.indexOf('log'));
+    // After the simulated terminal erase, "Thinking…" is gone and nothing is concatenated onto it.
+    expect(buffered).not.toContain('Thinking…');
+    expect(buffered).toContain('[error] Error during LLM call: upstream 500\n');
+    expect(buffered).toContain('Error: upstream 500');
   });
 
   it('/exit stops the loop without requiring EOF on the input stream', async () => {

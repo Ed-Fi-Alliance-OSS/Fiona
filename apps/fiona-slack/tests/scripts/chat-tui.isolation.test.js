@@ -78,39 +78,111 @@ function stripJSDocTypeImports(source) {
  * left completely alone, so it can never eat real code.
  */
 function stripLineComments(source) {
-  return source.replace(/^\s*\/\/.*$/gm, '');
+  return source.replace(/^[ \t]*\/\/.*$/gm, '');
 }
 
 /**
- * Specifiers imported by one file: relative imports resolved to absolute paths that exist on
- * disk, and bare package specifiers (untouched, for the allowlist check).
+ * Classify the argument of every dynamic `import(...)` call in `source`. Fails closed: anything
+ * that is not statically resolvable is reported as `unresolvable` instead of being skipped, since
+ * a skipped call (`const t = './x-store.js'; await import(t)`) would let a forbidden module be
+ * reached unseen.
  *
- * @param {string} file
- * @returns {{ relative: string[], bare: string[] }}
+ * Resolvable forms: a string literal; a template literal with no interpolation; and a template
+ * literal whose static prefix is a complete file path (ends in a module extension) followed by an
+ * interpolated suffix, e.g. `` `../src/agent/llm-caller.js${reloadQuery(n)}` `` (a cache-busting
+ * query). `` `${dir}/x.js` `` or `` `./${name}` `` are NOT resolvable.
+ *
+ * @param {string} source - Source with comments already neutralized (line numbers preserved).
+ * @returns {{ specifiers: string[], unresolvable: Array<{ line: number, snippet: string }> }}
  */
-function importsOf(file) {
-  const source = stripLineComments(stripJSDocTypeImports(readFileSync(file, 'utf8')));
+function classifyDynamicImports(source) {
+  const specifiers = [];
+  const unresolvable = [];
+  for (const match of source.matchAll(/(?<![.\w$])import\s*\(/g)) {
+    const rest = source.slice(match.index + match[0].length);
+    const literal = rest.match(/^\s*(['"])([^'"\n]*)\1\s*[,)]/) ?? rest.match(/^\s*`([^`$\n]*)`\s*[,)]/);
+    const templateWithQuery = rest.match(/^\s*`([^`$\n]*\.(?:m?js|cjs|json))\$\{/);
+    if (literal) {
+      specifiers.push(literal[literal.length - 1]);
+    } else if (templateWithQuery) {
+      specifiers.push(templateWithQuery[1]);
+    } else {
+      const line = source.slice(0, match.index).split('\n').length;
+      unresolvable.push({ line, snippet: source.slice(match.index, match.index + 60).split('\n')[0] });
+    }
+  }
+  return { specifiers, unresolvable };
+}
+
+/**
+ * Pure analysis of one file's source text: relative/bare specifiers it imports, plus any
+ * `import(...)` / `require(...)` calls whose target cannot be resolved statically.
+ *
+ * @param {string} rawSource
+ * @returns {{ specifiers: string[], unresolvable: Array<{ line: number, snippet: string }> }}
+ */
+function analyzeSource(rawSource) {
+  const source = stripLineComments(stripJSDocTypeImports(rawSource));
   const specifiers = [];
 
   // Static `import`/`export`, with or without a `from` clause — covers both
   // `import { x } from './x.js'` and a bare side-effect import like `import '@slack/bolt'`.
-  for (const match of source.matchAll(/^\s*(?:import|export)\s+(?:[^'"]*?from\s+)?['"]([^'"]+)['"]/gm)) {
+  // Detection is independent of line position (e.g. `/* x */ import './y.js';` or `a; import ...`):
+  // the keyword only has to not be part of an identifier or a property access.
+  //
+  // The clause before `from` may contain quoted names (`import { 'a-b' as c } from '...'`,
+  // `export { x as 'a-b' } from '...'`), but must not run across a `;` or into another
+  // `import`/`export` keyword: otherwise a `export const a = 'x'` with no semicolon could swallow a
+  // following bare `import './x-store.js'` and hide it.
+  // Comments inside the clause (`a, // don't; do this`, `a /* x; y's */`) are consumed whole, so a
+  // `;` or quote inside them can't end the clause early. A bare `/` is only a generic character
+  // when it doesn't start a comment, and both comment forms can only match whole (never a prefix),
+  // which keeps each position matchable exactly one way and rules out catastrophic backtracking.
+  const clauseChar = `(?:(?!(?<![.\\w$])(?:import|export)\\b)(?://[^\\n]*(?![^\\n])|/\\*(?:[^*]|\\*(?!/))*\\*/|[^'";/]|/(?![/*])|'[^'\\n]*'|"[^"\\n]*"))`;
+  const staticImport = new RegExp(`(?<![.\\w$])(?:import|export)\\s+(?:${clauseChar}*?from\\s+)?['"]([^'"]+)['"]`, 'g');
+  for (const match of source.matchAll(staticImport)) {
     specifiers.push(match[1]);
   }
 
-  // Dynamic `import('./x.js')`, `import("./x.js")`, or a template literal such as
-  // `` import(`../src/agent/llm-caller.js?reload=${n}`) `` (Task 5's cache-busting reload). The
-  // lazy capture stops at the first of a matching closing quote/backtick or a `${` interpolation
-  // start, so the template literal's static prefix is captured on its own.
-  for (const match of source.matchAll(/import\(\s*[`'"]([^`'"]*?)(?:\$\{|[`'"])/g)) {
-    specifiers.push(match[1]);
+  const dynamic = classifyDynamicImports(source);
+  specifiers.push(...dynamic.specifiers);
+  const unresolvable = [...dynamic.unresolvable];
+
+  // `require('./x.js')` / `require("./x.js")`. A non-literal argument is unresolvable and fails
+  // closed, like a non-literal `import()`.
+  //
+  // `createRequire(...)` and `module.require(...)` return a loader under an arbitrary local name
+  // (`const r = createRequire(import.meta.url); r('./x.js')`) that a text scan cannot follow, so any
+  // mention of either is reported as unresolvable too.
+  for (const match of source.matchAll(/(?<![.\w$])createRequire\b|\bmodule\.require\b/g)) {
+    const line = source.slice(0, match.index).split('\n').length;
+    unresolvable.push({ line, snippet: source.slice(match.index, match.index + 60).split('\n')[0] });
   }
 
-  // `require('./x.js')` / `require("./x.js")` — including via `createRequire`, which still ends
-  // up calling a (locally bound) function literally named `require`.
-  for (const match of source.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) {
-    specifiers.push(match[1]);
+  for (const match of source.matchAll(/(?<![.\w$])require\s*\(/g)) {
+    const rest = source.slice(match.index + match[0].length);
+    const literal = rest.match(/^\s*(['"])([^'"\n]*)\1\s*\)/);
+    if (literal) {
+      specifiers.push(literal[2]);
+    } else {
+      const line = source.slice(0, match.index).split('\n').length;
+      unresolvable.push({ line, snippet: source.slice(match.index, match.index + 60).split('\n')[0] });
+    }
   }
+
+  return { specifiers, unresolvable };
+}
+
+/**
+ * Specifiers imported by one file: relative imports resolved to absolute paths that exist on
+ * disk, bare package specifiers (untouched, for the allowlist check), and unresolvable dynamic
+ * loads.
+ *
+ * @param {string} file
+ * @returns {{ relative: string[], bare: string[], unresolvable: Array<{ line: number, snippet: string }> }}
+ */
+function importsOf(file) {
+  const { specifiers, unresolvable } = analyzeSource(readFileSync(file, 'utf8'));
 
   const relativeTargets = [];
   const bare = [];
@@ -125,23 +197,25 @@ function importsOf(file) {
       bare.push(specifier);
     }
   }
-  return { relative: relativeTargets, bare };
+  return { relative: relativeTargets, bare, unresolvable };
 }
 
 /**
  * Breadth-first walk of the relative import graph from `entry`. Returns every reachable file
  * (including `entry`), a parent pointer per file for reconstructing the import chain, and the
- * bare package specifiers imported by each file.
+ * bare package specifiers and unresolvable dynamic loads found in each file.
  */
 function walk(entry) {
   const parents = new Map([[entry, null]]);
   const bareImportsByFile = new Map();
+  const unresolvableByFile = new Map();
   const queue = [entry];
 
   while (queue.length > 0) {
     const file = queue.shift();
-    const { relative: relativeTargets, bare } = importsOf(file);
+    const { relative: relativeTargets, bare, unresolvable } = importsOf(file);
     bareImportsByFile.set(file, bare);
+    unresolvableByFile.set(file, unresolvable);
     for (const next of relativeTargets) {
       if (!parents.has(next)) {
         parents.set(next, file);
@@ -150,7 +224,7 @@ function walk(entry) {
     }
   }
 
-  return { parents, bareImportsByFile };
+  return { parents, bareImportsByFile, unresolvableByFile };
 }
 
 /** Render the import chain from the entry point down to `file`, relative to the app root. */
@@ -175,11 +249,23 @@ function findForbiddenBareImport(bareImportsByFile) {
 }
 
 describe('chat-tui isolation (no DB / Slack)', () => {
-  const { parents, bareImportsByFile } = walk(ENTRY);
+  const { parents, bareImportsByFile, unresolvableByFile } = walk(ENTRY);
   const reachable = [...parents.keys()];
 
   it('reaches src/agent/llm-caller.js (sanity check that the walk found something)', () => {
     expect(reachable).toContain(resolve(APP_ROOT, 'src/agent/llm-caller.js'));
+  });
+
+  it('has no dynamic import()/require() whose target cannot be resolved statically (fails closed)', () => {
+    const problems = [];
+    for (const [file, found] of unresolvableByFile) {
+      for (const { line, snippet } of found) {
+        problems.push(
+          `${relative(APP_ROOT, file).replace(/\\/g, '/')}:${line}: unresolvable load \`${snippet}\`\n  reached via: ${chainTo(parents, file)}`,
+        );
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   it('never reaches a *-store.js, cosmos-utils.js, or interaction-telemetry.js module', () => {
@@ -196,5 +282,108 @@ describe('chat-tui isolation (no DB / Slack)', () => {
       ? `"${found.specifier}" imported by ${relative(APP_ROOT, found.file).replace(/\\/g, '/')}\n  reached via: ${chainTo(parents, found.file)}`
       : null;
     expect(reason).toBeNull();
+  });
+});
+
+// A literal `$` so the fixtures below can contain template placeholders without tripping the linter.
+const D = '$';
+
+describe('analyzeSource (specifier extraction and classification)', () => {
+  it('resolves string and plain template-literal import() calls', () => {
+    const { specifiers, unresolvable } = analyzeSource(
+      'const a = await import(\'./a.js\');\nconst b = await import("./b.js");\nconst c = await import(`./c.js`);',
+    );
+    expect(specifiers).toEqual(['./a.js', './b.js', './c.js']);
+    expect(unresolvable).toEqual([]);
+  });
+
+  it('resolves a literal path followed by an interpolated query suffix', () => {
+    const { specifiers, unresolvable } = analyzeSource(
+      `return import(\`../src/agent/llm-caller.js${D}{reloadQuery(n)}\`);`,
+    );
+    expect(specifiers).toEqual(['../src/agent/llm-caller.js']);
+    expect(unresolvable).toEqual([]);
+  });
+
+  it('flags a variable specifier as unresolvable, with its line number', () => {
+    const { unresolvable } = analyzeSource("const t = './interaction-store.js';\nawait import(t);");
+    expect(unresolvable).toHaveLength(1);
+    expect(unresolvable[0].line).toBe(2);
+  });
+
+  it('flags template literals that begin with, or interpolate into, the path', () => {
+    expect(analyzeSource(`import(\`${D}{dir}/x.js\`);`).unresolvable).toHaveLength(1);
+    expect(analyzeSource(`import(\`./${D}{name}\`);`).unresolvable).toHaveLength(1);
+    expect(analyzeSource(`import(\`./x-${D}{name}.js\`);`).unresolvable).toHaveLength(1);
+  });
+
+  it('flags a concatenated specifier and a non-literal require()', () => {
+    expect(analyzeSource("import('./a' + suffix);").unresolvable).toHaveLength(1);
+    expect(analyzeSource('require(path);').unresolvable).toHaveLength(1);
+    expect(analyzeSource("require('./ok.js');").unresolvable).toEqual([]);
+  });
+
+  it('flags any createRequire token or module.require, which return untraceable loaders', () => {
+    const viaImport =
+      "import { createRequire } from 'node:module';\nconst r = createRequire(import.meta.url);\nr('./x-store.js');";
+    const found = analyzeSource(viaImport).unresolvable;
+    expect(found.map((entry) => entry.line)).toContain(2);
+    expect(analyzeSource("module.require('./x.js');").unresolvable).toHaveLength(1);
+    expect(analyzeSource('const mod = foo.createRequire;').unresolvable).toEqual([]);
+  });
+
+  it('detects static imports and re-exports that are not at the start of a line', () => {
+    expect(analyzeSource("/* x */ import './a.js';").specifiers).toEqual(['./a.js']);
+    expect(analyzeSource("const q = 1; import { b } from './b.js';").specifiers).toEqual(['./b.js']);
+    expect(analyzeSource("/* x */ export * from './c.js';").specifiers).toEqual(['./c.js']);
+    expect(analyzeSource("export {\n  d,\n} from './d.js';").specifiers).toEqual(['./d.js']);
+  });
+
+  it('detects quoted (string) import and export names in the clause', () => {
+    expect(analyzeSource("import { 'a-b' as c } from './x-store.js';").specifiers).toEqual(['./x-store.js']);
+    expect(analyzeSource("export { x as 'a-b' } from './y-store.js';").specifiers).toEqual(['./y-store.js']);
+    expect(analyzeSource('export { x as "a-b" } from "./z.js";').specifiers).toEqual(['./z.js']);
+  });
+
+  it('consumes comments inside an import clause whole (semicolon, apostrophe, block comment)', () => {
+    expect(analyzeSource("import {\n  a, // note; semicolon\n  b\n} from './x-store.js';").specifiers).toEqual([
+      './x-store.js',
+    ]);
+    expect(analyzeSource("import {\n  a, // don't do this\n  b\n} from './y-store.js';").specifiers).toEqual([
+      './y-store.js',
+    ]);
+    expect(analyzeSource("import { a /* x; y's */, b } from './z.js';").specifiers).toEqual(['./z.js']);
+  });
+
+  it('stays fast on long comment-heavy input with no from clause (no catastrophic backtracking)', () => {
+    const source = `export {\n${"  a, // comment's text\n  /* block; */\n".repeat(3000)}`;
+    const started = Date.now();
+    expect(analyzeSource(source).specifiers).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('does not let a semicolon-less export swallow a following bare import', () => {
+    const { specifiers } = analyzeSource("export const a = 'x'\nimport './hidden-store.js'\nimport b from './ok.js'");
+    expect(specifiers).toEqual(['./hidden-store.js', './ok.js']);
+  });
+
+  it('does not treat ordinary code as a static import', () => {
+    const { specifiers } = analyzeSource(
+      "export const label = 'x';\nconst reimport = 'y';\nobj.import = 'z';\nexport function f() { return 'w'; }\nexport default 'x';\nconst o = { import: 'x' };",
+    );
+    expect(specifiers).toEqual([]);
+  });
+
+  it('keeps line numbers correct after comment stripping', () => {
+    const { unresolvable } = analyzeSource('// c1\n\n// c2\nimport(x);');
+    expect(unresolvable[0].line).toBe(4);
+  });
+
+  it('ignores JSDoc type-only import() references and method calls named import', () => {
+    const { specifiers, unresolvable } = analyzeSource(
+      "/**\n * @param {import('x').Y} a\n * @returns {Promise<typeof import('../src/z.js')>}\n */\nfoo.import(bar);",
+    );
+    expect(specifiers).toEqual([]);
+    expect(unresolvable).toEqual([]);
   });
 });
