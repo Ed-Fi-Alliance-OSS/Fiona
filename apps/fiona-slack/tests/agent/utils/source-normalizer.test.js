@@ -3,17 +3,37 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 import {
-  normalizeSource,
-  deduplicateSources,
-  capSources,
   buildSourceIndexMap,
+  capSources,
+  deduplicateSources,
+  normalizeSource,
   normalizeSources,
   remapCitationMarkers,
 } from '../../../src/agent/utils/source-normalizer.js';
 
 describe('normalizeSource', () => {
+  it('percent-encodes Unicode whitespace as UTF-8 bytes, so the link target is unchanged', () => {
+    // The WHATWG URL parser resolves both to these UTF-8 byte sequences.
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%E2%80%A8b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%C2%A0b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe(new URL('https://docs.ed-fi.org/a b').href);
+  });
+
+  it('percent-encodes characters that Slack parses as control syntax', () => {
+    // A raw ">" would close a Slack <url|text> link and let "<!here>" through.
+    const result = normalizeSource({ url: 'https://docs.ed-fi.org/a><!here>|x' });
+
+    expect(result.url).toBe('https://docs.ed-fi.org/a%3E%3C!here%3E%7Cx');
+  });
+
+  it('leaves ordinary URLs byte-for-byte unchanged', () => {
+    const url = 'https://docs.ed-fi.org/reference/ods-api/Case?x=1&y=2#Section';
+
+    expect(normalizeSource({ url }).url).toBe(url);
+  });
+
   it('normalizes a source with url and title', () => {
     const result = normalizeSource({ url: 'https://docs.ed-fi.org/page', title: 'Ed-Fi Docs' });
     expect(result.url).toBe('https://docs.ed-fi.org/page');
@@ -157,6 +177,34 @@ describe('buildSourceIndexMap', () => {
     const map = buildSourceIndexMap(sources);
     expect(Object.getPrototypeOf(map)).toBeNull();
   });
+
+  it('keys on the Agent API id when ids differ from array position', () => {
+    // Inline [n] markers refer to the search result's own id, so a list whose
+    // ids no longer match position (dedup or the display cap dropped entries)
+    // must still link [7] to the id-7 URL rather than the 7th entry.
+    const sources = [
+      { url: 'https://a.com', title: 'A', id: 2 },
+      { url: 'https://b.com', title: 'B', id: 5 },
+      { url: 'https://c.com', title: 'C', id: 7 },
+    ];
+    const map = buildSourceIndexMap(sources);
+    expect(map).toEqual({ 'https://a.com': 2, 'https://b.com': 5, 'https://c.com': 7 });
+  });
+
+  it('uses positional numbering only when every source lacks an id', () => {
+    const noIds = buildSourceIndexMap([{ url: 'https://a.com' }, { url: 'https://b.com' }]);
+    expect(noIds).toEqual({ 'https://a.com': 1, 'https://b.com': 2 });
+
+    const partial = buildSourceIndexMap([{ url: 'https://a.com', id: 3 }, { url: 'https://b.com' }]);
+    expect(partial).toEqual({ 'https://a.com': 3 });
+
+    const duplicated = buildSourceIndexMap([
+      { url: 'https://a.com', id: 4 },
+      { url: 'https://b.com', id: 4 },
+      { url: 'https://c.com', id: 7 },
+    ]);
+    expect(duplicated).toEqual({ 'https://c.com': 7 });
+  });
 });
 
 describe('normalizeSources', () => {
@@ -183,6 +231,12 @@ describe('normalizeSources', () => {
     const { sources } = normalizeSources(raw);
     expect(sources).toHaveLength(1);
     expect(sources[0].url).toBe('https://good.com');
+  });
+
+  it('keeps every source when no maxSources is given', () => {
+    const raw = Array.from({ length: 15 }, (_, i) => ({ url: `https://example${i}.com` }));
+    const { sources } = normalizeSources(raw);
+    expect(sources).toHaveLength(15);
   });
 
   it('respects custom maxSources option', () => {

@@ -96,6 +96,8 @@ jobs:
             cosmosAccountName="${{ vars.COSMOS_ACCOUNT_NAME }}" \
             captureAllConversations=${{ vars.CAPTURE_ALL_CONVERSATIONS || 'false' }} \
             deploymentType="${{ inputs.environment || 'insiders' }}" \
+            escalationEnabled=${{ vars.ESCALATION_ENABLED || 'false' }} \
+            ticketCreationEnabled=${{ vars.TICKET_CREATION_ENABLED || 'false' }} \
             escalationUsergroupId=${{ vars.ESCALATION_USERGROUP_ID || '' }} \
             escalationChannel="${{ vars.ESCALATION_CHANNEL_ID || '' }}" \
             ghIssueToken="${{ secrets.GH_ISSUE_TOKEN }}" \
