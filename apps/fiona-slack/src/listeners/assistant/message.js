@@ -4,7 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { captureConversation } from '../../agent/conversation-capture-store.js';
-import { handleInteractionWithTelemetry, sleep, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
+import {
+  handleInteractionWithTelemetry,
+  logCitationTelemetry,
+  sleep,
+  waitForMetadataReady,
+} from '../../agent/interaction-telemetry.js';
 import {
   CITATION_POLICY,
   callLLM,
@@ -256,12 +261,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
         await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
 
         // Telemetry: log finalize_state and source count for observability.
-        if (metadata) {
-          logger.info(
-            `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
-              (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
-          );
-        }
+        logCitationTelemetry(logger, metadata);
 
         await streamer.stop({
           blocks: [
