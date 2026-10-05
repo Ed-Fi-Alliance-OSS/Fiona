@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const { feedbackActionCallback } = await import('../../../src/listeners/actions/feedback.js');
 
@@ -72,9 +72,7 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.views.open).toHaveBeenCalledWith(
-      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
-    );
+    expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'T123.456.abc' }));
   });
 
   it('opens modal with trigger_id for bad-feedback', async () => {
@@ -82,9 +80,7 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.views.open).toHaveBeenCalledWith(
-      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
-    );
+    expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'T123.456.abc' }));
   });
 
   it('modal callback_id is feedback_reason', async () => {
@@ -269,7 +265,11 @@ describe('feedbackActionCallback', () => {
     // AI-248. The question is read from the answer's "You asked:" block.
     it('stores the question shown in the "You asked:" line', async () => {
       mockBody.message.blocks = [
-        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }] },
+        {
+          type: 'context',
+          block_id: 'ask_question',
+          elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }],
+        },
         { type: 'markdown', text: mockBody.message.text },
       ];
 
@@ -293,7 +293,11 @@ describe('feedbackActionCallback', () => {
     it('keeps the question when an escape-heavy answer has to be trimmed', async () => {
       mockBody.message.text = '"'.repeat(5000);
       mockBody.message.blocks = [
-        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }] },
+        {
+          type: 'context',
+          block_id: 'ask_question',
+          elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }],
+        },
       ];
 
       await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
@@ -308,7 +312,11 @@ describe('feedbackActionCallback', () => {
     it('caps the stored question so the answer keeps its room', async () => {
       mockBody.message.text = 'a'.repeat(1400);
       mockBody.message.blocks = [
-        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: `You asked: ${'"'.repeat(988)}` }] },
+        {
+          type: 'context',
+          block_id: 'ask_question',
+          elements: [{ type: 'plain_text', text: `You asked: ${'"'.repeat(988)}` }],
+        },
       ];
 
       await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });

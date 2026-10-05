@@ -151,9 +151,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ thread_ts: '100.00' }),
-    );
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '100.00' }));
   });
 
   it('marks and logs an ephemeral post failure without throwing', async () => {
@@ -286,17 +284,18 @@ describe('dispatchKeywordViaSay — ask', () => {
 
   // Fails closed: only the private assistant panel streams. Anything else,
   // including a caller added later, gets the ephemeral path.
-  it.each(['app_mention', 'some_future_surface', undefined])(
-    'answers ephemerally for interactionType %p',
-    async (interactionType) => {
-      const params = askCtx({ interactionType });
+  it.each([
+    'app_mention',
+    'some_future_surface',
+    undefined,
+  ])('answers ephemerally for interactionType %p', async (interactionType) => {
+    const params = askCtx({ interactionType });
 
-      await dispatchKeywordViaSay(params);
+    await dispatchKeywordViaSay(params);
 
-      expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
-      expect(mockStreamAskResponse).not.toHaveBeenCalled();
-    },
-  );
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+    expect(mockStreamAskResponse).not.toHaveBeenCalled();
+  });
 
   it('marks a handled ask-generation failure without posting a public warning', async () => {
     mockBuildAskResponse.mockResolvedValueOnce({
@@ -427,7 +426,10 @@ describe('dispatchKeywordViaSay — keyword coverage', () => {
     expect(parsedKeywords()).toEqual(Object.keys(SAMPLE_BY_KEYWORD));
   });
 
-  it.each(['app_mention', 'assistant_message'])('routes every keyword on %s without the unrouted fallback', async (interactionType) => {
+  it.each([
+    'app_mention',
+    'assistant_message',
+  ])('routes every keyword on %s without the unrouted fallback', async (interactionType) => {
     for (const text of SAMPLE_COMMANDS) {
       const params = {
         ...ctx(parseCommandKeyword(text), jest.fn().mockResolvedValue(undefined)),
@@ -525,7 +527,11 @@ describe('declineOverLongAsk', () => {
   // The user never saw it, so a Slack retry must not be swallowed as a duplicate.
   it.each([
     ['an @-mention ephemeral', {}, (params) => params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('x'))],
-    ['an assistant-panel say()', { interactionType: 'assistant_message' }, (params) => params.say.mockRejectedValueOnce(new Error('x'))],
+    [
+      'an assistant-panel say()',
+      { interactionType: 'assistant_message' },
+      (params) => params.say.mockRejectedValueOnce(new Error('x')),
+    ],
   ])('releases the response when %s decline fails to send', async (_label, over, fail) => {
     const params = base(over);
     fail(params);

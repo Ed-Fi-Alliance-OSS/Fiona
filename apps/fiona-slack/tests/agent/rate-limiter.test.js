@@ -3,8 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest } from '@jest/globals';
-import { checkRateLimit, __testing } from '../../src/agent/rate-limiter.js';
+import { describe, expect, it, jest } from '@jest/globals';
+import { __testing, checkRateLimit } from '../../src/agent/rate-limiter.js';
 
 const { getUserTimestampsSize, sweepExpiredEntries } = __testing;
 
