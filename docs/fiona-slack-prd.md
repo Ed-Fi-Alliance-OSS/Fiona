@@ -128,8 +128,13 @@ result-id linking. Each
 `[n]` links to the URL the model listed, matched to a search result: exactly,
 or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
 case) when only one result matches. A URL the search did not return, or one
-that loosely matches several results, leaves its marker as plain text. The list
-is removed from the answer, so only the Sources block lists sources. With the
+that loosely matches several results, leaves its marker as plain text. Under a
+heading, every `[n]` line belongs to the list, including one that names a page
+without a URL; that marker also stays plain text. The list
+is removed from the answer, so only the Sources block lists sources. The
+results the model did not list are numbered from just after its highest listed
+number, skipping any number the answer already uses, so a stray `[2026]` in the
+text does not push them to `[2027]`. With the
 `v2` prompt the model wrote no list in 12 of 12 runs. A model that renumbers *without* a list cannot be
 detected from the text; the prompt is the only guard against that.
 
