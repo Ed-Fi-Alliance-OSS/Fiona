@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { STORED_CONTEXT_TYPES } from '../../agent/feedback-response-types.js';
 import { recordFeedback } from '../../agent/feedback-store.js';
 import { extractSearchQuery } from '../../agent/search-caller.js';
 import { FEEDBACK_RESPONSE_TYPES } from './feedback_block.js';
@@ -11,6 +12,73 @@ function normalizeResponseType(responseType) {
   return Object.values(FEEDBACK_RESPONSE_TYPES).includes(responseType)
     ? responseType
     : FEEDBACK_RESPONSE_TYPES.SYNTHESIS;
+}
+
+/**
+ * Reads the modal's private_metadata, written by feedback.js when the button was
+ * clicked, and normalizes the response type.
+ */
+function readFeedbackMetadata(view) {
+  const {
+    channelId,
+    messageTs,
+    userId,
+    value,
+    thread_ts,
+    responseType,
+    interactionType,
+    searchQuery,
+    botResponse: storedBotResponse,
+  } = JSON.parse(view.private_metadata);
+  return {
+    channelId,
+    messageTs,
+    userId,
+    value,
+    thread_ts,
+    responseType: normalizeResponseType(responseType),
+    interactionType,
+    searchQuery,
+    storedBotResponse,
+  };
+}
+
+/**
+ * The context already in hand from private_metadata, before any lookup. It is
+ * what gets recorded if the lookup fails, so a failed fetch never discards what
+ * was stored at click time. Only STORED_CONTEXT_TYPES carry any.
+ *
+ * @returns {{ userMessage: string | null, botResponse: string | null }}
+ */
+function seedFeedbackContext({ responseType, searchQuery, storedBotResponse }) {
+  if (!STORED_CONTEXT_TYPES.has(responseType)) return { userMessage: null, botResponse: null };
+  return {
+    userMessage: responseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null,
+    botResponse: storedBotResponse ?? null,
+  };
+}
+
+/**
+ * Seeds the context, then tries to improve it with resolveFeedbackContext.
+ * A lookup failure is logged and the seed is kept.
+ */
+async function gatherFeedbackContext({ client, logger, metadata, threadTs }) {
+  let context = seedFeedbackContext(metadata);
+  try {
+    context = await resolveFeedbackContext({
+      client,
+      responseType: metadata.responseType,
+      channelId: metadata.channelId,
+      threadTs,
+      messageTs: metadata.messageTs,
+      interactionType: metadata.interactionType,
+      searchQuery: metadata.searchQuery,
+      storedBotResponse: metadata.storedBotResponse,
+    });
+  } catch (e) {
+    logger.error('Failed to fetch feedback context:', e);
+  }
+  return context;
 }
 
 /**
@@ -156,18 +224,8 @@ async function resolveFeedbackContext({
  */
 export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) => {
   try {
-    const {
-      channelId,
-      messageTs,
-      userId,
-      value,
-      thread_ts,
-      responseType,
-      interactionType,
-      searchQuery,
-      botResponse: storedBotResponse,
-    } = JSON.parse(view.private_metadata);
-    const normalizedResponseType = normalizeResponseType(responseType);
+    const metadata = readFeedbackMetadata(view);
+    const { channelId, messageTs, userId, value, thread_ts, responseType, interactionType } = metadata;
     const rawReason = view.state.values?.reason_block?.reason_input?.value;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
@@ -177,24 +235,12 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
     }
 
     await ack();
-    // Seeded before the lookup so a failed fetch still records what we already
-    // hold, rather than discarding it along with the error.
-    let userMessage = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null;
-    let botResponse = normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK ? (storedBotResponse ?? null) : null;
-    try {
-      ({ userMessage, botResponse } = await resolveFeedbackContext({
-        client,
-        responseType: normalizedResponseType,
-        channelId,
-        threadTs: thread_ts,
-        messageTs,
-        interactionType,
-        searchQuery,
-        storedBotResponse,
-      }));
-    } catch (e) {
-      logger.error('Failed to fetch feedback context:', e);
-    }
+    const { userMessage, botResponse } = await gatherFeedbackContext({
+      client,
+      logger,
+      metadata,
+      threadTs: thread_ts,
+    });
 
     try {
       await recordFeedback({
@@ -205,7 +251,7 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
         reason: rawReason,
         userMessage,
         botResponse,
-        responseType: normalizedResponseType,
+        responseType,
         interactionType,
         logger,
       });
@@ -242,45 +288,16 @@ export const feedbackReasonViewCallback = async ({ ack, view, client, logger }) 
 export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }) => {
   try {
     await ack();
-    const {
-      channelId,
-      messageTs,
-      userId,
-      value,
-      thread_ts,
-      responseType,
-      interactionType,
-      searchQuery,
-      botResponse: storedBotResponse,
-    } = JSON.parse(view.private_metadata);
-    const normalizedResponseType = normalizeResponseType(responseType);
+    const metadata = readFeedbackMetadata(view);
+    const { channelId, messageTs, userId, value, thread_ts, responseType, interactionType } = metadata;
     if (value !== 'good-feedback') return;
-    let userMessage = null;
-    let botResponse = null;
 
     // Synthesis is left alone here, as it always has been: a dismissed thumbs-up
     // does not justify a conversations.replies call for context nobody asked for.
-    // Search and ask carry theirs cheaply — ask's is already in private_metadata.
-    if (
-      normalizedResponseType === FEEDBACK_RESPONSE_TYPES.SEARCH ||
-      normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK
-    ) {
-      if (normalizedResponseType === FEEDBACK_RESPONSE_TYPES.ASK) botResponse = storedBotResponse ?? null;
-      try {
-        ({ userMessage, botResponse } = await resolveFeedbackContext({
-          client,
-          responseType: normalizedResponseType,
-          channelId,
-          threadTs: thread_ts ?? messageTs,
-          messageTs,
-          interactionType,
-          searchQuery,
-          storedBotResponse,
-        }));
-      } catch (e) {
-        logger.error('Failed to fetch feedback context:', e);
-      }
-    }
+    // The stored-context types carry theirs cheaply in private_metadata.
+    const { userMessage, botResponse } = STORED_CONTEXT_TYPES.has(responseType)
+      ? await gatherFeedbackContext({ client, logger, metadata, threadTs: thread_ts ?? messageTs })
+      : { userMessage: null, botResponse: null };
 
     await recordFeedback({
       userId,
@@ -290,7 +307,7 @@ export const feedbackReasonClosedCallback = async ({ ack, view, client, logger }
       reason: null,
       userMessage,
       botResponse,
-      responseType: normalizedResponseType,
+      responseType,
       interactionType,
       logger,
     });

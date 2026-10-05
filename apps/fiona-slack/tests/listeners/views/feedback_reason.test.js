@@ -181,6 +181,27 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
+  it('keeps the stored search query when the lookup fails', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'app_mention',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: 'What is Ed-Fi ODS?', botResponse: null }),
+    );
+  });
+
   it('still posts ephemeral even when conversations.replies fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
 
@@ -626,6 +647,38 @@ describe('feedbackReasonClosedCallback', () => {
         interactionType: 'assistant_message',
       }),
     );
+  });
+
+  // The stored query and answer are the seed; a failed lookup keeps them.
+  it('keeps the stored search query when the lookup fails after a dismissed thumbs-up', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'app_mention',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies = jest.fn().mockRejectedValueOnce(new Error('channel_not_found'));
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: 'What is Ed-Fi ODS?', botResponse: null }),
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith('Failed to fetch feedback context:', expect.any(Error));
+  });
+
+  it('does not look up context for a dismissed synthesis thumbs-up', async () => {
+    mockClient.conversations.replies = jest.fn();
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
   });
 
   it('does NOT record feedback when bad-feedback modal is dismissed', async () => {

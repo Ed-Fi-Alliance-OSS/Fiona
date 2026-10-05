@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { STORED_CONTEXT_TYPES } from '../../agent/feedback-response-types.js';
 import { extractSearchQuery } from '../../agent/search-caller.js';
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
@@ -52,6 +53,7 @@ function compactSearchQuery(searchQuery) {
  * question, and running extractSearchQuery over prose would invent one.
  */
 function buildClickTimeContext(responseType, messageText) {
+  if (!STORED_CONTEXT_TYPES.has(responseType)) return null;
   if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
     return { searchQuery: extractSearchQuery(messageText), botResponse: messageText ?? null };
   }
