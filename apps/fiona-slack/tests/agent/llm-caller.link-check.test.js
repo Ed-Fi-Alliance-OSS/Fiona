@@ -312,12 +312,13 @@ describe('link check: a cited source is dead', () => {
     mockCreate.mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]));
     arrangeFailure();
     const streamer = makeStreamer(makeMetadata());
-    const { botText } = await callPerplexityChat(streamer, USER);
+    const { botText, citations } = await callPerplexityChat(streamer, USER);
 
     const metadata = streamer.__citation_metadata;
     expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
     expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
     expect(metadata.grounding).toBe('declined_dead_sources');
+    expect(citations).toEqual([]);
     // No Sources block under a decline: createSourcesBlocks renders from citation_index.
     expect(metadata.citation_index).toEqual({});
     expect(metadata.cited_markers).toEqual([]);
@@ -332,12 +333,13 @@ describe('an answer that is empty once its source list is stripped', () => {
       makeStream([{ text: `Sources:\n[1] T1 ${LIVE_A}`, searchResults: results([LIVE_A]) }]),
     );
     const streamer = makeStreamer(makeMetadata());
-    const { botText } = await callPerplexityChat(streamer, USER);
+    const { botText, citations } = await callPerplexityChat(streamer, USER);
 
     const metadata = streamer.__citation_metadata;
     expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
     expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
     expect(metadata.grounding).toBe('declined_empty_answer');
+    expect(citations).toEqual([]);
     expect(metadata.citation_index).toEqual({});
     expect(metadata.cited_markers).toEqual([]);
   });

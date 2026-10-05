@@ -284,6 +284,17 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(metadata.grounding).toBe('declined_no_results');
     });
 
+    // The returned citations describe what the answer drew on. A declined
+    // answer drew on nothing, even if raw results came back (from review).
+    it('returns no citations when it declines', async () => {
+      const streamer = makeStreamer(makeMetadata());
+      mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));
+
+      const { citations } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+
+      expect(citations).toEqual([]);
+    });
+
     it('declines on unusable URLs when no metadata envelope is attached', async () => {
       const streamer = { append: jest.fn(async () => {}) };
       mockCreate.mockResolvedValue(makeStream([{ text: 'Unsourced claim [1].', searchResults: unusableResults }]));

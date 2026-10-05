@@ -42,6 +42,21 @@ export async function waitForMetadataReady(metadata, timeoutMs = 2000) {
 }
 
 /**
+ * Log the `[citations]` telemetry line for a finalized answer.
+ *
+ * @param {Object} logger - Bolt logger
+ * @param {Object} [metadata] - Metadata envelope; nothing is logged without one
+ */
+export function logCitationTelemetry(logger, metadata) {
+  if (!metadata) return;
+  logger.info(
+    `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+      (metadata.grounding ? ` grounding=${metadata.grounding}` : '') +
+      (metadata.link_check ? ` dead=${metadata.link_check.dead} regenerated=${metadata.link_check.regenerated}` : ''),
+  );
+}
+
+/**
  * Wraps a Slack interaction handler callback with error classification,
  * interaction recording, and finalization rollback.
  *

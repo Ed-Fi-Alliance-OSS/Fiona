@@ -736,23 +736,36 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     // sources, not raw results, also catches results whose URLs were all
     // rejected or found dead. The escalation summary does not come through
     // here, so it still summarizes without sources.
+    //
+    // This runs before anything reads the model's text, so it also replaces
+    // replies that need no sources: an out-of-scope decline ("outside what I
+    // can help with") or chit-chat. Search is forced and normally returns
+    // results, so that only happens when retrieval fails; it is intended.
     if (metadata) metadata.grounding = 'declined_no_results';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else if (declinedDeadSources) {
+    return { botText, citations: [] };
+  }
+
+  // Every decline below draws on nothing, so it reports no citations either.
+  if (declinedDeadSources) {
     // The answer relied on a dead page and could not be rewritten without it.
     if (metadata) metadata.grounding = 'declined_dead_sources';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else if (emptyAnswer) {
+    return { botText, citations: [] };
+  }
+
+  if (emptyAnswer) {
     // Without this, Slack would show a Sources block under no answer.
     if (metadata) metadata.grounding = 'declined_empty_answer';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else {
-    botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
-    await streamer.append({ markdown_text: botText });
+    return { botText, citations: [] };
   }
+
+  botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
+  await streamer.append({ markdown_text: botText });
 
   return { botText, citations: searchResults.map((result) => result?.url).filter(Boolean) };
 }
