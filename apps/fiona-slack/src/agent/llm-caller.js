@@ -609,49 +609,56 @@ function makeResultUrlResolver(sources) {
  * linking `[n]` to result id n pointed at the wrong page (0 of 4 correct in
  * one run). The list is the only record of what each number means.
  *
- * Only a trailing run of `[n] ... URL` lines counts, and only when it reads as
- * a bibliography. Either it is headed "Sources" / "References" / "Citations",
- * or, unheaded, every one of its numbers is cited earlier in the answer AND
- * every one of its URLs is a search result. A closing list of numbered steps
- * with links fails that (typically most step numbers are never cited), so it
- * is kept as content. When unsure, keeping text beats deleting it: a missed
- * list only falls back to result-id linking.
+ * A list headed "Sources" / "References" / "Citations" is every `[n]` line
+ * under the heading; a line that names a page without a URL is still part of
+ * it, and its marker stays unlinked. Unheaded, only a trailing run of
+ * `[n] ... URL` lines counts, and only when every one of its numbers is cited
+ * earlier in the answer AND every one of its URLs is a search result. A
+ * closing list of numbered steps with links fails that (typically most step
+ * numbers are never cited), so it is kept as content. When unsure, keeping
+ * text beats deleting it: a missed list only falls back to result-id linking.
  *
  * @param {string} text - Raw answer text
  * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
- * @returns {{ text: string, urlByMarker: Map<number, string> } | null} Text without the list, and the model's marker -> URL; null when there is no list
+ * @returns {{ text: string, urlByMarker: Map<number, string | null> } | null} Text without the list, and the model's marker -> URL (null for a line without one); null when there is no list
  */
 function extractModelSourceList(text, resolveResultUrl) {
   const lines = text.split('\n');
   let end = lines.length;
   while (end > 0 && !lines[end - 1].trim()) end -= 1;
 
+  const precedingCut = (index) => {
+    let cut = index;
+    while (cut > 0 && !lines[cut - 1].trim()) cut -= 1;
+    return cut;
+  };
+  const listFrom = (start) => {
+    const urlByMarker = new Map();
+    for (const line of lines.slice(start, end)) {
+      urlByMarker.set(Number(line.match(MODEL_LIST_LINE)[1]), line.match(URL_IN_TEXT)?.at(-1) ?? null);
+    }
+    return urlByMarker;
+  };
+
   let start = end;
-  const urlByMarker = new Map();
-  while (start > 0) {
-    const line = lines[start - 1];
-    const marker = line.match(MODEL_LIST_LINE);
-    const urls = line.match(URL_IN_TEXT);
-    if (!marker || !urls) break;
-    urlByMarker.set(Number(marker[1]), urls.at(-1));
-    start -= 1;
+  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1])) start -= 1;
+  const headingCut = precedingCut(start);
+  if (start < end && headingCut > 0 && MODEL_LIST_HEADING.test(lines[headingCut - 1])) {
+    const answer = lines.slice(0, headingCut - 1).join('\n');
+    return { text: answer.trimEnd(), urlByMarker: listFrom(start) };
   }
-  if (urlByMarker.size === 0) {
+
+  start = end;
+  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]) && lines[start - 1].match(URL_IN_TEXT)) start -= 1;
+  if (start === end) {
     return null;
   }
-
-  let cut = start;
-  while (cut > 0 && !lines[cut - 1].trim()) cut -= 1;
-  const headed = cut > 0 && MODEL_LIST_HEADING.test(lines[cut - 1]);
-  if (headed) cut -= 1;
-
-  const answer = lines.slice(0, cut).join('\n');
-  if (!headed) {
-    const allCited = [...urlByMarker.keys()].every((marker) => answer.includes(`[${marker}]`));
-    const allResults = [...urlByMarker.values()].every((url) => resolveResultUrl(url) !== undefined);
-    if (!allCited || !allResults) {
-      return null;
-    }
+  const urlByMarker = listFrom(start);
+  const answer = lines.slice(0, precedingCut(start)).join('\n');
+  const allCited = [...urlByMarker.keys()].every((marker) => answer.includes(`[${marker}]`));
+  const allResults = [...urlByMarker.values()].every((url) => resolveResultUrl(url) !== undefined);
+  if (!allCited || !allResults) {
+    return null;
   }
 
   return { text: answer.trimEnd(), urlByMarker };
@@ -660,11 +667,13 @@ function extractModelSourceList(text, resolveResultUrl) {
 /**
  * Marker -> URL built from the model's own list. Each listed URL is matched to
  * a search result (see makeResultUrlResolver), so only retrieved pages are
- * ever linked; an unmatched URL leaves its marker as plain text. The results
- * the model did not list follow, numbered after every number the answer uses,
- * so they can never collide with a marker in the text.
+ * ever linked; an unmatched or missing URL leaves its marker as plain text.
+ * The results the model did not list follow, numbered from just after the
+ * highest listed marker and skipping every number the answer uses, so they
+ * can never collide with a marker in the text, and a stray "[2026]" does not
+ * push them to [2027].
  *
- * @param {Map<number, string>} urlByMarker - The model's marker -> URL
+ * @param {Map<number, string | null>} urlByMarker - The model's marker -> URL
  * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
  * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
  * @param {string} text - Answer text with the list removed
@@ -673,15 +682,17 @@ function extractModelSourceList(text, resolveResultUrl) {
 function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
   const indexToUrl = new Map();
   for (const [marker, url] of [...urlByMarker].sort(([a], [b]) => a - b)) {
-    const resultUrl = resolveResultUrl(url);
+    const resultUrl = url && resolveResultUrl(url);
     if (resultUrl) indexToUrl.set(marker, resultUrl);
   }
 
-  const markersInText = [...text.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
-  let next = Math.max(0, ...urlByMarker.keys(), ...markersInText) + 1;
+  const taken = new Set([...text.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])));
+  let next = Math.max(0, ...urlByMarker.keys()) + 1;
   const listed = new Set(indexToUrl.values());
   for (const source of sources) {
-    if (!listed.has(source.url)) indexToUrl.set(next++, source.url);
+    if (listed.has(source.url)) continue;
+    while (taken.has(next)) next += 1;
+    indexToUrl.set(next++, source.url);
   }
   return indexToUrl;
 }
