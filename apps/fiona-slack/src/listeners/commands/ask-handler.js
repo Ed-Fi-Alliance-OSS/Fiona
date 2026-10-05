@@ -12,6 +12,7 @@ import {
   LLM_MODEL,
   SYSTEM_PROMPT_VERSION,
 } from '../../agent/llm-caller.js';
+import { createAskQuestionBlock } from '../views/ask_question_block.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -102,8 +103,11 @@ export function fitMarkdownBlock(text) {
   return { text: `${kept}\n\n${SHORTENED_NOTICE}`, shortened: true };
 }
 
-function buildAskBlocks({ body, interactionType, sourcesBlocks = [] }) {
+// The question goes first: an ephemeral answer is not threaded under it, and the
+// feedback handler reads it back from this block (see ask_question_block.js).
+function buildAskBlocks({ question, body, interactionType, sourcesBlocks = [] }) {
   return [
+    createAskQuestionBlock(question),
     body,
     ...sourcesBlocks,
     { type: 'divider' },
@@ -293,7 +297,7 @@ export async function buildAskResponse({
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks({ body: { type: 'markdown', text: body.text }, interactionType, sourcesBlocks }),
+      blocks: buildAskBlocks({ question, body: { type: 'markdown', text: body.text }, interactionType, sourcesBlocks }),
       unfurl_links: false,
       unfurl_media: false,
     },

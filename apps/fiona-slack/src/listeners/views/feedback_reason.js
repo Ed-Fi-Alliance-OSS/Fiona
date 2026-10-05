@@ -28,6 +28,7 @@ function readFeedbackMetadata(view) {
     responseType,
     interactionType,
     searchQuery,
+    question: storedQuestion,
     botResponse: storedBotResponse,
   } = JSON.parse(view.private_metadata);
   return {
@@ -39,6 +40,7 @@ function readFeedbackMetadata(view) {
     responseType: normalizeResponseType(responseType),
     interactionType,
     searchQuery,
+    storedQuestion,
     storedBotResponse,
   };
 }
@@ -50,10 +52,10 @@ function readFeedbackMetadata(view) {
  *
  * @returns {{ userMessage: string | null, botResponse: string | null }}
  */
-function seedFeedbackContext({ responseType, searchQuery, storedBotResponse }) {
+function seedFeedbackContext({ responseType, searchQuery, storedQuestion, storedBotResponse }) {
   if (!STORED_CONTEXT_TYPES.has(responseType)) return { userMessage: null, botResponse: null };
   return {
-    userMessage: responseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? (searchQuery ?? null) : null,
+    userMessage: (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH ? searchQuery : storedQuestion) ?? null,
     botResponse: storedBotResponse ?? null,
   };
 }
@@ -73,6 +75,7 @@ async function gatherFeedbackContext({ client, logger, metadata, threadTs }) {
       messageTs: metadata.messageTs,
       interactionType: metadata.interactionType,
       searchQuery: metadata.searchQuery,
+      storedQuestion: metadata.storedQuestion,
       storedBotResponse: metadata.storedBotResponse,
     });
   } catch (e) {
@@ -160,23 +163,34 @@ async function resolveSearchFeedbackContext(
  *
  * In the assistant panel the answer is an ordinary thread message, so the thread
  * lookup recovers both sides. Everywhere else the answer was delivered
- * ephemerally to keep the exchange private, and an ephemeral message cannot be
- * re-fetched — the copy stored in private_metadata when the button was clicked is
- * the only one. The question is not recoverable there at all: an answer does not
- * quote it the way a search result quotes its query, so userMessage is honestly
- * null rather than guessed at.
+ * ephemerally and cannot be re-fetched, so the copies stored in private_metadata
+ * when the button was clicked are the only ones: the answer text, and the
+ * question read from the answer's "You asked:" block. An answer posted before
+ * that block existed has no stored question, and userMessage is then null
+ * rather than guessed at.
  *
  * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
  */
-async function resolveAskFeedbackContext(client, channelId, threadTs, messageTs, interactionType, storedBotResponse) {
+async function resolveAskFeedbackContext(
+  client,
+  channelId,
+  threadTs,
+  messageTs,
+  interactionType,
+  storedQuestion,
+  storedBotResponse,
+) {
   if (interactionType === 'assistant_message') {
     const fetched = await fetchThreadContext(client, channelId, threadTs, messageTs);
     // fetchThreadContext resolves with nulls rather than throwing when the
     // streamed message is gone or the thread was truncated; the copy stored at
     // click time is then the only surviving record of the answer.
-    return { userMessage: fetched.userMessage, botResponse: fetched.botResponse ?? storedBotResponse ?? null };
+    return {
+      userMessage: fetched.userMessage ?? storedQuestion ?? null,
+      botResponse: fetched.botResponse ?? storedBotResponse ?? null,
+    };
   }
-  return { userMessage: null, botResponse: storedBotResponse ?? null };
+  return { userMessage: storedQuestion ?? null, botResponse: storedBotResponse ?? null };
 }
 
 /**
@@ -193,6 +207,7 @@ async function resolveFeedbackContext({
   messageTs,
   interactionType,
   searchQuery,
+  storedQuestion,
   storedBotResponse,
 }) {
   if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
@@ -207,7 +222,15 @@ async function resolveFeedbackContext({
     );
   }
   if (responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
-    return resolveAskFeedbackContext(client, channelId, threadTs, messageTs, interactionType, storedBotResponse);
+    return resolveAskFeedbackContext(
+      client,
+      channelId,
+      threadTs,
+      messageTs,
+      interactionType,
+      storedQuestion,
+      storedBotResponse,
+    );
   }
   return fetchThreadContext(client, channelId, threadTs, messageTs);
 }

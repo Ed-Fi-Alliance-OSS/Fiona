@@ -93,7 +93,12 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    use @-mentions in a thread instead.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
-6. The numbered Sources block (AI-230) sits between the answer and the feedback
+6. The ephemeral answer opens with a plain-text "You asked: …" line repeating
+   the question (shortened to 300 characters), because an ephemeral answer is
+   not threaded under it. Feedback reads the question back from this line at
+   click time (AI-248); it is the only copy, since an ephemeral message cannot
+   be fetched later.
+7. The numbered Sources block (AI-230) sits between the answer and the feedback
    buttons, exactly as on a standard `app_mention` answer, and the grounding rules
    (AI-231) apply unchanged — a question with no usable sources gets the same
    decline.

@@ -462,6 +462,37 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: null }));
   });
 
+  // AI-248. The "You asked:" line makes the question recoverable at click time.
+  it('records the question stored at click time', async () => {
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ question: 'What is the Ed-Fi Data Standard?' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is the Ed-Fi Data Standard?',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
+    );
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the stored question when the assistant-panel thread has lost it', async () => {
+    mockClient.conversations.replies.mockResolvedValue({ messages: [] });
+
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ interactionType: 'assistant_message', question: 'What is Ed-Fi?' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: 'What is Ed-Fi?' }));
+  });
+
   it('does not call conversations.replies for an ephemeral answer that cannot be re-fetched', async () => {
     await feedbackReasonViewCallback({ ack: mockAck, view: askView(), client: mockClient, logger: mockLogger });
 
