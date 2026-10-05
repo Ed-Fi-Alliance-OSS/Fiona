@@ -179,8 +179,9 @@ production with the earlier prompt, the model appended its own list in 8 of 12
 answers, and in those it numbered its sources 1, 2, 3… itself instead of by
 result id, so linking `[n]` to result `n` pointed at the wrong page. If the
 answer ends with lines like `[n] … URL` that read as a bibliography (a
-*Sources* / *References* / *Citations* heading, or, without one, every listed
-number cited earlier in the answer and every listed URL a search result), Fiona
+*Sources* / *References* / *Citations* heading, or, without one, every line of
+the trailing `[n]` run carrying a URL, every listed number cited earlier in the
+answer and every listed URL a search result), Fiona
 treats that list as the meaning of its numbers. A closing list of numbered
 steps with links normally fails that test, even if the answer cites one of its
 numbers, so it is kept as answer content; a missed list only falls back to
@@ -189,8 +190,10 @@ result-id linking. Each
 or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
 case) when only one result matches. A URL the search did not return, or one
 that loosely matches several results, leaves its marker as plain text. Under a
-heading, every `[n]` line belongs to the list, including one that names a page
-without a URL; that marker also stays plain text. The list
+heading, every `[n]` line belongs to the list, even with blank lines between
+entries, including one that names a page without a URL; that marker also stays
+plain text. A headed list with no URL at all is kept as answer content, since
+it may be steps and removing it would leave its numbers unexplained. The list
 is removed from the answer, so only the Sources block lists sources. The
 results the model did not list are numbered from just after its highest listed
 number, skipping any number the answer already uses, so a stray `[2026]` in the

@@ -157,6 +157,44 @@ describe('resolveCitations', () => {
       );
     });
 
+    it('keeps a headed list with no URLs at all, falling back to result-id linking', () => {
+      const { botText } = run('A [1]. B [2].\n\nSources:\n[1] Ed-Fi docs home\n[2] Data Standard v5');
+
+      expect(botText).toBe(
+        'A [[1]](https://docs.ed-fi.org/one/). B [[2]](https://docs.ed-fi.org/two/).\n\nSources:\n[[1]](https://docs.ed-fi.org/one/) Ed-Fi docs home\n[[2]](https://docs.ed-fi.org/two/) Data Standard v5',
+      );
+    });
+
+    it('keeps a list of steps under a References heading when none of its lines has a URL', () => {
+      const { botText } = run('Do this.\n\nReferences:\n[1] Open the admin app\n[2] Click save');
+
+      expect(botText).toBe(
+        'Do this.\n\nReferences:\n[[1]](https://docs.ed-fi.org/one/) Open the admin app\n[[2]](https://docs.ed-fi.org/two/) Click save',
+      );
+    });
+
+    it('keeps an unheaded trailing list whose URL-less line sits above the linked ones', () => {
+      const { botText } = run('A [1]. B [2].\n\n[1] Ed-Fi docs home\n[2] [Four](https://docs.ed-fi.org/four/)');
+
+      expect(botText).toBe(
+        'A [[1]](https://docs.ed-fi.org/one/). B [[2]](https://docs.ed-fi.org/two/).\n\n[[1]](https://docs.ed-fi.org/one/) Ed-Fi docs home\n[[2]](https://docs.ed-fi.org/two/) [Four](https://docs.ed-fi.org/four/)',
+      );
+    });
+
+    it('removes a whole headed list whose entries are separated by blank lines', () => {
+      const { botText, citationIndex } = run(
+        'A [1]. B [2].\n\nSources:\n\n[1] [Four](https://docs.ed-fi.org/four/)\n\n[2] [Two](https://docs.ed-fi.org/two/)',
+      );
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [[2]](https://docs.ed-fi.org/two/).');
+      expect(citationIndex).toEqual({
+        1: 'https://docs.ed-fi.org/four/',
+        2: 'https://docs.ed-fi.org/two/',
+        3: 'https://docs.ed-fi.org/one/',
+        4: 'https://docs.ed-fi.org/three/',
+      });
+    });
+
     it('numbers uncited results right after the listed markers, ignoring a stray large bracketed number', () => {
       const { citationIndex } = run(
         'In school year [2026], A [1].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',

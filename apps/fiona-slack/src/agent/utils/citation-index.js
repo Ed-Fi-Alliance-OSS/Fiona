@@ -110,13 +110,15 @@ function makeResultUrlResolver(sources) {
  * one run). The list is the only record of what each number means.
  *
  * A list headed "Sources" / "References" / "Citations" is every `[n]` line
- * under the heading; a line that names a page without a URL is still part of
- * it, and its marker stays unlinked. Unheaded, only a trailing run of
- * `[n] ... URL` lines counts, and only when every one of its numbers is cited
- * earlier in the answer AND every one of its URLs is a search result. A
- * closing list of numbered steps with links fails that (typically most step
- * numbers are never cited), so it is kept as content. When unsure, keeping
- * text beats deleting it: a missed list only falls back to result-id linking.
+ * under the heading, blank lines between entries allowed; a line that names a
+ * page without a URL is still part of it, and its marker stays unlinked. A
+ * headed list with no URL at all is kept: it may be steps, and deleting it
+ * would leave its markers unexplained. Unheaded, the whole trailing run of
+ * `[n]` lines must carry URLs, every one of its numbers must be cited earlier
+ * in the answer AND every one of its URLs must be a search result. A closing
+ * list of numbered steps with links fails that (typically most step numbers
+ * are never cited), so it is kept as content. When unsure, keeping text beats
+ * deleting it: a missed list only falls back to result-id linking.
  *
  * @param {string} text - Raw answer text
  * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
@@ -134,23 +136,28 @@ function extractModelSourceList(text, resolveResultUrl) {
   };
   const listFrom = (start) => {
     const urlByMarker = new Map();
-    for (const line of lines.slice(start, end)) {
+    for (const line of lines.slice(start, end).filter((entry) => MODEL_LIST_LINE.test(entry))) {
       urlByMarker.set(Number(line.match(MODEL_LIST_LINE)[1]), line.match(URL_IN_TEXT)?.at(-1) ?? null);
     }
     return urlByMarker;
   };
 
   let start = end;
-  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1])) start -= 1;
+  while (start > 0 && (MODEL_LIST_LINE.test(lines[start - 1]) || !lines[start - 1].trim())) start -= 1;
   const headingCut = precedingCut(start);
-  if (start < end && headingCut > 0 && MODEL_LIST_HEADING.test(lines[headingCut - 1])) {
+  const hasEntries = lines.slice(start, end).some((line) => MODEL_LIST_LINE.test(line));
+  if (hasEntries && headingCut > 0 && MODEL_LIST_HEADING.test(lines[headingCut - 1])) {
+    const urlByMarker = listFrom(start);
+    if (![...urlByMarker.values()].some(Boolean)) {
+      return null;
+    }
     const answer = lines.slice(0, headingCut - 1).join('\n');
-    return { text: answer.trimEnd(), urlByMarker: listFrom(start) };
+    return { text: answer.trimEnd(), urlByMarker };
   }
 
   start = end;
   while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]) && lines[start - 1].match(URL_IN_TEXT)) start -= 1;
-  if (start === end) {
+  if (start === end || (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]))) {
     return null;
   }
   const urlByMarker = listFrom(start);
