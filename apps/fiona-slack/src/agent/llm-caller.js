@@ -5,6 +5,7 @@
 
 import Perplexity from '@perplexity-ai/perplexity_ai';
 import { isCitationLinkCheckEnabled } from './deployment-flags.js';
+import { MetadataLifecycleState } from './metadata-lifecycle.js';
 import { linkifyCitationMarkers, resolveCitations } from './utils/citation-index.js';
 import {
   incrementDegradedNoMetadataCount,
@@ -271,17 +272,8 @@ export function assertLLMConfigured() {
 }
 
 // ─── Metadata Contract and Lifecycle (v1) ─────────────────────────────────
-/**
- * Lifecycle states for strict consistency citation finalization.
- * @enum {string}
- */
-export const MetadataLifecycleState = {
-  STREAMING_TEXT: 'streaming_text', // Initial state: processing input, streaming text
-  COLLECTING_METADATA: 'collecting_metadata', // Waiting for citation metadata from tools
-  READY_TO_FINALIZE: 'ready_to_finalize', // Metadata resolved and ready
-  FINALIZED: 'finalized', // Message finalized with citations
-  DEGRADED_NO_METADATA: 'degraded_no_metadata', // Timeout/error: finalize without metadata
-};
+// Re-exported so existing imports of the enum from llm-caller keep working.
+export { MetadataLifecycleState };
 
 /**
  * Metadata envelope v1 for strict-consistency citations.
