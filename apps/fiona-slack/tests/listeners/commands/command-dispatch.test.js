@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockEscalateViaSay = jest.fn();
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({ escalateViaSay: mockEscalateViaSay }));
@@ -24,6 +24,14 @@ jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () =>
   streamAskResponse: mockStreamAskResponse,
 }));
 
+// Real search would hit the network from the keyword-coverage test below.
+jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
+  searchForSources: jest.fn().mockResolvedValue([]),
+  formatSearchResults: jest.fn(() => ({ text: 'no sources', blocks: null })),
+  extractSearchQuery: jest.fn(() => null),
+  SEARCH_ERROR_TEXT: ':warning: search failed',
+}));
+
 const mockGenerateResponseId = jest.fn().mockReturnValue('C1:123.45:123.45');
 const mockShouldFinalize = jest.fn().mockReturnValue(true);
 const mockRollbackFinalization = jest.fn();
@@ -34,7 +42,7 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
 }));
 
 const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
-const { CREATE_TICKET_ACTION, TICKET_NOT_CONFIGURED_TEXT } = await import(
+const { CREATE_TICKET_ACTION, parseCommandKeyword, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
 );
 
@@ -339,5 +347,44 @@ describe('dispatchKeywordViaSay — file_ticket', () => {
     await expect(dispatchKeywordViaSay(ctx({ keyword: 'file_ticket', rawArgs: 'bug' }, say))).resolves.toBeUndefined();
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('channel_not_found'));
+  });
+});
+
+// routeCommandViaSay answers an unrouted keyword with help and logs an error.
+// Every keyword the parser can return must be routed somewhere on purpose.
+describe('dispatchKeywordViaSay — keyword coverage', () => {
+  const SAMPLE_COMMANDS = ['help', 'escalate', 'ask what is Ed-Fi?', 'search Data Standard', 'file a bug'];
+
+  beforeEach(() => {
+    process.env.ESCALATION_ENABLED = 'true';
+    process.env.TICKET_CREATION_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.ESCALATION_ENABLED;
+    delete process.env.TICKET_CREATION_ENABLED;
+  });
+
+  const parsedKeywords = () => SAMPLE_COMMANDS.map((text) => parseCommandKeyword(text)?.keyword);
+
+  it('samples every keyword the parser can return', () => {
+    expect(new Set(parsedKeywords())).toEqual(new Set(['help', 'escalate', 'ask', 'search', 'file_ticket']));
+  });
+
+  it.each(['app_mention', 'assistant_message'])('routes every keyword on %s without the unrouted fallback', async (interactionType) => {
+    for (const text of SAMPLE_COMMANDS) {
+      const params = {
+        ...ctx(parseCommandKeyword(text), jest.fn().mockResolvedValue(undefined)),
+        client: {
+          chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) },
+          assistant: { threads: { setStatus: jest.fn().mockResolvedValue(undefined) } },
+        },
+        interactionType,
+      };
+
+      await dispatchKeywordViaSay(params);
+    }
+
+    expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('Unrouted command keyword'));
   });
 });

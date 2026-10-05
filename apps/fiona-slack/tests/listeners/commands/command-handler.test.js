@@ -19,18 +19,7 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   SEARCH_ERROR_TEXT: ':warning: Search error.',
 }));
 
-const {
-  parseCommandKeyword,
-  buildHelpText,
-  handleHelpViaSay,
-  handleSearchViaSay,
-  routeCommandViaSay,
-  buildCreateTicketBlocks,
-  normalizeTicketType,
-  TICKET_TYPES,
-  CREATE_TICKET_ACTION,
-  TICKET_NOT_CONFIGURED_TEXT,
-} = await import('../../../src/listeners/commands/command-handler.js');
+const { buildCreateTicketBlocks, buildHelpText, CREATE_TICKET_ACTION, ephemeralThreadTs, handleHelpViaSay, handleSearchViaSay, normalizeTicketType, parseCommandKeyword, routeCommandViaSay, TICKET_NOT_CONFIGURED_TEXT, TICKET_TYPES } = await import('../../../src/listeners/commands/command-handler.js');
 
 // The AI-217 flags default to off. Suites that need a feature on set it in their
 // own beforeEach; clearing here keeps suite ordering from being load-bearing.
@@ -538,14 +527,26 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('warns when it has to fall back, so an unrouted keyword is visible in logs', async () => {
+  it('logs an error when it has to fall back, because an unrouted keyword is a wiring bug', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('ask'));
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Unrouted command keyword "ask"'));
   });
 
-  it('does not warn on the ordinary help route', async () => {
+  it('logs nothing on the ordinary help route', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
+    expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  describe('ephemeralThreadTs', () => {
+    it.each([
+      ['a mention inside a thread', '100.00', '200.00', '100.00'],
+      ['a mention that started its own thread', '200.00', '200.00', null],
+      ['no thread at all', null, '200.00', null],
+      ['an undefined thread', undefined, '200.00', null],
+    ])('%s → %p', (_label, threadTs, messageTs, expected) => {
+      expect(ephemeralThreadTs(threadTs, messageTs)).toBe(expected);
+    });
   });
 
   it('calls searchForSources and say() results when keyword is "search"', async () => {

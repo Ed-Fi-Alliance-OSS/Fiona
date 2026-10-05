@@ -9,6 +9,7 @@ import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../
 import { ASK_DELIVERY_FAILED_TEXT, buildAskResponse, describeError, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
+  ephemeralThreadTs,
   handleSearchEphemeral,
   routeCommandViaSay,
   TICKET_NOT_CONFIGURED_TEXT,
@@ -137,7 +138,7 @@ export async function dispatchKeywordViaSay({
     await handleSearchEphemeral(client, logger, {
       userId,
       channelId,
-      threadTs: threadTs === messageTs ? null : threadTs,
+      threadTs: ephemeralThreadTs(threadTs, messageTs),
       query: cmd.rawArgs,
       interactionType,
     });
@@ -184,10 +185,11 @@ async function answerAskEphemerally({
   responseId,
   markInteractionError,
 }) {
+  const replyThreadTs = ephemeralThreadTs(threadTs, messageTs);
   const ephemeralTarget = {
     channel: channelId,
     user: userId,
-    ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
+    ...(replyThreadTs ? { thread_ts: replyThreadTs } : {}),
   };
 
   await setThinkingStatus(client, logger, channelId, threadTs, 'thinking...');

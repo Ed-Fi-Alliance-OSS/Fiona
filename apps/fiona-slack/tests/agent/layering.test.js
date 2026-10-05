@@ -85,3 +85,30 @@ describe('module graph', () => {
     expect(readable).toBeNull();
   });
 });
+
+/**
+ * The command modules serve help, search, escalate and ticket, none of which
+ * synthesizes an answer. Only `ask` does, and it reaches the LLM through
+ * ask-handler.js. A direct llm-caller import here would let a non-ask
+ * sub-command start calling the LLM unnoticed; search goes through
+ * search-caller.js instead.
+ */
+describe('command modules and the LLM', () => {
+  const graph = buildGraph();
+  const llmCaller = join(SRC_DIR, 'agent', 'llm-caller.js');
+  const commandModules = ['fiona.js', 'command-handler.js', 'command-dispatch.js'].map((name) =>
+    join(SRC_DIR, 'listeners', 'commands', name),
+  );
+
+  it.each(commandModules.map((file) => [relative(SRC_DIR, file).replace(/\\/g, '/'), file]))(
+    '%s does not import llm-caller directly',
+    (_label, file) => {
+      expect(graph.has(file)).toBe(true);
+      expect(graph.get(file)).not.toContain(llmCaller);
+    },
+  );
+
+  it('ask-handler.js is the command layer’s one route to the LLM', () => {
+    expect(graph.get(join(SRC_DIR, 'listeners', 'commands', 'ask-handler.js'))).toContain(llmCaller);
+  });
+});

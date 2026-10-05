@@ -213,6 +213,18 @@ export function parseCommandKeyword(text) {
 }
 
 /**
+ * The thread an ephemeral reply belongs in, or null for none.
+ *
+ * A mention that starts its own thread arrives with `threadTs === messageTs`
+ * (app_mention falls back to the message's own ts). An ephemeral reply there
+ * must not claim a thread that does not exist; a reply to a mention inside a
+ * thread belongs in that thread.
+ */
+export function ephemeralThreadTs(threadTs, messageTs) {
+  return threadTs && threadTs !== messageTs ? threadTs : null;
+}
+
+/**
  * Dispatches a parsed command to the appropriate say() response.
  * Centralizes routing so each handler only calls this once.
  *
@@ -226,9 +238,11 @@ export async function routeCommandViaSay(say, logger, cmd, options = {}) {
     return;
   }
   // `help` and anything command-dispatch did not claim: the help text is the
-  // safe answer, and it is what an unrecognised sub-command already gets.
+  // safe answer, and it is what an unrecognised sub-command already gets. An
+  // unrouted keyword is a wiring bug (command-dispatch.test.js checks every
+  // keyword the parser can return), so it is logged as an error.
   if (cmd.keyword !== 'help') {
-    logger?.warn?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
+    logger?.error?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
   }
   await handleHelpViaSay(say, logger);
 }

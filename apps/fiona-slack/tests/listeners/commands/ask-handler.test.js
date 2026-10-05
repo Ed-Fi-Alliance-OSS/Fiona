@@ -4,28 +4,19 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { createFinalizeMetadataEnvelopeMock, METADATA_LIFECYCLE_STATE } from '../../helpers/llm-caller-mock.js';
 
 const mockCallLLM = jest.fn();
 // Transitions the state the way the real one does, so a Sources block built
 // after finalizing — which would render nothing — fails the tests below.
-const mockFinalizeMetadataEnvelope = jest.fn((metadata) => {
-  if (metadata && ['ready_to_finalize', 'degraded_no_metadata'].includes(metadata.finalize_state)) {
-    metadata.finalize_state = 'finalized';
-  }
-});
+const mockFinalizeMetadataEnvelope = createFinalizeMetadataEnvelopeMock();
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: mockCallLLM,
   finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   LLM_MODEL: 'test-model',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
-  MetadataLifecycleState: {
-    STREAMING_TEXT: 'streaming_text',
-    COLLECTING_METADATA: 'collecting_metadata',
-    READY_TO_FINALIZE: 'ready_to_finalize',
-    FINALIZED: 'finalized',
-    DEGRADED_NO_METADATA: 'degraded_no_metadata',
-  },
+  MetadataLifecycleState: METADATA_LIFECYCLE_STATE,
 }));
 
 const mockWaitForMetadataReady = jest.fn().mockResolvedValue(undefined);
