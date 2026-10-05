@@ -211,7 +211,7 @@ describe('buildAskResponse', () => {
     expect(mockFinalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
   });
 
-  it('logs the citation state through the shared helper', async () => {
+  it('logs the citation state for the answer', async () => {
     const metadata = { finalize_state: 'ready_to_finalize', sources: [{}, {}] };
     mockCallLLM.mockImplementation(answersWith('answer', metadata));
 

@@ -52,9 +52,11 @@ const ctx = (cmd, say) => ({
   cmd,
   say,
   logger,
-  markInteractionRecorded: jest.fn(),
-  markInteractionError: jest.fn(),
-  claimResponseId: jest.fn(),
+  telemetry: {
+    markInteractionRecorded: jest.fn(),
+    markInteractionError: jest.fn(),
+    claimResponseId: jest.fn(),
+  },
   client: {},
   userId: 'U1',
   teamId: 'T1',
@@ -113,7 +115,7 @@ describe('dispatchKeywordViaSay — ask', () => {
       expect.objectContaining({ question: 'how do I set up ODS?', interactionType: 'app_mention' }),
     );
     expect(mockGenerateResponseId).toHaveBeenCalledWith('C1', '123.45', '123.45');
-    expect(params.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
+    expect(params.telemetry.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
     expect(mockShouldFinalize).toHaveBeenCalledWith('C1:123.45:123.45', logger);
   });
 
@@ -154,7 +156,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
-    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('post_failed');
     expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
   });
@@ -252,7 +254,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     },
   );
 
-  it('marks a handled ask-generation failure from buildAskResponse', async () => {
+  it('marks a handled ask-generation failure without posting a public warning', async () => {
     mockBuildAskResponse.mockResolvedValueOnce({
       response: { text: ':warning: ask failed', blocks: [], unfurl_links: false, unfurl_media: false },
       errorType: 'llm_failed',
@@ -262,7 +264,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.markInteractionError).toHaveBeenCalledWith('llm_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('llm_failed');
     expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
     expect(params.say).not.toHaveBeenCalled();
   });
@@ -285,7 +287,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.markInteractionError).toHaveBeenCalledWith('llm_empty');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('llm_empty');
   });
 
   it('does not escalate or record the turn itself', async () => {
@@ -296,7 +298,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     expect(mockEscalateViaSay).not.toHaveBeenCalled();
     // The telemetry wrapper records app_mention/assistant_message turns; the ask
     // branch must not suppress that the way escalate does.
-    expect(params.markInteractionRecorded).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionRecorded).not.toHaveBeenCalled();
   });
 });
 

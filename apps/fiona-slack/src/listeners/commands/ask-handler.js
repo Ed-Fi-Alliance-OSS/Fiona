@@ -36,7 +36,7 @@ const ERROR_TEXT_BY_TYPE = {
 // `[[n]](url)`), which section/mrkdwn blocks show as literal text. Slack's
 // `markdown` block renders it, but caps all markdown blocks in one message at
 // 12,000 characters in total.
-const MARKDOWN_BLOCK_LIMIT = 12000;
+const MARKDOWN_MESSAGE_CHAR_BUDGET = 12000;
 const SHORTENED_NOTICE =
   '_This answer was too long for Slack and was shortened. A narrower question may get a complete answer._';
 // Room for the closing fence (a newline plus the opening marker) when the cut
@@ -89,10 +89,10 @@ function openFenceMarker(text) {
  * @returns {{ text: string, shortened: boolean }}
  */
 export function fitMarkdownBlock(text) {
-  if (text.length <= MARKDOWN_BLOCK_LIMIT) return { text, shortened: false };
+  if (text.length <= MARKDOWN_MESSAGE_CHAR_BUDGET) return { text, shortened: false };
 
   // The 2 is the blank line between the kept text and the notice.
-  const budget = MARKDOWN_BLOCK_LIMIT - CLOSING_FENCE_RESERVE - SHORTENED_NOTICE.length - 2;
+  const budget = MARKDOWN_MESSAGE_CHAR_BUDGET - CLOSING_FENCE_RESERVE - SHORTENED_NOTICE.length - 2;
   const window = text.slice(0, budget);
   const lineBreak = window.lastIndexOf('\n');
   const breakAt = lineBreak > 0 ? lineBreak : window.lastIndexOf(' ');
@@ -102,9 +102,9 @@ export function fitMarkdownBlock(text) {
   return { text: `${kept}\n\n${SHORTENED_NOTICE}`, shortened: true };
 }
 
-function buildAskBlocks(bodyBlock, interactionType, sourcesBlocks = []) {
+function buildAskBlocks({ body, interactionType, sourcesBlocks = [] }) {
   return [
-    bodyBlock,
+    body,
     ...sourcesBlocks,
     { type: 'divider' },
     createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
@@ -293,7 +293,7 @@ export async function buildAskResponse({
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks({ type: 'markdown', text: body.text }, interactionType, sourcesBlocks),
+      blocks: buildAskBlocks({ body: { type: 'markdown', text: body.text }, interactionType, sourcesBlocks }),
       unfurl_links: false,
       unfurl_media: false,
     },

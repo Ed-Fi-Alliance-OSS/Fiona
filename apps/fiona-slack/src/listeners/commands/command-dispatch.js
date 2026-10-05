@@ -30,12 +30,15 @@ import {
  * @param {{ keyword: string, rawArgs: string }} params.cmd - Parsed command.
  * @param {import("@slack/bolt").SayFn} params.say
  * @param {import("@slack/logger").Logger} [params.logger]
- * @param {() => void} params.markInteractionRecorded - Suppresses the telemetry
+ * @param {Object} params.telemetry - The helpers `handleInteractionWithTelemetry`
+ *   hands its callback. A new helper belongs here, not as another top-level param.
+ * @param {() => void} params.telemetry.markInteractionRecorded - Suppresses the
  *   wrapper's turn record for escalate (postEscalation records it exactly once).
- * @param {(errorType: string) => void} params.markInteractionError - Records a
- *   handled failure without triggering the telemetry wrapper's public warning.
- * @param {(responseId: string) => void} params.claimResponseId - Registers the
- *   claimed response so the telemetry wrapper can release it if an error escapes.
+ * @param {(errorType: string) => void} params.telemetry.markInteractionError -
+ *   Records a handled failure without triggering the wrapper's public warning.
+ * @param {(responseId: string) => void} params.telemetry.claimResponseId -
+ *   Registers the claimed response so the wrapper can release it if an error
+ *   escapes.
  * @param {import("@slack/web-api").WebClient} params.client
  * @param {string} params.userId
  * @param {string} [params.teamId]
@@ -48,9 +51,7 @@ export async function dispatchKeywordViaSay({
   cmd,
   say,
   logger,
-  markInteractionRecorded,
-  markInteractionError,
-  claimResponseId,
+  telemetry,
   client,
   userId,
   teamId,
@@ -78,7 +79,7 @@ export async function dispatchKeywordViaSay({
   if (cmd.keyword === 'escalate') {
     // postEscalation records the escalate interaction itself; suppress the
     // telemetry wrapper's turn record so the event is counted exactly once.
-    markInteractionRecorded();
+    telemetry.markInteractionRecorded();
     await escalateViaSay({
       client,
       userId,
@@ -98,8 +99,12 @@ export async function dispatchKeywordViaSay({
     // capture record. Only the assistant panel, which is already private, streams
     // the answer into the thread. Every other surface gets an ephemeral answer, so
     // a new caller fails closed rather than posting a private answer publicly.
+    // Claimed before the duplicate check, as the app_mention and assistant
+    // paths do. That is safe: a duplicate returns straight away, and the
+    // wrapper only releases the claim when an error escapes, which a duplicate
+    // never reaches.
     const responseId = generateResponseId(channelId, threadTs, messageTs);
-    claimResponseId(responseId);
+    telemetry.claimResponseId(responseId);
     if (!shouldFinalize(responseId, logger)) {
       return;
     }
@@ -116,7 +121,7 @@ export async function dispatchKeywordViaSay({
         threadTs,
         messageTs,
         responseId,
-        markInteractionError,
+        markInteractionError: telemetry.markInteractionError,
       });
       return;
     }
@@ -131,7 +136,7 @@ export async function dispatchKeywordViaSay({
       threadTs,
       messageTs,
     });
-    if (streamResult?.errorType) markInteractionError(streamResult.errorType);
+    if (streamResult?.errorType) telemetry.markInteractionError(streamResult.errorType);
     return;
   }
   if (cmd.keyword === 'search' && interactionType === 'app_mention') {
