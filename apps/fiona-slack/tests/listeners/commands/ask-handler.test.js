@@ -275,6 +275,25 @@ describe('buildAskResponse', () => {
       expect(response.blocks[1].text.text).toBe(SOURCES_TEXT);
     });
 
+    it('builds the Sources block before finalizing the envelope', async () => {
+      const order = [];
+      mockCallLLM.mockImplementation(answersWith('A [1] B [2]', readyMetadata()));
+      mockFinalizeMetadataEnvelope.mockImplementationOnce((metadata) => {
+        order.push(`finalize:${metadata.finalize_state}`);
+        metadata.finalize_state = 'finalized';
+      });
+
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(order).toEqual(['finalize:ready_to_finalize']);
+      expect(response.blocks[1].text.text).toBe(SOURCES_TEXT);
+    });
+
     it('omits the Sources block when metadata degraded', async () => {
       mockCallLLM.mockImplementation(
         answersWith('answer', { ...readyMetadata(), finalize_state: 'degraded_no_metadata' }),

@@ -148,7 +148,7 @@ function isEmptyAnswer(botText) {
 }
 
 /**
- * Runs the LLM and settles the citation metadata envelope.
+ * Runs the LLM and waits for the citation metadata to settle.
  *
  * @param {{ append: Function }} sink - A chat streamer, or the collector above.
  */
@@ -162,6 +162,46 @@ async function generateAnswer(sink, question, logger) {
   logCitationTelemetry(logger, metadata);
 
   return { metadata, botText, systemPromptVersion, prompts };
+}
+
+/**
+ * Builds the Sources block and finalizes the envelope, in the only order that
+ * works: `createSourcesBlocks` renders only while the envelope is still
+ * READY_TO_FINALIZE, so building it after finalizing silently yields nothing.
+ * Every ask path settles citations here, so the order cannot drift.
+ */
+function settleCitations(metadata) {
+  const sourcesBlocks = createSourcesBlocks(metadata);
+  finalizeMetadataEnvelope(metadata);
+  return sourcesBlocks;
+}
+
+function isQuestionTooLong(question, logger) {
+  if (question.length <= MAX_QUESTION_LENGTH) return false;
+  logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
+  return true;
+}
+
+/**
+ * The steps every ask path takes once the LLM has answered: settle the
+ * citations, classify an empty answer, and prepare the capture record.
+ *
+ * Capture is returned, not run, so each path can run it only once the answer
+ * has actually reached the user.
+ *
+ * @returns {{ empty: boolean, sourcesBlocks: Array, capture: () => Promise<void> }}
+ */
+function completeAsk(answer, context) {
+  const sourcesBlocks = settleCitations(answer.metadata);
+  const empty = isEmptyAnswer(answer.botText);
+  if (empty) {
+    context.logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
+  }
+  return {
+    empty,
+    sourcesBlocks,
+    capture: empty ? noCapture : () => captureAsk({ ...context, ...answer }),
+  };
 }
 
 async function captureAsk({
@@ -228,31 +268,21 @@ export async function buildAskResponse({
   threadTs = null,
   messageTs,
 }) {
-  if (question.length > MAX_QUESTION_LENGTH) {
-    logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
-    return buildAskErrorResponse('question_too_long');
-  }
+  if (isQuestionTooLong(question, logger)) return buildAskErrorResponse('question_too_long');
 
-  const collector = createTextCollector();
-  let result;
+  let answer;
   try {
-    result = await generateAnswer(collector, question, logger);
+    answer = await generateAnswer(createTextCollector(), question, logger);
   } catch (err) {
     logger?.error?.(`Failed to answer ask question: ${describeError(err)}`);
     return buildAskErrorResponse('llm_failed');
   }
 
-  const { metadata, botText, systemPromptVersion, prompts } = result;
-  // Built before finalizing: the Sources block renders only while the envelope
-  // is still READY_TO_FINALIZE.
-  const sourcesBlocks = createSourcesBlocks(metadata);
-  finalizeMetadataEnvelope(metadata);
+  const context = { userId, teamId, channelId, threadTs, messageTs, interactionType, question, logger };
+  const { empty, sourcesBlocks, capture } = completeAsk(answer, context);
+  if (empty) return buildAskErrorResponse('llm_empty');
 
-  if (isEmptyAnswer(botText)) {
-    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
-    return buildAskErrorResponse('llm_empty');
-  }
-
+  const { botText } = answer;
   const body = fitMarkdownBlock(botText);
   if (body.shortened) {
     logger?.warn?.(
@@ -268,21 +298,7 @@ export async function buildAskResponse({
       unfurl_media: false,
     },
     errorType: null,
-    capture: () =>
-      captureAsk({
-        userId,
-        teamId,
-        channelId,
-        threadTs,
-        messageTs,
-        interactionType,
-        question,
-        botText,
-        prompts,
-        metadata,
-        systemPromptVersion,
-        logger,
-      }),
+    capture,
   };
 }
 
@@ -319,48 +335,29 @@ export async function streamAskResponse({
     ...(threadTs ? { thread_ts: threadTs } : {}),
   });
 
-  if (question.length > MAX_QUESTION_LENGTH) {
-    logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
+  if (isQuestionTooLong(question, logger)) {
     await streamer.append({ markdown_text: ASK_TOO_LONG_TEXT });
     await streamer.stop();
     return { errorType: 'question_too_long' };
   }
 
-  const { metadata, botText, systemPromptVersion, prompts } = await generateAnswer(streamer, question, logger);
+  const answer = await generateAnswer(streamer, question, logger);
+  // Settled before stop(), so a failed stop() cannot leave the envelope open.
+  const context = { userId, teamId, channelId, threadTs, messageTs, interactionType, question, logger };
+  const { empty, sourcesBlocks, capture } = completeAsk(answer, context);
 
   // Nothing was appended when the answer came back empty, so the stream would
   // otherwise stop on an empty message.
-  if (isEmptyAnswer(botText)) {
-    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
-    finalizeMetadataEnvelope(metadata);
+  if (empty) {
     await streamer.append({ markdown_text: ASK_EMPTY_TEXT });
     await streamer.stop();
     return { errorType: 'llm_empty' };
   }
 
-  // Built before finalizing: the Sources block renders only while the envelope
-  // is still READY_TO_FINALIZE. Finalizing before stop() means a failed stop()
-  // cannot leave the envelope unsettled.
-  const sourcesBlocks = createSourcesBlocks(metadata);
-  finalizeMetadataEnvelope(metadata);
   await streamer.stop({
     blocks: [...sourcesBlocks, createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType })],
   });
-
-  await captureAsk({
-    userId,
-    teamId,
-    channelId,
-    threadTs,
-    messageTs,
-    interactionType,
-    question,
-    botText,
-    prompts,
-    metadata,
-    systemPromptVersion,
-    logger,
-  });
+  await capture();
 
   return { errorType: null };
 }
