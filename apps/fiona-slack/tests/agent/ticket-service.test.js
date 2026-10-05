@@ -36,6 +36,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   delete process.env.GH_ISSUE_BUG_TYPE_NAME;
   delete process.env.GH_ISSUE_FEATURE_TYPE_NAME;
+  // The feature defaults to off (AI-217); these suites exercise the on path.
+  process.env.TICKET_CREATION_ENABLED = 'true';
   mockIsGithubConfigured.mockReturnValue(true);
   mockGetUser.mockResolvedValue({ realName: 'Ada Lovelace', email: 'ada@ed-fi.org' });
   mockCreateIssue.mockResolvedValue({ number: 300, url: 'https://github.com/o/r/issues/300' });
@@ -246,5 +248,59 @@ describe('submitTicket (approval gate)', () => {
       context(),
     );
     expect(result.mode).toBe('created');
+  });
+});
+
+describe('isTicketingEnabled', () => {
+  it('is false when the feature flag is off, even with GitHub fully configured', () => {
+    delete process.env.TICKET_CREATION_ENABLED;
+    mockIsGithubConfigured.mockReturnValue(true);
+    expect(isTicketingEnabled()).toBe(false);
+  });
+
+  it('is false when the flag is on but GitHub is not configured', () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    mockIsGithubConfigured.mockReturnValue(false);
+    expect(isTicketingEnabled()).toBe(false);
+  });
+
+  it('is true only when the flag is on and GitHub is configured', () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    mockIsGithubConfigured.mockReturnValue(true);
+    expect(isTicketingEnabled()).toBe(true);
+  });
+
+  // The flag is the cheaper check and the one that should win, so a deployment
+  // with the feature off must never reach out to GitHub to find out.
+  it('does not consult GitHub configuration when the flag is off', () => {
+    delete process.env.TICKET_CREATION_ENABLED;
+    isTicketingEnabled();
+    expect(mockIsGithubConfigured).not.toHaveBeenCalled();
+  });
+});
+
+// A draft posted to the triage channel outlives the flag that produced it. The
+// approve button calls createTicketNow directly rather than going through
+// submitTicket, so without its own gate an old draft could still be approved
+// into a real GitHub issue after the feature was switched off.
+describe('createTicketNow (feature flag)', () => {
+  it('refuses to create when the feature flag is off', async () => {
+    delete process.env.TICKET_CREATION_ENABLED;
+    const result = await createTicketNow(
+      { ticketType: 'bug', summary: 's', description: 'd', priorityName: 'Medium', bugFields: {} },
+      context(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errorType).toBe('feature_disabled');
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+  });
+
+  it('records no interaction when the feature flag is off', async () => {
+    delete process.env.TICKET_CREATION_ENABLED;
+    await createTicketNow(
+      { ticketType: 'bug', summary: 's', description: 'd', priorityName: 'Medium', bugFields: {} },
+      context(),
+    );
+    expect(mockRecordInteraction).not.toHaveBeenCalled();
   });
 });

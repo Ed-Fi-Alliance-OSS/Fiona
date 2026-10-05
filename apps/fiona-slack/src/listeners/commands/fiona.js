@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { isEscalationEnabled, isTicketingFeatureEnabled } from '../../agent/deployment-flags.js';
 import { postEscalation } from '../../agent/escalation.js';
 import { recordInteraction } from '../../agent/interaction-store.js';
 import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
@@ -11,14 +12,33 @@ import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
 import {
   ASK_NOT_YET_TEXT,
+  buildHelpText,
   buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
-  HELP_TEXT,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
+
+const TICKET_SUB_COMMANDS = ['ticket', 'bug', 'feature'];
+
+/**
+ * True when `subCommand` belongs to a feature this deployment has switched off
+ * (AI-217). Such a sub-command is not routed at all: it goes to `handleUnknown`,
+ * which acks with the help text — which no longer lists it either — so the
+ * feature leaves no trace in the slash surface. The word the user typed is still
+ * logged and recorded as `slash_unknown`.
+ *
+ * Ticketing is gated on `isTicketingFeatureEnabled`, the flag alone, not
+ * `isTicketingEnabled`: flag on with GitHub unconfigured must keep routing so
+ * `handleTicket` can answer with TICKET_NOT_CONFIGURED_TEXT.
+ */
+function isDisabledByFeatureFlag(subCommand) {
+  if (subCommand === 'escalate') return !isEscalationEnabled();
+  if (TICKET_SUB_COMMANDS.includes(subCommand)) return !isTicketingFeatureEnabled();
+  return false;
+}
 
 /**
  * Handles the /fiona slash command. Routes to a sub-command handler or falls
@@ -27,6 +47,13 @@ import {
 export const fionaCommandCallback = async ({ command, ack, respond, client, logger }) => {
   logger?.info?.(`/fiona slash command invoked: ${command.text ?? '(empty)'}`);
   const subCommand = (command.text ?? '').trim().split(/\s+/)[0].toLowerCase();
+
+  // Returns before the switch below, so a flagged-off sub-command is handled as
+  // if it were never a sub-command at all.
+  if (isDisabledByFeatureFlag(subCommand)) {
+    await handleUnknown({ command, ack, logger, subCommand });
+    return;
+  }
 
   switch (subCommand) {
     case 'help':
@@ -100,7 +127,7 @@ function fireAndForgetRecord({ command, logger, interactionType, errorType = nul
 async function handleHelp({ command, ack, logger }) {
   try {
     // ack(string) sends an immediate ephemeral response that only the invoking user sees
-    await ack(HELP_TEXT);
+    await ack(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to acknowledge /fiona help: ${err.name}`);
     return;
@@ -176,7 +203,7 @@ async function handleUnknown({ command, ack, logger, subCommand }) {
   logger?.warn?.(`Unrecognized /fiona sub-command: "${subCommand}"`);
   try {
     // ack(string) sends an immediate ephemeral response that only the invoking user sees
-    await ack(HELP_TEXT);
+    await ack(buildHelpText());
   } catch (err) {
     logger?.error?.(`Failed to acknowledge /fiona unknown command: ${err.name}`);
     return;

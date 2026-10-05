@@ -101,6 +101,7 @@ function buildTitleFromUrlPath(url) {
  *
  * @typedef {Object} NormalizedSource
  * @property {string} url - The source URL
+ * @property {number} [id] - Agent API search-result id, when the API supplied one
  * @property {string} title - Display title (from metadata or hostname)
  * @property {string} hostname - Domain hostname
  * @property {string} [date] - Optional publication/access date
@@ -108,10 +109,28 @@ function buildTitleFromUrlPath(url) {
  */
 
 /**
+ * Percent-encode the characters Slack parses as control syntax (`<`, `>`, `|`)
+ * and whitespace. `new URL()` accepts them in a raw string, and a raw `>`
+ * would close a `<url|text>` link and let an injected `<!here>` through. The
+ * encoded URL is equivalent, and ordinary URLs are left byte-for-byte as-is.
+ * Every rendered link, inline or in the Sources block, comes from a URL
+ * normalized here.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function encodeSlackControlChars(url) {
+  // encodeURIComponent emits UTF-8 bytes, matching how the URL parser resolves
+  // non-ASCII whitespace such as U+2028, so the link target never changes.
+  return url.replace(/[<>|\s]/g, (char) => encodeURIComponent(char));
+}
+
+/**
  * Normalize a single source and enforce invariants.
  *
  * @param {Object} source - Raw source object from API
  * @param {string} source.url - Required: source URL
+ * @param {number} [source.id] - Optional: Agent API search-result id (the number inline [n] markers refer to)
  * @param {string} [source.title] - Optional: source title
  * @param {string} [source.published_date] - Optional: publication date
  * @param {string} [source.snippet] - Optional: evidence snippet
@@ -138,11 +157,18 @@ export function normalizeSource(source) {
     return null;
   }
 
-  const { hostname, domain } = parseUrlHostname(url);
-  const fallbackTitle = buildTitleFromUrlPath(url) || domain;
+  const safeUrl = encodeSlackControlChars(url);
+  const { hostname, domain } = parseUrlHostname(safeUrl);
+  const fallbackTitle = buildTitleFromUrlPath(safeUrl) || domain;
+
+  // Agent API search results carry a numeric `id`; inline [n] markers refer to
+  // it. Preserve it so buildSourceIndexMap can key on the API's own numbering
+  // instead of array position, which dedup and the display cap can shift.
+  const id = Number.isInteger(source.id) && source.id > 0 ? source.id : undefined;
 
   return {
-    url,
+    url: safeUrl,
+    id,
     title: source.title?.trim() || fallbackTitle,
     hostname,
     date: source.published_date || source.date || undefined,
@@ -185,27 +211,51 @@ export function capSources(sources, maxSources = 10) {
 /**
  * Build a stable index map: URL -> citation index (1-indexed).
  *
+ * Prefers the Agent API's own `id` for every source, because that is the number
+ * the model's inline [n] markers refer to. Measured against production the ids
+ * are contiguous 1..N and therefore equal to array position, but dedup and the
+ * display cap can drop entries, and using position after a drop would link a
+ * marker to the wrong URL. Falls back to array position only when every id is
+ * missing (the Search API path). With partial or duplicate ids, keep only
+ * valid ids that uniquely identify a source rather than mislinking a marker.
+ *
  * @param {Array<NormalizedSource>} sources - Normalized and deduplicated sources
  * @returns {Object} Map of URL -> index
  */
 export function buildSourceIndexMap(sources) {
+  const ids = sources.map((source) => source.id);
+  const usePositions = ids.every((id) => id === undefined);
+  const idCounts = new Map();
+  for (const id of ids) {
+    if (Number.isInteger(id) && id > 0) {
+      idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+    }
+  }
+
   const map = Object.create(null);
   sources.forEach((source, idx) => {
-    map[source.url] = idx + 1; // 1-indexed
+    if (usePositions) {
+      map[source.url] = idx + 1;
+    } else if (idCounts.get(source.id) === 1) {
+      map[source.url] = source.id;
+    }
   });
   return map;
 }
 
 /**
  * Normalize and freeze a list of sources with deterministic ordering.
- * Returns normalized sources, deduplicated, capped, and indexed.
+ * Returns normalized sources, deduplicated, optionally capped, and indexed.
+ *
+ * Uncapped by default: Agent API citations reference result ids across the
+ * whole response, so a cap would leave markers for dropped results unlinked.
  *
  * @param {Array<Object>} rawSources - Raw sources from API
  * @param {Object} [options]
- * @param {number} [options.maxSources=10] - Maximum sources to include
+ * @param {number} [options.maxSources] - Maximum sources to include (omit for no cap)
  * @returns {{sources: Array<NormalizedSource>, sourceIndexMap: Object}}
  */
-export function normalizeSources(rawSources, { maxSources = 10 } = {}) {
+export function normalizeSources(rawSources, { maxSources } = {}) {
   if (!Array.isArray(rawSources)) {
     return { sources: [], sourceIndexMap: {} };
   }
@@ -213,7 +263,9 @@ export function normalizeSources(rawSources, { maxSources = 10 } = {}) {
   let normalized = rawSources.map(normalizeSource).filter(Boolean);
 
   normalized = deduplicateSources(normalized);
-  normalized = capSources(normalized, maxSources);
+  if (maxSources !== undefined) {
+    normalized = capSources(normalized, maxSources);
+  }
 
   const sourceIndexMap = buildSourceIndexMap(normalized);
 
