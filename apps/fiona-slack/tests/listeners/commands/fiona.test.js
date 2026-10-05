@@ -73,6 +73,16 @@ const { fionaCommandCallback } = await import('../../../src/listeners/commands/f
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
 
+// Spends a user's whole budget on the real limiter, whatever the configured
+// limit is, so a test never depends on a hard-coded request count.
+const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+function exhaustRateLimit(userId) {
+  for (let i = 0; i < 10000; i++) {
+    if (!checkRateLimit(userId).allowed) return;
+  }
+  throw new Error('rate limit never engaged; is RATE_LIMIT_MAX_REQUESTS 0?');
+}
+
 // The AI-217 flags default to off. Suites needing a feature on set it in their
 // own beforeEach; clearing here keeps suite ordering from being load-bearing.
 afterEach(() => {
@@ -1133,5 +1143,136 @@ describe('fionaCommandCallback — flagged-off sub-commands', () => {
     await invoke('help');
     expect(mockAck).toHaveBeenCalledTimes(1);
     expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+});
+
+// AI-248. ask, search, escalate and ticket share one preamble: acknowledge,
+// check the required fields, apply the rate limit. Each case proves the
+// sub-command still goes through it and stops before its own work.
+describe('shared slash-command preamble', () => {
+  let userSeq = 0;
+  let mockAck;
+  let mockRespond;
+  let mockClient;
+  let mockLogger;
+
+  const CASES = [
+    {
+      name: 'ask',
+      text: 'ask What is Ed-Fi?',
+      interactionType: 'slash_ask',
+      missingFieldsCopy: 'could not answer',
+      work: () => mockCallLLM,
+    },
+    {
+      name: 'search',
+      text: 'search Data Standard',
+      interactionType: 'slash_search',
+      missingFieldsCopy: 'Search encountered an error',
+      work: () => mockSearchForSources,
+    },
+    {
+      name: 'escalate',
+      text: 'escalate',
+      interactionType: 'slash_escalate',
+      missingFieldsCopy: 'could not escalate',
+      work: () => mockPostEscalation,
+    },
+    {
+      name: 'ticket',
+      text: 'ticket',
+      interactionType: 'slash_ticket',
+      missingFieldsCopy: 'Issue creation is not available',
+      work: () => mockClient.views.open,
+    },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ESCALATION_ENABLED = 'true';
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    mockIsTicketingEnabled.mockReturnValue(true);
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockRespond = jest.fn().mockResolvedValue(undefined);
+    mockClient = { views: { open: jest.fn().mockResolvedValue({}) }, chatStream: jest.fn() };
+    mockLogger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
+  });
+
+  const command = (text, over = {}) => {
+    userSeq += 1;
+    return {
+      user_id: `U_PREAMBLE_${userSeq}`,
+      team_id: 'T1',
+      channel_id: 'C1',
+      trigger_id: `trig-${userSeq}`,
+      text,
+      ...over,
+    };
+  };
+  const invoke = (cmd) =>
+    fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+  describe.each(CASES)('$name', ({ text, interactionType, missingFieldsCopy, work }) => {
+    it('replies with the rate-limit message, records rate_limited, and does no work', async () => {
+      const cmd = command(text);
+      exhaustRateLimit(cmd.user_id);
+
+      await invoke(cmd);
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining('request limit') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType, status: 'error', errorType: 'rate_limited', rateLimited: true }),
+      );
+      expect(work()).not.toHaveBeenCalled();
+    });
+
+    it('replies with its own copy when required fields are missing, and records nothing', async () => {
+      const { trigger_id: _t, ...cmd } = command(text);
+
+      await invoke(cmd);
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining(missingFieldsCopy) }),
+      );
+      expect(mockRecordInteraction).not.toHaveBeenCalled();
+      expect(work()).not.toHaveBeenCalled();
+    });
+
+    it('stops quietly when the ack fails', async () => {
+      mockAck.mockRejectedValueOnce(new Error('expired'));
+
+      await expect(invoke(command(text))).resolves.toBeUndefined();
+
+      expect(mockRespond).not.toHaveBeenCalled();
+      expect(work()).not.toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to acknowledge'));
+    });
+
+    it('survives respond() failing on a preamble reply', async () => {
+      const { trigger_id: _t, ...cmd } = command(text);
+      mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+
+      await expect(invoke(cmd)).resolves.toBeUndefined();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond'));
+    });
+  });
+
+  it('checks ticketing is configured before spending the rate limit', async () => {
+    mockIsTicketingEnabled.mockReturnValue(false);
+    const cmd = command('ticket');
+    exhaustRateLimit(cmd.user_id);
+
+    await invoke(cmd);
+    await flushMicrotasks();
+
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionType: 'slash_ticket', errorType: 'not_configured', rateLimited: false }),
+    );
   });
 });
