@@ -29,8 +29,10 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 }));
 
 const mockWaitForMetadataReady = jest.fn().mockResolvedValue(undefined);
+const mockLogCitationTelemetry = jest.fn();
 jest.unstable_mockModule('../../../src/agent/interaction-telemetry.js', () => ({
   waitForMetadataReady: mockWaitForMetadataReady,
+  logCitationTelemetry: mockLogCitationTelemetry,
   handleInteractionWithTelemetry: jest.fn(),
 }));
 
@@ -190,12 +192,13 @@ describe('buildAskResponse', () => {
     expect(mockFinalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
   });
 
-  it('logs the citation state when metadata is present', async () => {
-    mockCallLLM.mockImplementation(answersWith('answer', { finalize_state: 'ready_to_finalize', sources: [{}, {}] }));
+  it('logs the citation state through the shared helper', async () => {
+    const metadata = { finalize_state: 'ready_to_finalize', sources: [{}, {}] };
+    mockCallLLM.mockImplementation(answersWith('answer', metadata));
 
     await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
 
-    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
+    expect(mockLogCitationTelemetry).toHaveBeenCalledWith(mockLogger, metadata);
   });
 
   it('survives a capture failure — the user still gets the answer', async () => {
@@ -214,13 +217,17 @@ describe('buildAskResponse', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to capture conversation'));
   });
 
-  it('logs the grounding outcome when the answer was declined', async () => {
+  // The line's format, including grounding=, is tested with the helper.
+  it('passes the decline outcome to the citation log', async () => {
     const metadata = { ...readyMetadata(), grounding: 'declined_no_results' };
     mockCallLLM.mockImplementation(answersWith('declined', metadata));
 
     await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
 
-    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
+    expect(mockLogCitationTelemetry).toHaveBeenCalledWith(
+      mockLogger,
+      expect.objectContaining({ grounding: 'declined_no_results' }),
+    );
   });
 
   describe('Sources block', () => {

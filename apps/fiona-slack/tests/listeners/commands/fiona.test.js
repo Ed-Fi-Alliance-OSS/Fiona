@@ -30,8 +30,10 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   },
 }));
 
+const mockLogCitationTelemetry = jest.fn();
 jest.unstable_mockModule('../../../src/agent/interaction-telemetry.js', () => ({
   waitForMetadataReady: jest.fn().mockResolvedValue(undefined),
+  logCitationTelemetry: mockLogCitationTelemetry,
   handleInteractionWithTelemetry: jest.fn(),
 }));
 
@@ -348,13 +350,14 @@ describe('fionaCommandCallback', () => {
     });
 
     it('logs citation info when metadata is present', async () => {
+      const metadata = { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://docs.ed-fi.org' }] };
       mockCallLLM.mockResolvedValueOnce({
-        metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://docs.ed-fi.org' }] },
+        metadata,
         botText: 'answer',
         systemPromptVersion: 'v1',
       });
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
-      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
+      expect(mockLogCitationTelemetry).toHaveBeenCalledWith(mockLogger, metadata);
     });
   });
 
