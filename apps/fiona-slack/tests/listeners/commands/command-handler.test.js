@@ -384,6 +384,12 @@ describe('buildHelpText (all features on)', () => {
     expect(buildHelpText()).toMatch('fiona help');
   });
 
+  it('links to the Ed-Fi terms of use and privacy policy', () => {
+    expect(buildHelpText()).toMatch(
+      '<https://www.ed-fi.org/terms-of-use-and-privacy-policy/|Ed-Fi Terms of Use and Privacy Policy>',
+    );
+  });
+
   it('lists search command without "(coming soon)"', () => {
     expect(buildHelpText()).toMatch('search <query>');
     // Only 'ask' remains as coming soon; search is now available

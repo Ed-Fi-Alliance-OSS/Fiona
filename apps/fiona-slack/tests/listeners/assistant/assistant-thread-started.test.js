@@ -52,6 +52,23 @@ describe('assistantThreadStarted', () => {
     expect(greeting).toMatch(/type `?help`?/i);
   });
 
+  it('greeting links to the Ed-Fi terms of use and privacy policy', async () => {
+    const event = { assistant_thread: { context: { channel_id: 'C123' } } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    const [greeting] = mockSay.mock.calls[0];
+    expect(greeting).toMatch(
+      '<https://www.ed-fi.org/terms-of-use-and-privacy-policy/|Ed-Fi Terms of Use and Privacy Policy>',
+    );
+  });
+
   it('calls saveThreadContext', async () => {
     const event = { assistant_thread: { context: { channel_id: 'C123' } } };
 
