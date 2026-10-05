@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 117,
+  "title": "[AI-230] Render a numbered Sources block with every answer",
+  "state": "merged",
+  "jiraKey": "AI-230",
+  "authorKind": "human",
+  "stats": {
+    "additions": 1396,
+    "deletions": 71,
+    "changedFiles": 12,
+    "commits": 11,
+    "reviewCycles": 3,
+    "reviewComments": 6,
+    "timeToFirstGreenCiMinutes": 17037,
+    "timeToMergeMinutes": 17067,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 11,
+      "md": 1
+    },
+    "testToSourceRatio": 1.2,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 1,
+      "correctness": 3,
+      "rework": 2
+    },
+    "followupCommits": {
+      "fix": 6,
+      "feature": 0
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-05T16:50:36.309Z"
+}
