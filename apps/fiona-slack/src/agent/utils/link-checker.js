@@ -12,6 +12,9 @@
  * source: a slow or unreachable site must not strip every source from every
  * answer.
  *
+ * Redirects are followed one hop at a time (at most 5), and each target must
+ * also be an allowed host; a redirect off the allowlist is "unknown".
+ *
  * Imports nothing from the agent layer, so it can be tested on its own.
  */
 
@@ -22,6 +25,8 @@ const DEAD_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 2000;
 // Servers that refuse HEAD answer with one of these; GET gets the real status.
 const HEAD_REFUSED = new Set([403, 405, 501]);
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
 
 /** url -> { verdict, expiresAt }. Map keeps insertion order, so the first key is the oldest. */
 const cache = new Map();
@@ -44,7 +49,9 @@ const bareHost = (host) => host.toLowerCase().replace(/^www\./, '');
 
 function isAllowedHost(url, allowedHosts) {
   try {
-    const host = bareHost(new URL(url).hostname);
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const host = bareHost(parsed.hostname);
     return allowedHosts.map(bareHost).some((base) => host === base || host.endsWith(`.${base}`));
   } catch {
     return false;
@@ -57,15 +64,37 @@ function verdictFor(status) {
   return 'unknown';
 }
 
-async function probe(url, signal, fetchImpl) {
-  const init = { redirect: 'follow', signal, headers: { 'User-Agent': LINK_CHECK_USER_AGENT } };
-  let response = await fetchImpl(url, { ...init, method: 'HEAD' });
-  if (HEAD_REFUSED.has(response.status)) {
-    response = await fetchImpl(url, { ...init, method: 'GET' });
-    // Only the status is needed; release the connection instead of reading the page.
-    await response.body?.cancel?.();
+/**
+ * Fetch `url` and return the final status, following redirects by hand so
+ * every hop is held to the allowlist: a page redirecting off the allowed hosts
+ * (or looping) is never fetched, and returns null ("unknown").
+ */
+async function finalStatus(url, method, signal, fetchImpl, allowedHosts) {
+  const init = { method, redirect: 'manual', signal, headers: { 'User-Agent': LINK_CHECK_USER_AGENT } };
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const response = await fetchImpl(current, init);
+    // Only the status is needed; release the connection instead of reading the
+    // page. Best effort: a failed release must not override the status.
+    try {
+      await response.body?.cancel?.();
+    } catch {
+      // Ignored: the status is already known.
+    }
+    const location = REDIRECT_STATUSES.has(response.status) ? response.headers?.get?.('location') : null;
+    if (!location) return response.status;
+    current = new URL(location, current).href;
+    if (!isAllowedHost(current, allowedHosts)) return null;
   }
-  return verdictFor(response.status);
+  return null;
+}
+
+async function probe(url, signal, fetchImpl, allowedHosts) {
+  let status = await finalStatus(url, 'HEAD', signal, fetchImpl, allowedHosts);
+  if (HEAD_REFUSED.has(status)) {
+    status = await finalStatus(url, 'GET', signal, fetchImpl, allowedHosts);
+  }
+  return status === null ? 'unknown' : verdictFor(status);
 }
 
 /**
@@ -74,7 +103,7 @@ async function probe(url, signal, fetchImpl) {
  * @param {string[]} urls
  * @param {Object} options
  * @param {number} options.timeoutMs - Budget for the whole batch; checks still running when it ends are "unknown"
- * @param {string[]} options.allowedHosts - Only these hosts and their subdomains are fetched (a leading www. is ignored); others are "unknown"
+ * @param {string[]} options.allowedHosts - Only these hosts and their subdomains are fetched (a leading www. is ignored), redirect targets included; others are "unknown"
  * @param {typeof fetch} [options.fetchImpl]
  * @param {() => number} [options.now]
  * @returns {Promise<Map<string, 'live' | 'dead' | 'unknown'>>}
@@ -97,7 +126,7 @@ export async function checkUrls(urls, { timeoutMs, allowedHosts, fetchImpl = glo
       continue;
     }
     pending.push(
-      probe(url, controller.signal, fetchImpl)
+      probe(url, controller.signal, fetchImpl, allowedHosts)
         .catch(() => 'unknown')
         .then((verdict) => {
           verdicts.set(url, verdict);

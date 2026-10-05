@@ -12,12 +12,17 @@ const { checkUrls, clearLinkCheckCache, LINK_CHECK_USER_AGENT } = await import(
 const ALLOWED = ['www.ed-fi.org', 'docs.ed-fi.org'];
 const DOCS = 'https://docs.ed-fi.org';
 
-/** fetch mock: `routes` maps "METHOD url" (or url, for any method) to a status or an Error to throw. */
+/**
+ * fetch mock: `routes` maps "METHOD url" (or url, for any method) to a status,
+ * an Error to throw, or `{ status, location, cancel }` for a redirect or a
+ * custom body.cancel.
+ */
 function fakeFetch(routes) {
   return jest.fn(async (url, init) => {
     const route = routes[`${init.method} ${url}`] ?? routes[url];
     if (route instanceof Error) throw route;
-    return { status: route ?? 200, body: { cancel: jest.fn() } };
+    const { status = 200, location = null, cancel = jest.fn() } = typeof route === 'object' ? route : { status: route };
+    return { status, headers: new Headers(location ? { location } : {}), body: { cancel } };
   });
 }
 
@@ -47,14 +52,14 @@ describe('checkUrls verdicts', () => {
     expect(verdicts.get(`${DOCS}/a`)).toBe('unknown');
   });
 
-  it('sends HEAD with redirects followed and the Fiona User-Agent', async () => {
+  it('sends HEAD with redirects handled manually and the Fiona User-Agent', async () => {
     const fetchImpl = fakeFetch({});
     await check([`${DOCS}/a`], fetchImpl);
     expect(fetchImpl).toHaveBeenCalledWith(
       `${DOCS}/a`,
       expect.objectContaining({
         method: 'HEAD',
-        redirect: 'follow',
+        redirect: 'manual',
         headers: { 'User-Agent': LINK_CHECK_USER_AGENT },
       }),
     );
@@ -66,6 +71,20 @@ describe('checkUrls verdicts', () => {
     const verdicts = await check([`${DOCS}/a`], fetchImpl);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[1][1].method).toBe('GET');
+    expect(verdicts.get(`${DOCS}/a`)).toBe('dead');
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('stream locked'))],
+    [
+      'throws',
+      () => {
+        throw new TypeError('stream locked');
+      },
+    ],
+  ])('keeps a dead GET verdict when releasing the body %s', async (_label, cancel) => {
+    const fetchImpl = fakeFetch({ [`HEAD ${DOCS}/a`]: 405, [`GET ${DOCS}/a`]: { status: 404, cancel } });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
     expect(verdicts.get(`${DOCS}/a`)).toBe('dead');
   });
 
@@ -124,6 +143,54 @@ describe('checkUrls host allowlist', () => {
     expect(fetchImpl).toHaveBeenCalledWith('https://x.docs.ed-fi.org/a', expect.anything());
     expect(verdicts.get('https://www.ed-fi.org/a')).toBe('unknown');
     expect(verdicts.get('https://notdocs.ed-fi.org/a')).toBe('unknown');
+  });
+});
+
+describe('checkUrls redirects', () => {
+  it('follows a redirect within the allowlist and takes the final status', async () => {
+    const fetchImpl = fakeFetch({
+      [`${DOCS}/old`]: { status: 301, location: '/new/' },
+      [`${DOCS}/new/`]: 404,
+    });
+    const verdicts = await check([`${DOCS}/old`], fetchImpl);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([`${DOCS}/old`, `${DOCS}/new/`]);
+    expect(verdicts.get(`${DOCS}/old`)).toBe('dead');
+  });
+
+  it('follows a redirect to another allowlisted host', async () => {
+    const fetchImpl = fakeFetch({ [`${DOCS}/a`]: { status: 302, location: 'https://www.ed-fi.org/a/' } });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledWith('https://www.ed-fi.org/a/', expect.anything());
+    expect(verdicts.get(`${DOCS}/a`)).toBe('live');
+  });
+
+  it.each([
+    ['another host', 'https://evil.example.com/x'],
+    ['a lookalike host', 'https://ed-fi.org.evil.com/x'],
+    ['an internal address', 'http://169.254.169.254/latest/meta-data/'],
+    ['a non-HTTP scheme', 'file:///etc/passwd'],
+  ])('does not follow a redirect to %s, and reports it unknown', async (_label, location) => {
+    const fetchImpl = fakeFetch({ [`${DOCS}/a`]: { status: 301, location }, [location]: 404 });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(verdicts.get(`${DOCS}/a`)).toBe('unknown');
+  });
+
+  it('holds the GET fallback to the allowlist too', async () => {
+    const fetchImpl = fakeFetch({
+      [`HEAD ${DOCS}/a`]: 405,
+      [`GET ${DOCS}/a`]: { status: 302, location: 'https://evil.example.com/x' },
+    });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([`${DOCS}/a`, `${DOCS}/a`]);
+    expect(verdicts.get(`${DOCS}/a`)).toBe('unknown');
+  });
+
+  it('gives up after 5 redirects and reports unknown', async () => {
+    const fetchImpl = fakeFetch({ [`${DOCS}/loop`]: { status: 307, location: `${DOCS}/loop` } });
+    const verdicts = await check([`${DOCS}/loop`], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
+    expect(verdicts.get(`${DOCS}/loop`)).toBe('unknown');
   });
 });
 
