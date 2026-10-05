@@ -862,10 +862,18 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     // sources, not raw results, also catches results whose URLs were all
     // rejected. The escalation summary does not come through here, so it
     // still summarizes without sources.
+    //
+    // This runs before anything reads the model's text, so it also replaces
+    // replies that need no sources: an out-of-scope decline ("outside what I
+    // can help with") or chit-chat. Search is forced and normally returns
+    // results, so that only happens when retrieval fails; it is intended.
     if (metadata) metadata.grounding = 'declined_no_results';
     botText = NO_SOURCES_DECLINE_TEXT;
     await streamer.append({ markdown_text: botText });
-  } else if (textBuffer) {
+    return { botText, citations: [] };
+  }
+
+  if (textBuffer) {
     botText = linkifyCitationMarkers(textBuffer, indexToUrl);
     await streamer.append({ markdown_text: botText });
   }
