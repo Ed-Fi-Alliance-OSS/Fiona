@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
@@ -18,9 +18,6 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
-    citation_rendering_enabled: true,
-    FEATURE_FLAG_EVIDENCE_ROW: false,
-    MAX_SOURCES_DISPLAYED: 10,
     METADATA_WAIT_TIMEOUT_MS: 2000,
   },
   MetadataLifecycleState: {
@@ -374,6 +371,100 @@ describe('message (assistant thread handler)', () => {
     });
   });
 
+  describe('Sources block', () => {
+    const readyMetadata = () => ({
+      finalize_state: 'ready_to_finalize',
+      sources: [
+        { url: 'https://docs.ed-fi.org/a', title: 'A' },
+        { url: 'https://docs.ed-fi.org/b', title: 'B' },
+      ],
+      source_index_map: { 'https://docs.ed-fi.org/a': 1, 'https://docs.ed-fi.org/b': 2 },
+      citation_index: { 1: 'https://docs.ed-fi.org/a', 2: 'https://docs.ed-fi.org/b' },
+    });
+    const sectionBlocks = (blocks) => blocks.filter((block) => block.type === 'section');
+
+    it('renders the numbered Sources block before the feedback block', async () => {
+      callLLM.mockResolvedValueOnce({ metadata: readyMetadata(), botText: 'A [1] B [2]', systemPromptVersion: 'v1' });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks.map((block) => block.type)).toEqual(['section', 'context_actions']);
+      expect(blocks[0].text.text).toBe(
+        '*Sources*\n*[1]* <https://docs.ed-fi.org/a|A>\n*[2]* <https://docs.ed-fi.org/b|B>',
+      );
+    });
+
+    it('posts the answer without a Sources block when metadata degraded', async () => {
+      callLLM.mockResolvedValueOnce({
+        metadata: { ...readyMetadata(), finalize_state: 'degraded_no_metadata' },
+        botText: 'answer',
+        systemPromptVersion: 'v1',
+      });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(sectionBlocks(blocks)).toHaveLength(0);
+      expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
+    });
+
+    it('posts the answer without a Sources block when there are no sources', async () => {
+      callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const { blocks } = mockStreamer.stop.mock.calls[0][0];
+      expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
+    });
+
+    it('renders the Sources block only once when the same response is delivered twice', async () => {
+      callLLM.mockResolvedValue({ metadata: readyMetadata(), botText: 'A [1]', systemPromptVersion: 'v1' });
+      shouldFinalize.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+      await await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
+      expect(sectionBlocks(mockStreamer.stop.mock.calls[0][0].blocks)).toHaveLength(1);
+    });
+  });
+
   it('skips streamer.stop when shouldFinalize returns false', async () => {
     shouldFinalize.mockReturnValueOnce(false);
 
@@ -542,6 +633,16 @@ describe('message (assistant thread handler)', () => {
   });
 
   describe('keyword command routing', () => {
+    // Escalation defaults to off (AI-217). The escalate cases below cover the
+    // feature-on path; the fall-through case clears the flag itself.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.ESCALATION_ENABLED;
+    });
+
     it('responds with help text when message is exactly "help"', async () => {
       mockMessage.text = 'help';
 
@@ -695,6 +796,25 @@ describe('message (assistant thread handler)', () => {
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
+    });
+
+    // AI-217: with escalation off the keyword is no longer a command, so the
+    // message is answered by the LLM like any other question.
+    it('answers "escalate" with the LLM instead of escalating when escalation is off', async () => {
+      delete process.env.ESCALATION_ENABLED;
+      mockMessage.text = 'escalate';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(escalateViaSay).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalled();
     });
 
     it('escalates via escalateViaSay when message is exactly "escalate"', async () => {

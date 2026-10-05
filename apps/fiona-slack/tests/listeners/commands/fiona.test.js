@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 // Mock interaction-store before importing the module under test.
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
@@ -53,6 +53,13 @@ const { fionaCommandCallback } = await import('../../../src/listeners/commands/f
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
+// The AI-217 flags default to off. Suites needing a feature on set it in their
+// own beforeEach; clearing here keeps suite ordering from being load-bearing.
+afterEach(() => {
+  delete process.env.TICKET_CREATION_ENABLED;
+  delete process.env.ESCALATION_ENABLED;
+});
 
 describe('fionaCommandCallback', () => {
   let mockAck;
@@ -537,6 +544,8 @@ describe('fionaCommandCallback', () => {
 
     beforeEach(() => {
       jest.clearAllMocks();
+      // Escalation defaults to off (AI-217); this suite covers the on path.
+      process.env.ESCALATION_ENABLED = 'true';
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockClient = {};
       mockPostEscalation.mockResolvedValue({ ok: true, errorType: null });
@@ -607,6 +616,8 @@ describe('fionaCommandCallback', () => {
 
     beforeEach(() => {
       jest.clearAllMocks();
+      // Ticketing defaults to off (AI-217); this suite covers the on path.
+      process.env.TICKET_CREATION_ENABLED = 'true';
       mockIsTicketingEnabled.mockReturnValue(true);
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockClient = { views: { open: jest.fn().mockResolvedValue({}) } };
@@ -808,5 +819,94 @@ describe('fionaCommandCallback', () => {
       });
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('ticket'));
     });
+  });
+});
+
+// AI-217. A flagged-off feature disappears: its sub-command stops being routed
+// and falls through to handleUnknown, which acks with the help text (which no
+// longer lists `ticket`) and records the turn as slash_unknown.
+describe('fionaCommandCallback — flagged-off sub-commands', () => {
+  let mockAck;
+  let mockRespond;
+  let mockClient;
+  let mockLogger;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.ESCALATION_ENABLED;
+    delete process.env.TICKET_CREATION_ENABLED;
+    mockIsTicketingEnabled.mockReturnValue(true);
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockRespond = jest.fn().mockResolvedValue(undefined);
+    mockClient = { views: { open: jest.fn().mockResolvedValue({}) } };
+    mockLogger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
+  });
+
+  const cmd = (text) => ({
+    user_id: 'U_FLAG', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1', channel_name: 'general', text,
+  });
+
+  const invoke = (text) =>
+    fionaCommandCallback({
+      command: cmd(text), ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger,
+    });
+
+  it('does not escalate when escalation is off', async () => {
+    await invoke('escalate');
+    expect(mockPostEscalation).not.toHaveBeenCalled();
+  });
+
+  it('acks with the help text instead of escalating', async () => {
+    await invoke('escalate');
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+
+  it('records the flagged-off escalate as slash_unknown', async () => {
+    await invoke('escalate');
+    await flushMicrotasks();
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionType: 'slash_unknown' }),
+    );
+  });
+
+  it.each(['ticket', 'bug', 'feature'])('does not open the modal for "%s" when ticketing is off', async (text) => {
+    await invoke(text);
+    expect(mockClient.views.open).not.toHaveBeenCalled();
+  });
+
+  it.each(['ticket', 'bug', 'feature'])('acks with the help text for "%s" when ticketing is off', async (text) => {
+    await invoke(text);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+
+  // The whole point of routing to handleUnknown: help must not name a command
+  // that is switched off.
+  it('omits the ticket line from the help text it acks with', async () => {
+    await invoke('ticket');
+    expect(mockAck.mock.calls[0][0]).not.toMatch(/^ticket\b/m);
+  });
+
+  it('does not send the not-configured notice — the feature is off, not misconfigured', async () => {
+    await invoke('ticket');
+    expect(mockRespond).not.toHaveBeenCalled();
+  });
+
+  it('still routes escalate once escalation is switched on', async () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    await invoke('escalate');
+    expect(mockPostEscalation).toHaveBeenCalled();
+  });
+
+  it('still opens the modal once ticketing is switched on', async () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    await invoke('bug');
+    expect(mockClient.views.open).toHaveBeenCalled();
+  });
+
+  it('still serves help when both features are off', async () => {
+    await invoke('help');
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
   });
 });

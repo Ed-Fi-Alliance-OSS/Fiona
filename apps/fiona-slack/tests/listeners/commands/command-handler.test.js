@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 // Mock search-caller so command-handler tests don't load the LLM client.
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
 
 const {
   parseCommandKeyword,
+  buildHelpText,
   handleHelpViaSay,
   handleSearchViaSay,
   handleComingSoonViaSay,
@@ -29,10 +30,16 @@ const {
   normalizeTicketType,
   TICKET_TYPES,
   CREATE_TICKET_ACTION,
-  HELP_TEXT,
   ASK_NOT_YET_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } = await import('../../../src/listeners/commands/command-handler.js');
+
+// The AI-217 flags default to off. Suites that need a feature on set it in their
+// own beforeEach; clearing here keeps suite ordering from being load-bearing.
+afterEach(() => {
+  delete process.env.TICKET_CREATION_ENABLED;
+  delete process.env.ESCALATION_ENABLED;
+});
 
 describe('parseCommandKeyword', () => {
   describe('help keyword', () => {
@@ -93,6 +100,12 @@ describe('parseCommandKeyword', () => {
   });
 
   describe('escalate keyword', () => {
+    // Escalation defaults to off (AI-217); this suite covers the parsing rules
+    // with the feature on. The off case is a separate suite below.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
     it('returns escalate keyword for exact "escalate"', () => {
       expect(parseCommandKeyword('escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
     });
@@ -116,6 +129,12 @@ describe('parseCommandKeyword', () => {
   });
 
   describe('leading slash tolerance', () => {
+    // Several cases here use `escalate` as the example command, so the feature
+    // has to be on for them to exercise slash stripping rather than the flag.
+    beforeEach(() => {
+      process.env.ESCALATION_ENABLED = 'true';
+    });
+
     it('returns escalate keyword for "/escalate" (stray slash from slash-command habit)', () => {
       expect(parseCommandKeyword('/escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
     });
@@ -208,6 +227,12 @@ describe('parseCommandKeyword', () => {
 });
 
 describe('parseCommandKeyword — ticket phrases', () => {
+  // Ticketing defaults to off (AI-217); this suite covers the phrase-matching
+  // rules with the feature on. The off case is a separate suite below.
+  beforeEach(() => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+  });
+
   it.each([
     ['file a bug', 'bug'],
     ['report a bug', 'bug'],
@@ -225,7 +250,11 @@ describe('parseCommandKeyword — ticket phrases', () => {
 });
 
 describe('parseCommandKeyword — bare bug/feature keywords', () => {
-  // HELP_TEXT advertises `bug` and `feature` as commands reachable by @-mention and
+  beforeEach(() => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+  });
+
+  // The help text advertises `bug` and `feature` as commands reachable by @-mention and
   // keyword, and /fiona bug works. These make the keyword path match that promise.
   it.each([
     ['bug', 'bug'],
@@ -246,7 +275,7 @@ describe('parseCommandKeyword — bare bug/feature keywords', () => {
     },
   );
 
-  // HELP_TEXT advertises `ticket` alongside its two aliases; the keyword and
+  // The help text advertises `ticket` alongside its two aliases; the keyword and
   // @-mention paths must accept all three or help is lying to the user.
   it.each([
     ['ticket', 'feature'],
@@ -342,27 +371,31 @@ describe('TICKET_NOT_CONFIGURED_TEXT', () => {
   });
 });
 
-describe('HELP_TEXT', () => {
+describe('buildHelpText (all features on)', () => {
+  beforeEach(() => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+  });
+
   it('mentions /fiona slash command for channel use', () => {
-    expect(HELP_TEXT).toMatch('/fiona');
+    expect(buildHelpText()).toMatch('/fiona');
   });
 
   it('mentions @fiona as channel and thread alternative', () => {
-    expect(HELP_TEXT).toMatch('@fiona');
+    expect(buildHelpText()).toMatch('@fiona');
   });
 
   it('mentions fiona help as the two-word keyword alternative', () => {
-    expect(HELP_TEXT).toMatch('fiona help');
+    expect(buildHelpText()).toMatch('fiona help');
   });
 
   it('lists search command without "(coming soon)"', () => {
-    expect(HELP_TEXT).toMatch('search <query>');
+    expect(buildHelpText()).toMatch('search <query>');
     // Only 'ask' remains as coming soon; search is now available
-    expect(HELP_TEXT).not.toMatch(/search.*coming soon/);
+    expect(buildHelpText()).not.toMatch(/search.*coming soon/);
   });
 
   it('advertises one ticket command, described in Ed-Fi terms', () => {
-    expect(HELP_TEXT).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
+    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
   });
 
   // `bug` and `feature` still work as slash sub-commands and as keywords, and
@@ -370,14 +403,14 @@ describe('HELP_TEXT', () => {
   // Discoverable but hidden, so help offers exactly one way to do this. The
   // aliases keep working: see the parseCommandKeyword phrase tests above.
   it('does not advertise the aliases at all', () => {
-    expect(HELP_TEXT).not.toMatch(/alias/i);
+    expect(buildHelpText()).not.toMatch(/alias/i);
   });
 
   // The acceptance criterion is that no user-facing text still promises separate
   // per-type commands.
   it('no longer advertises bug or feature as commands in their own right', () => {
-    expect(HELP_TEXT).not.toMatch(/^bug\b/m);
-    expect(HELP_TEXT).not.toMatch(/^feature\b/m);
+    expect(buildHelpText()).not.toMatch(/^bug\b/m);
+    expect(buildHelpText()).not.toMatch(/^feature\b/m);
   });
 });
 
@@ -390,10 +423,10 @@ describe('handleHelpViaSay', () => {
     mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
   });
 
-  it('calls say() with HELP_TEXT', async () => {
+  it('calls say() with the help text', async () => {
     await handleHelpViaSay(mockSay, mockLogger);
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay).toHaveBeenCalledWith(HELP_TEXT);
+    expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
   it('logs error when say() throws', async () => {
@@ -531,9 +564,9 @@ describe('routeCommandViaSay', () => {
     mockFormatSearchResults.mockReturnValue({ text: '🔍 No sources found.', blocks: null });
   });
 
-  it('sends HELP_TEXT when keyword is "help"', async () => {
+  it('sends the help text when keyword is "help"', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
-    expect(mockSay).toHaveBeenCalledWith(HELP_TEXT);
+    expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
   it('sends ASK_NOT_YET_TEXT when keyword is "ask"', async () => {
@@ -559,5 +592,93 @@ describe('routeCommandViaSay', () => {
     await expect(
       routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' }),
     ).resolves.not.toThrow();
+  });
+});
+
+// AI-217. Both features ship off, and an off feature disappears rather than
+// advertising itself and then declining.
+describe('buildHelpText — ticket line is flag-gated', () => {
+  beforeEach(() => {
+    delete process.env.TICKET_CREATION_ENABLED;
+  });
+
+  it('omits the ticket command when the feature is off', () => {
+    expect(buildHelpText()).not.toMatch(/^ticket\b/m);
+  });
+
+  it('advertises the ticket command when the feature is on', () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
+  });
+
+  it('keeps every other command listed when the feature is off', () => {
+    const text = buildHelpText();
+    expect(text).toMatch(/^help\s+Show this help message$/m);
+    expect(text).toMatch(/^ask <question>/m);
+    expect(text).toMatch(/^search <query>/m);
+  });
+
+  // The list lives inside a Slack code fence. Dropping a line must not leave a
+  // blank row or an unclosed fence.
+  it('leaves no blank line in the command list when the feature is off', () => {
+    const fence = buildHelpText().split('```')[1];
+    expect(fence.split('\n').filter((l, i, a) => l === '' && i > 0 && i < a.length - 1)).toEqual([]);
+  });
+
+  it('keeps the reach-Fiona guidance regardless of the flag', () => {
+    expect(buildHelpText()).toMatch('fiona help');
+  });
+});
+
+describe('parseCommandKeyword — escalate is flag-gated', () => {
+  beforeEach(() => {
+    delete process.env.ESCALATION_ENABLED;
+  });
+
+  // Returning null routes the message to the LLM as an ordinary question, which
+  // is what "the feature disappears" means for the keyword path.
+  it('does not recognise "escalate" when escalation is off', () => {
+    expect(parseCommandKeyword('escalate')).toBeNull();
+  });
+
+  it('does not recognise "fiona escalate" when escalation is off', () => {
+    expect(parseCommandKeyword('fiona escalate')).toBeNull();
+  });
+
+  it('recognises "escalate" when escalation is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    expect(parseCommandKeyword('escalate')).toEqual({ keyword: 'escalate', rawArgs: '' });
+  });
+
+  it('still recognises "help" when escalation is off', () => {
+    expect(parseCommandKeyword('help')).toEqual({ keyword: 'help', rawArgs: '' });
+  });
+});
+
+describe('parseCommandKeyword — ticket phrases are flag-gated', () => {
+  beforeEach(() => {
+    delete process.env.TICKET_CREATION_ENABLED;
+  });
+
+  it.each(['ticket', 'bug', 'feature', 'file a bug', 'report a bug', 'bug report', 'feature request'])(
+    'does not recognise "%s" when ticketing is off',
+    (phrase) => {
+      expect(parseCommandKeyword(phrase)).toBeNull();
+    },
+  );
+
+  it('recognises "bug" again when ticketing is on', () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    expect(parseCommandKeyword('bug')).toEqual({ keyword: 'file_ticket', rawArgs: 'bug' });
+  });
+
+  // The surface gate reads the flag alone, not the flag plus GitHub config.
+  // Flag-on-but-unconfigured must keep today's behaviour: the keyword is still
+  // recognised and command-dispatch answers with TICKET_NOT_CONFIGURED_TEXT.
+  it('recognises the keyword on the flag alone, leaving the configured check to dispatch', () => {
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    delete process.env.GH_ISSUE_TOKEN;
+    delete process.env.GH_ISSUE_REPO;
+    expect(parseCommandKeyword('ticket')).toEqual({ keyword: 'file_ticket', rawArgs: 'feature' });
   });
 });

@@ -52,6 +52,8 @@ describe('postEscalation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
+    // The feature defaults to off (AI-217); this suite exercises the on path.
+    process.env.ESCALATION_ENABLED = 'true';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
   });
@@ -153,6 +155,8 @@ describe('escalateViaSay', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
+    // The feature defaults to off (AI-217); this suite exercises the on path.
+    process.env.ESCALATION_ENABLED = 'true';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('User is stuck configuring the ODS.');
     mockSay = jest.fn().mockResolvedValue(undefined);
@@ -202,6 +206,8 @@ describe('postEscalation without a thread (slash path)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
+    // The feature defaults to off (AI-217); this suite exercises the on path.
+    process.env.ESCALATION_ENABLED = 'true';
     delete process.env.ESCALATION_USERGROUP_ID;
     mockSummarize.mockResolvedValue('should not be used');
   });
@@ -239,5 +245,57 @@ describe('postEscalation without a thread (slash path)', () => {
     expect(args.client.chat.postMessage).toHaveBeenCalledTimes(1);
     const post = args.client.chat.postMessage.mock.calls[0][0];
     expect(JSON.stringify(post.blocks)).toContain('no conversation context');
+  });
+});
+
+// AI-217: the feature ships off by default. The gate lives in postEscalation so
+// that every entry point — slash command, @-mention keyword, assistant panel,
+// and any future automatic escalation — inherits it from one place.
+describe('postEscalation (feature flag)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ESCALATION_CHANNEL_ID = 'C_ESCALATE';
+    delete process.env.ESCALATION_ENABLED;
+  });
+
+  it('returns feature_disabled when ESCALATION_ENABLED is unset', async () => {
+    const result = await postEscalation(baseArgs());
+    expect(result).toEqual({ ok: false, errorType: 'feature_disabled' });
+  });
+
+  it('posts nothing to the escalation channel', async () => {
+    const args = baseArgs();
+    await postEscalation(args);
+    expect(args.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  // A feature that is off by decision is not a failure, so it must not land in
+  // the error telemetry alongside genuine post failures.
+  it('records no interaction', async () => {
+    await postEscalation(baseArgs());
+    expect(mockRecordInteraction).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch the transcript or call the summarizer', async () => {
+    const args = baseArgs();
+    await postEscalation(args);
+    expect(args.client.conversations.replies).not.toHaveBeenCalled();
+    expect(mockSummarize).not.toHaveBeenCalled();
+  });
+
+  // The flag is checked before the channel check, so an operator who turns the
+  // feature off sees "disabled" rather than a misleading config error.
+  it('reports feature_disabled rather than channel_not_configured when both apply', async () => {
+    delete process.env.ESCALATION_CHANNEL_ID;
+    const result = await postEscalation(baseArgs());
+    expect(result.errorType).toBe('feature_disabled');
+  });
+
+  it('proceeds normally once ESCALATION_ENABLED is "true"', async () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const args = baseArgs();
+    const result = await postEscalation(args);
+    expect(result.ok).toBe(true);
+    expect(args.client.chat.postMessage).toHaveBeenCalled();
   });
 });
