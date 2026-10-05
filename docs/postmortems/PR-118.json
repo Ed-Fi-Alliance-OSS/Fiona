@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 118,
+  "title": "[AI-231] Ground answers in search results and decline without sources",
+  "state": "merged",
+  "jiraKey": "AI-231",
+  "authorKind": "human",
+  "stats": {
+    "additions": 353,
+    "deletions": 28,
+    "changedFiles": 9,
+    "commits": 9,
+    "reviewCycles": 1,
+    "reviewComments": 4,
+    "timeToFirstGreenCiMinutes": 15883,
+    "timeToMergeMinutes": 15946,
+    "ciRuns": {
+      "total": 4,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 8,
+      "md": 1
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 1,
+      "correctness": 1,
+      "rework": 2
+    },
+    "followupCommits": {
+      "fix": 2,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-05T17:57:35.056Z"
+}
