@@ -41,9 +41,16 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
   captureConversation: mockCaptureConversation,
 }));
 
-const { ASK_ERROR_TEXT, buildAskResponse, streamAskResponse } = await import(
-  '../../../src/listeners/commands/ask-handler.js'
-);
+const {
+  ASK_EMPTY_TEXT,
+  ASK_ERROR_TEXT,
+  ASK_TOO_LONG_TEXT,
+  MAX_QUESTION_LENGTH,
+  buildAskResponse,
+  describeError,
+  fitMarkdownBlock,
+  streamAskResponse,
+} = await import('../../../src/listeners/commands/ask-handler.js');
 
 // Stands in for Perplexity: one append() with the finished text, which is what
 // callPerplexityChat actually does once citations have been linkified.
@@ -179,10 +186,19 @@ describe('buildAskResponse', () => {
     });
   });
 
-  it('captures the conversation under the caller’s entry point', async () => {
+  it('does not capture the conversation until the caller has delivered the answer', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
     await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+    expect(mockCaptureConversation).not.toHaveBeenCalled();
+  });
+
+  it('captures the conversation under the caller’s entry point when capture() runs', async () => {
+    mockCallLLM.mockImplementation(answersWith('answer'));
+
+    const { capture } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    await capture();
 
     expect(mockCaptureConversation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -213,20 +229,21 @@ describe('buildAskResponse', () => {
     expect(mockLogCitationTelemetry).toHaveBeenCalledWith(mockLogger, metadata);
   });
 
-  it('survives a capture failure — the user still gets the answer', async () => {
+  it('survives a capture failure — capture() resolves and logs no error message', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
-    mockCaptureConversation.mockRejectedValueOnce(new Error('cosmos down'));
+    mockCaptureConversation.mockRejectedValueOnce(Object.assign(new Error('cosmos down: q'), { name: 'RestError' }));
 
-    const { response, errorType } = await buildAskResponse({
+    const { response, errorType, capture } = await buildAskResponse({
       question: 'q',
       logger: mockLogger,
       interactionType: 'slash_ask',
       ...ids,
     });
+    await expect(capture()).resolves.toBeUndefined();
 
     expect(errorType).toBeNull();
     expect(response.text).toBe('answer');
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to capture conversation'));
+    expect(mockLogger.warn).toHaveBeenCalledWith('Failed to capture conversation: RestError');
   });
 
   // The line's format, including grounding=, is tested with the helper.
@@ -283,8 +300,8 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.text).toBe(ASK_ERROR_TEXT);
-      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'divider', 'context_actions']);
+      expect(response.text).toBe(ASK_EMPTY_TEXT);
+      expect(response.blocks.map((block) => block.type)).toEqual(['section']);
     });
   });
 
@@ -313,7 +330,7 @@ describe('buildAskResponse', () => {
       expect(errorType).toBe('llm_failed');
     });
 
-    it('includes the divider and feedback buttons in the fallback response', async () => {
+    it('sends only the error copy, with no feedback buttons to rate it by', async () => {
       const { response } = await buildAskResponse({
         question: 'q',
         logger: mockLogger,
@@ -321,18 +338,147 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.blocks[0]).toMatchObject({
-        type: 'section',
-        text: { type: 'mrkdwn', text: ASK_ERROR_TEXT },
-      });
-      expect(response.blocks[1]).toEqual({ type: 'divider' });
-      expect(response.blocks[2].block_id).toBe('feedback|ask|app_mention');
+      expect(response.blocks).toEqual([{ type: 'section', text: { type: 'mrkdwn', text: ASK_ERROR_TEXT } }]);
     });
 
-    it('does not capture a conversation', async () => {
-      await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    it('does not capture a conversation, even when capture() runs', async () => {
+      const { capture } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+      await capture();
       expect(mockCaptureConversation).not.toHaveBeenCalled();
     });
+
+    it('logs the error name and status, not the message, which can echo the request', async () => {
+      mockCallLLM.mockRejectedValue(
+        Object.assign(new Error('400 bad request: {"input":"the question"}'), { name: 'APIError', status: 400 }),
+      );
+
+      await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+      expect(mockLogger.error).toHaveBeenCalledWith('Failed to answer ask question: APIError (status 400)');
+    });
+  });
+
+  describe('when the question is too long', () => {
+    it('declines without calling the LLM', async () => {
+      const { response, errorType, capture } = await buildAskResponse({
+        question: 'x'.repeat(MAX_QUESTION_LENGTH + 1),
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+      await capture();
+
+      expect(mockCallLLM).not.toHaveBeenCalled();
+      expect(errorType).toBe('question_too_long');
+      expect(response.text).toBe(ASK_TOO_LONG_TEXT);
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+
+    it('accepts a question exactly at the limit', async () => {
+      mockCallLLM.mockImplementation(answersWith('answer'));
+
+      const { errorType } = await buildAskResponse({
+        question: 'x'.repeat(MAX_QUESTION_LENGTH),
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(errorType).toBeNull();
+      expect(mockCallLLM).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('shortens an answer without a logger instead of throwing', async () => {
+    mockCallLLM.mockImplementation(answersWith(`${'word '.repeat(3000)}`));
+
+    const { response } = await buildAskResponse({ question: 'q', interactionType: 'slash_ask', ...ids });
+
+    expect(response.blocks[0].text).toMatch(/shortened/);
+  });
+});
+
+describe('fitMarkdownBlock', () => {
+  const LIMIT = 12000;
+
+  it.each([
+    ['exactly at the limit', LIMIT, false],
+    ['one character over', LIMIT + 1, true],
+  ])('%s (%i characters) — shortened: %s', (_label, length, shortened) => {
+    const text = `${'a'.repeat(99)}\n`.repeat(Math.ceil(length / 100)).slice(0, length);
+
+    const result = fitMarkdownBlock(text);
+
+    expect(result.shortened).toBe(shortened);
+    expect(result.text.length).toBeLessThanOrEqual(LIMIT);
+    if (!shortened) expect(result.text).toBe(text);
+  });
+
+  it('cuts one long line at a space, so a citation link is not split', async () => {
+    const text = `${'see [[1]](https://docs.ed-fi.org/reference/data-exchange) '.repeat(400)}`;
+
+    const { text: fitted } = fitMarkdownBlock(text);
+    const [kept] = fitted.split('\n\n');
+
+    expect(fitted.length).toBeLessThanOrEqual(LIMIT);
+    const opened = kept.split('[[1]](').length - 1;
+    const closed = kept.split('data-exchange)').length - 1;
+    expect(opened).toBeGreaterThan(0);
+    expect(closed).toBe(opened);
+  });
+
+  it('closes the fence before the notice, so the notice renders as text', () => {
+    const text = `\`\`\`js\n${'const x = 1;\n'.repeat(1200)}\`\`\``;
+
+    const { text: fitted } = fitMarkdownBlock(text);
+
+    expect(fitted.length).toBeLessThanOrEqual(LIMIT);
+    expect(fitted).toMatch(/\n```\n\n_This answer was too long/);
+  });
+
+  it('adds no fence when the code block closed before the cut', () => {
+    const text = `\`\`\`\ncode\n\`\`\`\n${'prose line\n'.repeat(1300)}`;
+
+    const { text: fitted } = fitMarkdownBlock(text);
+
+    expect(fitted.match(/^```/gm)).toHaveLength(2);
+  });
+
+  it.each([
+    ['an indented backtick fence', '  ```', '  ```'],
+    ['a tilde fence', '~~~', '~~~'],
+    ['a longer backtick fence', '````', '````'],
+  ])('closes %s with the matching marker', (_label, opener, closer) => {
+    const text = `${opener}\n${'line of code\n'.repeat(1200)}`;
+
+    const { text: fitted } = fitMarkdownBlock(text);
+
+    expect(fitted).toContain(`\n${closer.trim()}\n\n_This answer was too long`);
+  });
+
+  it('does not treat a tilde line as closing a backtick fence', () => {
+    const text = `\`\`\`\n~~~\n${'line of code\n'.repeat(1200)}`;
+
+    const { text: fitted } = fitMarkdownBlock(text);
+
+    expect(fitted).toMatch(/\n```\n\n_This answer was too long/);
+  });
+});
+
+describe('describeError', () => {
+  it('names the error and its status', () => {
+    expect(describeError(Object.assign(new Error('secret'), { name: 'APIError', status: 429 }))).toBe(
+      'APIError (status 429)',
+    );
+  });
+
+  it('names an error with no status', () => {
+    expect(describeError(new TypeError('secret'))).toBe('TypeError');
   });
 });
 
@@ -405,7 +551,7 @@ describe('streamAskResponse', () => {
     expect(blocks[0].text.text).toBe(SOURCES_TEXT);
   });
 
-  it('stops an empty answer without a Sources block', async () => {
+  it('stops an empty answer with no Sources block and no feedback buttons', async () => {
     mockCallLLM.mockImplementation(answersWith('', readyMetadata()));
 
     await streamAskResponse({
@@ -416,8 +562,79 @@ describe('streamAskResponse', () => {
       ...ids,
     });
 
-    const [{ blocks }] = mockStreamer.stop.mock.calls[0];
-    expect(blocks.map((block) => block.type)).toEqual(['context_actions']);
+    expect(mockStreamer.stop).toHaveBeenCalledWith();
+  });
+
+  it('builds the Sources block, then finalizes, then stops the stream', async () => {
+    const order = [];
+    const metadata = readyMetadata();
+    mockCallLLM.mockImplementation(answersWith('A [1]', metadata));
+    mockFinalizeMetadataEnvelope.mockImplementationOnce((m) => {
+      order.push('finalize');
+      m.finalize_state = 'finalized';
+    });
+    mockStreamer.stop.mockImplementationOnce(async ({ blocks }) => {
+      order.push(`stop:${blocks.map((block) => block.type).join(',')}`);
+    });
+
+    await streamAskResponse({
+      client: mockClient,
+      logger: mockLogger,
+      question: 'q',
+      interactionType: 'assistant_message',
+      ...ids,
+    });
+
+    expect(order).toEqual(['finalize', 'stop:section,context_actions']);
+  });
+
+  it('settles the envelope even when stop() rejects', async () => {
+    const metadata = readyMetadata();
+    mockCallLLM.mockImplementation(answersWith('A [1]', metadata));
+    mockStreamer.stop.mockRejectedValueOnce(new Error('stream gone'));
+
+    await expect(
+      streamAskResponse({
+        client: mockClient,
+        logger: mockLogger,
+        question: 'q',
+        interactionType: 'assistant_message',
+        ...ids,
+      }),
+    ).rejects.toThrow('stream gone');
+
+    expect(metadata.finalize_state).toBe('finalized');
+    expect(mockCaptureConversation).not.toHaveBeenCalled();
+  });
+
+  it('declines an over-long question without calling the LLM', async () => {
+    const { errorType } = await streamAskResponse({
+      client: mockClient,
+      logger: mockLogger,
+      question: 'x'.repeat(MAX_QUESTION_LENGTH + 1),
+      interactionType: 'assistant_message',
+      ...ids,
+    });
+
+    expect(errorType).toBe('question_too_long');
+    expect(mockCallLLM).not.toHaveBeenCalled();
+    expect(mockStreamer.append).toHaveBeenCalledWith({ markdown_text: ASK_TOO_LONG_TEXT });
+    expect(mockStreamer.stop).toHaveBeenCalledWith();
+  });
+
+  it('survives a capture failure after the answer has streamed', async () => {
+    mockCaptureConversation.mockRejectedValueOnce(new Error('cosmos down'));
+
+    const result = await streamAskResponse({
+      client: mockClient,
+      logger: mockLogger,
+      question: 'q',
+      interactionType: 'assistant_message',
+      ...ids,
+    });
+
+    expect(result).toEqual({ errorType: null });
+    expect(mockStreamer.stop).toHaveBeenCalledTimes(1);
   });
 
   it('captures the conversation like the ephemeral path does', async () => {
@@ -466,9 +683,13 @@ describe('when the LLM returns an empty answer', () => {
       ...ids,
     });
 
-    expect(response.text).toBe(ASK_ERROR_TEXT);
-    expect(response.blocks[0]).toMatchObject({ type: 'section', text: { text: ASK_ERROR_TEXT } });
-    expect(response.blocks[2].block_id).toBe('feedback|ask|slash_ask');
+    expect(response.text).toBe(ASK_EMPTY_TEXT);
+    expect(response.blocks).toEqual([{ type: 'section', text: { type: 'mrkdwn', text: ASK_EMPTY_TEXT } }]);
+  });
+
+  it('suggests a next step instead of the generic try-again copy', () => {
+    expect(ASK_EMPTY_TEXT).not.toBe(ASK_ERROR_TEXT);
+    expect(ASK_EMPTY_TEXT).toContain('/fiona search');
   });
 
   it('treats a whitespace-only answer the same way', async () => {
@@ -481,7 +702,7 @@ describe('when the LLM returns an empty answer', () => {
       ...ids,
     });
 
-    expect(response.text).toBe(ASK_ERROR_TEXT);
+    expect(response.text).toBe(ASK_EMPTY_TEXT);
     expect(errorType).toBe('llm_empty');
   });
 
@@ -525,9 +746,23 @@ describe('when the LLM returns an empty answer', () => {
         ...ids,
       });
 
-      expect(mockStreamer.append).toHaveBeenCalledWith({ markdown_text: ASK_ERROR_TEXT });
-      const [{ blocks }] = mockStreamer.stop.mock.calls[0];
-      expect(blocks[0].block_id).toBe('feedback|ask|assistant_message');
+      expect(mockStreamer.append).toHaveBeenCalledWith({ markdown_text: ASK_EMPTY_TEXT });
+      expect(mockStreamer.stop).toHaveBeenCalledWith();
+    });
+
+    it('treats a whitespace-only answer the same way', async () => {
+      mockCallLLM.mockImplementation(answersWithNothing('  \n '));
+
+      const { errorType } = await streamAskResponse({
+        client: mockClient,
+        logger: mockLogger,
+        question: 'q',
+        interactionType: 'assistant_message',
+        ...ids,
+      });
+
+      expect(errorType).toBe('llm_empty');
+      expect(mockStreamer.append).toHaveBeenCalledWith({ markdown_text: ASK_EMPTY_TEXT });
     });
 
     it('reports the failure and captures nothing', async () => {

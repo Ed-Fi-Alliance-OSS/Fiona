@@ -9,7 +9,7 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi (see privacy below)',
+  'ask <question>          Ask a question about Ed-Fi (see who can see it below)',
   'search <query>          Search Ed-Fi documentation',
 ];
 
@@ -44,10 +44,11 @@ ${commands.join('\n')}
 • *@-mention* (\`@fiona …\`) — in a channel or thread
 • *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
 
-*Question privacy:*
-• *Slash command* — your question and answer are private
-• *DM or agent panel* — your question and answer are private
-• *@-mention* — your question is visible to the channel. With \`@fiona ask\` or \`@fiona search\`, Fiona's answer is private; any other @-mention gets a reply the whole channel can see
+*Who can see your question:*
+• *Slash command* — only you see your question and Fiona's answer
+• *DM or agent panel* — only you see your question and Fiona's answer
+• *@-mention* — the channel sees your question. To keep Fiona's answer to yourself, start with \`ask\` or \`search\` (\`@fiona ask …\`). Any other @-mention gets a reply the whole channel can see
+_Conversations with Fiona may be retained to review and improve answer quality._
 
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 }
@@ -176,7 +177,10 @@ export function parseCommandKeyword(text) {
   const body = lower.startsWith('fiona ') ? trimmed.slice('fiona '.length).trim() : trimmed;
   const bodyLower = body.toLowerCase();
 
-  if (bodyLower === 'help') {
+  // A bare `ask` gets help, as `/fiona ask` does. Handing the lone word to the
+  // LLM would answer it in public, on the one keyword that promises a private
+  // answer. A bare `search` stays an ordinary question (see the AI-179 test plan).
+  if (bodyLower === 'help' || bodyLower === 'ask') {
     return { keyword: 'help', rawArgs: '' };
   }
 

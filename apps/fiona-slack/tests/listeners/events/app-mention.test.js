@@ -506,6 +506,72 @@ describe('appMentionCallback', () => {
       );
     });
 
+    describe('when the ephemeral ask answer cannot be posted', () => {
+      beforeEach(() => {
+        mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+        callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+        mockClient.chat.postEphemeral.mockRejectedValueOnce(
+          Object.assign(new Error('invalid_blocks'), { name: 'SlackAPIError' }),
+        );
+      });
+
+      it('records post_failed for the turn', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(recordInteraction).toHaveBeenCalledTimes(1);
+        expect(recordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'app_mention', status: 'error', errorType: 'post_failed' }),
+        );
+      });
+
+      it('posts no public warning, only a private delivery-failure notice', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(mockSay).not.toHaveBeenCalled();
+        expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(2);
+        expect(mockClient.chat.postEphemeral.mock.calls[1][0]).toEqual(
+          expect.objectContaining({ user: 'U456', text: expect.stringContaining("couldn't deliver") }),
+        );
+      });
+
+      it('does not capture the undelivered answer', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(captureConversation).not.toHaveBeenCalled();
+      });
+
+      it('releases the response slot so a retry runs the pipeline again', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
+        expect(callLLM).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('captures a delivered ask answer', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ entryPoint: 'app_mention', botResponse: 'answer' }),
+      );
+    });
+
+    // A bare `ask` used to reach the LLM as the question "ask", answered in the
+    // channel for everyone, on the keyword that promises a private answer.
+    it.each(['ask', 'ASK', 'ask   ', 'fiona ask'])('answers a bare "@fiona %s" with help, not the LLM', async (text) => {
+      mockEvent.text = `<@UFIONA> ${text}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+    });
+
     it('responds with search results when mention text starts with "search "', async () => {
       mockEvent.text = '<@UFIONA> search Data Standard 6.0';
 

@@ -10,7 +10,7 @@ import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
-import { ASK_ERROR_TEXT, buildAskResponse } from './ask-handler.js';
+import { ASK_DELIVERY_FAILED_TEXT, ASK_ERROR_TEXT, buildAskResponse, describeError } from './ask-handler.js';
 import {
   buildHelpText,
   buildSearchResponse,
@@ -135,13 +135,19 @@ async function handleHelp({ command, ack, logger }) {
   fireAndForgetRecord({ command, logger, interactionType: 'slash_help' });
 }
 
+const ASK_THINKING_TEXT = ':hourglass_flowing_sand: Thinking…';
+
 /**
  * Handles the `/fiona ask <question>` sub-command.
  *
- * Answers privately: `respond()` with response_type ephemeral, so the question
- * and the answer stay between Fiona and the person who asked even when the
- * command is typed in a public channel. The answer itself comes from
- * buildAskResponse, shared with the `ask` keyword path.
+ * Answers ephemerally: `respond()` with response_type ephemeral, so only the
+ * person who asked sees the question and the answer in Slack, even in a public
+ * channel. The answer itself comes from buildAskResponse, shared with the `ask`
+ * keyword path.
+ *
+ * The acknowledgement is a visible "Thinking…" line, because the answer can take
+ * up to a minute and a silent wait invites resubmits that spend the rate limit.
+ * Every later reply replaces it (`replace_original`).
  *
  * Falls back to the help response when no question is provided.
  */
@@ -155,21 +161,26 @@ async function handleAsk({ command, ack, respond, logger }) {
   }
 
   try {
-    await ack();
+    await ack({ response_type: 'ephemeral', text: ASK_THINKING_TEXT });
   } catch (err) {
     logger?.error?.(`Failed to acknowledge /fiona ask: ${err.name}`);
     return;
   }
 
+  const reply = (message) =>
+    respond({ response_type: 'ephemeral', replace_original: true, ...message }).catch((err) =>
+      logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`),
+    );
+
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping ask');
-    await respond({ response_type: 'ephemeral', text: ASK_ERROR_TEXT });
+    await reply({ text: ASK_ERROR_TEXT });
     return;
   }
 
   const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
   if (!allowed) {
-    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
+    await reply({ text: rateLimitMessage(retryAfterMs) });
     recordInteraction({
       ...slashInteractionRecord(command, 'slash_ask'),
       status: 'error',
@@ -182,26 +193,28 @@ async function handleAsk({ command, ack, respond, logger }) {
 
   // buildAskResponse never throws on LLM failure — it substitutes an error
   // message and reports the failure via errorType, so carry that into telemetry.
-  let response;
-  let errorType;
+  // The conversation is captured only once the answer has been delivered.
   try {
-    ({ response, errorType } = await buildAskResponse({
+    const { response, errorType, capture } = await buildAskResponse({
       question,
       logger,
       interactionType: 'slash_ask',
       userId: command.user_id,
       teamId: command.team_id,
       channelId: command.channel_id,
+      // Slash commands have no thread or message timestamp; trigger_id is unique
+      // per invocation and stands in for both, as in slashInteractionRecord.
       threadTs: command.trigger_id,
       messageTs: command.trigger_id,
-    }));
-    await respond({ response_type: 'ephemeral', ...response });
+    });
+    await respond({ response_type: 'ephemeral', replace_original: true, ...response });
+    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
+    await capture();
   } catch (err) {
-    logger?.error?.(`Failed to respond to /fiona ask: ${err.name}`);
-    return;
+    logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`);
+    await reply({ text: ASK_DELIVERY_FAILED_TEXT });
+    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'respond_failed' });
   }
-
-  fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
 }
 
 async function handleSearch({ command, ack, respond, logger }) {

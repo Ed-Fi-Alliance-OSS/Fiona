@@ -301,6 +301,37 @@ describe('feedbackActionCallback', () => {
       expect(meta.botResponse).toMatch(/…$/);
     });
 
+    // JSON doubles every quote, backslash and newline, so a code-heavy answer
+    // under the raw-character cap can still overflow Slack's encoded limit.
+    it.each([
+      ['quotes', '"'.repeat(5000)],
+      ['newlines', '\n'.repeat(5000)],
+      ['backslashes', '\\'.repeat(5000)],
+      ['a code block', `\`\`\`json\n${'{ "key": "value\\n" },\n'.repeat(300)}\`\`\``],
+    ])('keeps a trimmed answer full of %s within the limit instead of dropping it', async (_label, text) => {
+      mockBody.message.text = text;
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      expect(view.private_metadata.length).toBeLessThanOrEqual(3000);
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta.botResponse).toMatch(/…$/);
+      expect(text.startsWith(meta.botResponse.slice(0, -1))).toBe(true);
+      expect(meta.responseType).toBe('ask');
+    });
+
+    it('stores no answer when the message has no text', async () => {
+      delete mockBody.message.text;
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta).not.toHaveProperty('botResponse');
+      expect(meta.responseType).toBe('ask');
+    });
+
     it('stores nothing extra for a synthesis answer, which stays re-fetchable', async () => {
       mockBody.actions[0].block_id = 'feedback|synthesis|app_mention';
 

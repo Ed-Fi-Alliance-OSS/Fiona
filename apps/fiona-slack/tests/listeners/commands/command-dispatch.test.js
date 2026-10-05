@@ -15,9 +15,12 @@ jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({
 
 const mockBuildAskResponse = jest.fn();
 const mockStreamAskResponse = jest.fn().mockResolvedValue(undefined);
+const mockCapture = jest.fn().mockResolvedValue(undefined);
 jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () => ({
+  ASK_DELIVERY_FAILED_TEXT: ':warning: could not deliver',
   ASK_ERROR_TEXT: ':warning: ask failed',
   buildAskResponse: mockBuildAskResponse,
+  describeError: (err) => err.name,
   streamAskResponse: mockStreamAskResponse,
 }));
 
@@ -63,6 +66,7 @@ beforeEach(() => {
   mockBuildAskResponse.mockResolvedValue({
     response: { text: 'answer', blocks: [{ type: 'section' }], unfurl_links: false, unfurl_media: false },
     errorType: null,
+    capture: mockCapture,
   });
 });
 
@@ -72,7 +76,10 @@ beforeEach(() => {
 describe('dispatchKeywordViaSay — ask', () => {
   const askCtx = (over = {}) => ({
     ...ctx({ keyword: 'ask', rawArgs: 'how do I set up ODS?' }, jest.fn().mockResolvedValue(undefined)),
-    client: { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } },
+    client: {
+      chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) },
+      assistant: { threads: { setStatus: jest.fn().mockResolvedValue(undefined) } },
+    },
     interactionType: 'app_mention',
     ...over,
   });
@@ -144,10 +151,104 @@ describe('dispatchKeywordViaSay — ask', () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
   });
 
+  it('tells the user in plain text when the answer cannot be posted', async () => {
+    const params = askCtx({ threadTs: '100.00', messageTs: '200.00' });
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('invalid_blocks'));
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(2);
+    expect(params.client.chat.postEphemeral.mock.calls[1][0]).toEqual({
+      channel: 'C1',
+      user: 'U1',
+      thread_ts: '100.00',
+      text: ':warning: could not deliver',
+    });
+  });
+
+  it('survives the delivery-failure notice failing too', async () => {
+    const params = askCtx();
+    params.client.chat.postEphemeral.mockRejectedValue(new Error('channel_not_found'));
+
+    await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('delivery-failure notice'));
+  });
+
+  it('captures the conversation only once the answer is posted', async () => {
+    const params = askCtx();
+    const order = [];
+    params.client.chat.postEphemeral.mockImplementationOnce(async () => order.push('post'));
+    mockCapture.mockImplementationOnce(async () => order.push('capture'));
+
+    await dispatchKeywordViaSay(params);
+
+    expect(order).toEqual(['post', 'capture']);
+  });
+
+  it('does not capture an answer that could not be posted', async () => {
+    const params = askCtx();
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await dispatchKeywordViaSay(params);
+
+    expect(mockCapture).not.toHaveBeenCalled();
+  });
+
+  it('shows a thinking status while the answer is generated, then clears it', async () => {
+    const params = askCtx();
+    const statuses = [];
+    params.client.assistant.threads.setStatus.mockImplementation(async ({ status }) => statuses.push(status));
+    mockBuildAskResponse.mockImplementationOnce(async () => {
+      statuses.push('<generating>');
+      return { response: { text: 'answer' }, errorType: null, capture: mockCapture };
+    });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(statuses).toEqual(['thinking...', '<generating>', '']);
+    expect(params.client.assistant.threads.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ channel_id: 'C1', thread_ts: '123.45' }),
+    );
+  });
+
+  it('clears the thinking status even when generation throws', async () => {
+    const params = askCtx();
+    mockBuildAskResponse.mockRejectedValueOnce(new Error('boom'));
+
+    await expect(dispatchKeywordViaSay(params)).rejects.toThrow('boom');
+    expect(params.client.assistant.threads.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: '' }),
+    );
+  });
+
+  it('still answers when the thinking status cannot be set', async () => {
+    const params = askCtx();
+    params.client.assistant.threads.setStatus.mockRejectedValue(new Error('missing_scope'));
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer' }));
+  });
+
+  // Fails closed: only the private assistant panel streams. Anything else,
+  // including a caller added later, gets the ephemeral path.
+  it.each(['app_mention', 'some_future_surface', undefined])(
+    'answers ephemerally for interactionType %p',
+    async (interactionType) => {
+      const params = askCtx({ interactionType });
+
+      await dispatchKeywordViaSay(params);
+
+      expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockStreamAskResponse).not.toHaveBeenCalled();
+    },
+  );
+
   it('marks a handled ask-generation failure from buildAskResponse', async () => {
     mockBuildAskResponse.mockResolvedValueOnce({
       response: { text: ':warning: ask failed', blocks: [], unfurl_links: false, unfurl_media: false },
       errorType: 'llm_failed',
+      capture: mockCapture,
     });
     const params = askCtx();
 

@@ -250,13 +250,15 @@ describe('fionaCommandCallback', () => {
 
   describe('ask sub-command — with a question invokes the LLM', () => {
     let mockRespond;
+    let askUserSeq = 0;
     let mockClient;
 
     beforeEach(() => {
       mockCommand.text = 'ask What is the Ed-Fi Data Standard?';
-      // Own user id: the rate limiter is real and its per-user budget is shared
-      // across suites, so spending U12345's on this suite starves the later ones.
-      mockCommand.user_id = 'U_ASK_SUITE';
+      // Own user id per test: the rate limiter is real and its per-user budget is
+      // shared across tests, so a common id would starve the later ones.
+      askUserSeq += 1;
+      mockCommand.user_id = `U_ASK_SUITE_${askUserSeq}`;
       mockRespond = jest.fn().mockResolvedValue(undefined);
       mockClient = { chatStream: jest.fn() };
       mockCallLLM.mockImplementation(async (sink) => {
@@ -265,17 +267,102 @@ describe('fionaCommandCallback', () => {
       });
     });
 
-    it('calls ack() exactly once with no text argument', async () => {
+    it('acknowledges once with an ephemeral "Thinking…" line, so the wait is not silent', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
       expect(mockAck).toHaveBeenCalledTimes(1);
-      expect(mockAck).toHaveBeenCalledWith();
+      expect(mockAck).toHaveBeenCalledWith({ response_type: 'ephemeral', text: expect.stringContaining('Thinking') });
     });
 
-    it('answers ephemerally so the exchange stays private in a public channel', async () => {
+    it('answers ephemerally, replacing the "Thinking…" line', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
       expect(mockRespond).toHaveBeenCalledWith(
-        expect.objectContaining({ response_type: 'ephemeral', text: 'test response' }),
+        expect.objectContaining({ response_type: 'ephemeral', replace_original: true, text: 'test response' }),
       );
+    });
+
+    it('captures the conversation only after the answer is delivered', async () => {
+      const order = [];
+      mockRespond.mockImplementation(async () => order.push('respond'));
+      mockCaptureConversation.mockImplementationOnce(async () => order.push('capture'));
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+      expect(order).toEqual(['respond', 'capture']);
+    });
+
+    describe('when respond() fails', () => {
+      beforeEach(() => {
+        mockRespond.mockRejectedValueOnce(Object.assign(new Error('expired_url'), { name: 'Error', status: 404 }));
+      });
+
+      it('tries once more with a short delivery-failure notice', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+        expect(mockRespond).toHaveBeenCalledTimes(2);
+        expect(mockRespond.mock.calls[1][0]).toEqual(
+          expect.objectContaining({ response_type: 'ephemeral', replace_original: true, text: expect.stringContaining("couldn't deliver") }),
+        );
+      });
+
+      it('records respond_failed telemetry', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+        await flushMicrotasks();
+
+        expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
+        expect(mockRecordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'respond_failed' }),
+        );
+      });
+
+      it('does not capture the undelivered answer', async () => {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+        expect(mockCaptureConversation).not.toHaveBeenCalled();
+      });
+
+      it('survives the notice failing too', async () => {
+        mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+
+        await expect(
+          fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger }),
+        ).resolves.toBeUndefined();
+      });
+    });
+
+    it('records llm_empty telemetry and sends the empty-answer copy end to end', async () => {
+      mockCallLLM.mockImplementationOnce(async () => ({ metadata: null, botText: '', systemPromptVersion: 'v1' }));
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining('/fiona search') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'llm_empty' }),
+      );
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+
+    it('declines an over-long question and records question_too_long', async () => {
+      mockCommand.text = `ask ${'x'.repeat(3001)}`;
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockCallLLM).not.toHaveBeenCalled();
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'question_too_long' }),
+      );
+    });
+
+    it('survives respond() failing on the missing-fields reply', async () => {
+      delete mockCommand.trigger_id;
+      mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+
+      await expect(
+        fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger }),
+      ).resolves.toBeUndefined();
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond to /fiona ask'));
     });
 
     it('never posts the answer into the channel via chatStream', async () => {

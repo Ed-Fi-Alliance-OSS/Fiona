@@ -67,17 +67,29 @@ function buildPrivateMetadata(baseMetadata, contextToStore = null) {
   }
 
   const searchQuery = compactSearchQuery(contextToStore.searchQuery);
-  const botResponse = compactBotResponse(contextToStore.botResponse);
+  let botResponse = compactBotResponse(contextToStore.botResponse);
 
-  const privateMetadata = JSON.stringify({
-    ...baseMetadata,
-    ...(searchQuery ? { searchQuery } : {}),
-    ...(botResponse ? { botResponse } : {}),
-  });
+  const encode = () =>
+    JSON.stringify({
+      ...baseMetadata,
+      ...(searchQuery ? { searchQuery } : {}),
+      ...(botResponse ? { botResponse } : {}),
+    });
 
-  // compactSearchQuery/compactBotResponse already cap combined size well under
-  // PRIVATE_METADATA_MAX_CHARS; this is a guard against Slack's limit in case
-  // those caps are loosened later without re-checking the invariant.
+  // The character caps above count raw text, but Slack's limit applies to the
+  // JSON encoding, where every quote, backslash and newline doubles. An answer
+  // full of code can overflow, so trim the stored response by the overflow
+  // until it fits rather than dropping it.
+  let privateMetadata = encode();
+  while (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS && botResponse) {
+    const overflow = privateMetadata.length - PRIVATE_METADATA_MAX_CHARS;
+    const keep = botResponse.length - overflow - 1;
+    botResponse = keep > 0 ? `${botResponse.slice(0, keep)}…` : null;
+    privateMetadata = encode();
+  }
+
+  // A guard against Slack's limit if the query cap is ever loosened without
+  // re-checking the invariant.
   if (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS) {
     return JSON.stringify(baseMetadata);
   }

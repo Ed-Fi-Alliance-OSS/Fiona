@@ -71,12 +71,10 @@ describe('parseCommandKeyword', () => {
       expect(parseCommandKeyword('ASK something')).toEqual({ keyword: 'ask', rawArgs: 'something' });
     });
 
-    it('does not match bare "ask" with no argument', () => {
-      expect(parseCommandKeyword('ask')).toBeNull();
-    });
-
-    it('does not match "ask" with only whitespace after it', () => {
-      expect(parseCommandKeyword('ask   ')).toBeNull();
+    // Handing a bare `ask` to the LLM would answer it publicly, so it gets help,
+    // as `/fiona ask` with no question does.
+    it.each(['ask', 'ask   ', 'ASK', 'Ask', '/ask'])('answers bare %j with help', (text) => {
+      expect(parseCommandKeyword(text)).toEqual({ keyword: 'help', rawArgs: '' });
     });
   });
 
@@ -196,8 +194,8 @@ describe('parseCommandKeyword', () => {
       });
     });
 
-    it('returns null for bare "fiona ask" with no argument', () => {
-      expect(parseCommandKeyword('fiona ask')).toBeNull();
+    it('answers bare "fiona ask" with help', () => {
+      expect(parseCommandKeyword('fiona ask')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('returns null for bare "fiona search" with no argument', () => {
@@ -608,18 +606,27 @@ describe('buildHelpText — ticket line is flag-gated', () => {
   it('states which ask entry points expose the question to the channel', () => {
     const text = buildHelpText();
 
-    expect(text).toMatch(/slash command.*question and answer are private/i);
-    expect(text).toMatch(/DM.*question and answer are private/i);
-    expect(text).toMatch(/@-mention.*question is visible to the channel/i);
+    expect(text).toMatch(/slash command.*only you see your question and Fiona's answer/i);
+    expect(text).toMatch(/DM.*only you see your question and Fiona's answer/i);
+    expect(text).toMatch(/@-mention.*the channel sees your question/i);
   });
 
-  it('limits the private @-mention answer to ask and search', () => {
+  it('limits the private @-mention answer to ask and search, and says how to get it', () => {
     const text = buildHelpText();
 
     // A plain @fiona question is answered in the thread for everyone, so the
     // help text must not promise privacy for every @-mention answer.
-    expect(text).toMatch(/`@fiona ask`.*`@fiona search`.*answer is private/i);
+    expect(text).toMatch(/keep Fiona's answer to yourself, start with `ask` or `search`/i);
     expect(text).toMatch(/any other @-mention.*whole channel can see/i);
+  });
+
+  // Visibility in Slack is not the same as not being stored: conversations can be
+  // captured for quality review, so the copy must not promise more than that.
+  it('says conversations may be retained, rather than calling them private', () => {
+    const text = buildHelpText();
+
+    expect(text).toMatch(/may be retained/i);
+    expect(text).not.toMatch(/\bprivate\b/i);
   });
 });
 
