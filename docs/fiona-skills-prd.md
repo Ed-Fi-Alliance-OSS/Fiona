@@ -108,14 +108,38 @@ markers cannot be linkified until Perplexity sends the citations on the last chu
 
 **The `ask` keyword behaves identically.** `@fiona ask <question>` in a channel or
 thread answers ephemerally through the same pipeline, so the phrasing a user
-happens to reach for does not change who can see the answer. In the assistant
-panel and DMs the surface is already private, so the answer streams there and
-reads like any other reply.
+happens to reach for does not change who can see the answer. Only the assistant
+panel, which is already private, streams the answer, so it reads like any other
+reply there. Every other surface gets the ephemeral answer, so a new entry point
+fails closed rather than posting publicly.
+
+**Visible only to you, not unrecorded.** "Ephemeral" describes who can see the
+answer in Slack. It does not mean the exchange is not stored: when conversation
+capture is on, the question and answer are kept like any other conversation for
+quality review, and a feedback click stores the rated answer. User-facing copy
+therefore says "only you see…" and that conversations may be retained, never
+that they are private.
+
+**Progress and delivery failures.** The answer can take up to a minute, so the
+slash command acknowledges with an ephemeral "Thinking…" line that the answer
+replaces, and the @-mention path shows a thread "thinking" status while the LLM
+runs. If the answer cannot be delivered, the user gets a short notice instead of
+silence, the interaction is recorded as an error (`respond_failed` on the slash
+command, `post_failed` on the @-mention path), and the conversation is not
+captured, because nobody saw the answer.
 
 **Edge cases:**
 
 - If `<question>` is empty or blank, Fiona responds with the help output
-  (equivalent to `/fiona help`).
+  (equivalent to `/fiona help`). A bare `@fiona ask` does the same; it is not
+  sent to the LLM, which would answer it publicly.
+- A question over 3,000 characters is declined with a short message and is not
+  sent to the LLM (`errorType: question_too_long`).
+- An error reply carries no feedback buttons. A failed call and an empty
+  generation get different copy; the empty case suggests rephrasing or
+  `/fiona search`.
+- An answer over Slack's 12,000-character `markdown` block limit is cut at a line
+  break, any open code fence is closed, and a notice suggests a narrower question.
 
 **Acceptance criteria:**
 
