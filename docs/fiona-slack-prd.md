@@ -118,12 +118,14 @@ source but no yes or no on whether a specific use is permitted, a note that
 terms differ by component and version, and a pointer to the Alliance
 (`https://www.ed-fi.org/contact/`) for details or assistance.
 
-Because search is forced, an answer that arrives with **no search results**
-means retrieval failed. In that case the model's text is discarded and a fixed
-decline (`NO_SOURCES_DECLINE_TEXT`) is sent instead, the metadata envelope
-records `grounding: 'declined_no_results'`, and the `[citations]` log line
-includes `grounding=declined_no_results`. When results exist but do not cover
-the question, only the prompt prevents a guess.
+Because search is forced, an answer that arrives with **no usable search
+results** means retrieval failed. Usability is determined after normalization,
+so results with missing, malformed, or non-HTTP(S) URLs do not count. In that
+case the model's text is discarded and a fixed decline
+(`NO_SOURCES_DECLINE_TEXT`) is sent instead, the metadata envelope records
+`grounding: 'declined_no_results'`, and the `[citations]` log line includes
+`grounding=declined_no_results`. When usable results exist but do not cover the
+question, only the prompt prevents a guess.
 
 **Dead links (AI-227).** Perplexity's index still holds pages that now return
 404, so after the answer is written, and before it is sent, Fiona checks every
