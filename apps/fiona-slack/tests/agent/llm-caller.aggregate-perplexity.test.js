@@ -659,6 +659,58 @@ describe('callPerplexityChat – buffer and linkify', () => {
       );
     });
 
+    it('removes a whole headed list when one line names a page without a URL, leaving that marker unlinked', async () => {
+      const { botText, metadata } = await run(
+        'A [1]. B [2]. C [3].\n\nSources:\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] Ed-Fi docs home\n[3] [Two](https://docs.ed-fi.org/two/)',
+      );
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [2]. C [[3]](https://docs.ed-fi.org/two/).');
+      expect(metadata.citation_index).toEqual({
+        1: 'https://docs.ed-fi.org/four/',
+        3: 'https://docs.ed-fi.org/two/',
+        4: 'https://docs.ed-fi.org/one/',
+        5: 'https://docs.ed-fi.org/three/',
+      });
+      expect(metadata.cited_markers).toEqual([1, 3]);
+    });
+
+    it('keeps an unheaded trailing list intact when one of its lines has no URL', async () => {
+      const text = 'A [1]. B [2].\n\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] Ed-Fi docs home';
+
+      const { botText } = await run(text);
+
+      expect(botText).toBe(
+        'A [[1]](https://docs.ed-fi.org/one/). B [[2]](https://docs.ed-fi.org/two/).\n\n[[1]](https://docs.ed-fi.org/one/) [Four](https://docs.ed-fi.org/four/)\n[[2]](https://docs.ed-fi.org/two/) Ed-Fi docs home',
+      );
+    });
+
+    it('numbers uncited results right after the listed markers, ignoring a stray large bracketed number', async () => {
+      const { metadata } = await run(
+        'In school year [2026], A [1].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',
+      );
+
+      expect(metadata.citation_index).toEqual({
+        1: 'https://docs.ed-fi.org/four/',
+        2: 'https://docs.ed-fi.org/one/',
+        3: 'https://docs.ed-fi.org/two/',
+        4: 'https://docs.ed-fi.org/three/',
+      });
+    });
+
+    it('skips numbers already in the answer when numbering uncited results', async () => {
+      const { botText, metadata } = await run(
+        'A [1]. Step [3].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',
+      );
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). Step [3].');
+      expect(metadata.citation_index).toEqual({
+        1: 'https://docs.ed-fi.org/four/',
+        2: 'https://docs.ed-fi.org/one/',
+        4: 'https://docs.ed-fi.org/two/',
+        5: 'https://docs.ed-fi.org/three/',
+      });
+    });
+
     it('treats a headed list as the model list even when the answer cites none of it', async () => {
       const { botText } = await run('Some answer.\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)');
 
