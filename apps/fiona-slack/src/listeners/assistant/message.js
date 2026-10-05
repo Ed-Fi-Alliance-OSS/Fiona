@@ -18,6 +18,7 @@ import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent
 import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
+import { createSourcesBlocks } from '../views/sources_block.js';
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -261,6 +262,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
         await streamer.stop({
           blocks: [
+            ...createSourcesBlocks(metadata),
             createFeedbackBlock({
               responseType: FEEDBACK_RESPONSE_TYPES.SYNTHESIS,
               interactionType: 'assistant_message',

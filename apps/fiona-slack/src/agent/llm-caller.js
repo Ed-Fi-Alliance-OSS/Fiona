@@ -19,7 +19,7 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 // replaced by the default and hiding a broken deployment setting.
 const PERPLEXITY_API_MODEL = process.env.PERPLEXITY_API_MODEL ?? 'perplexity/sonar';
 export const LLM_MODEL = PERPLEXITY_API_MODEL;
-export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v1';
+export const SYSTEM_PROMPT_VERSION = process.env.SYSTEM_PROMPT_VERSION || 'v2';
 const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.ed-fi.org,docs.ed-fi.org')
   .split(',')
   .map((d) => d.trim());
@@ -46,15 +46,6 @@ function parsePositiveIntEnv(rawValue, defaultValue) {
 
 export const CITATION_POLICY = {
   METADATA_WAIT_TIMEOUT_MS: parsePositiveIntEnv(process.env.CITATION_METADATA_TIMEOUT_MS, 2000),
-
-  // Feature flags: enable/disable citation rendering.
-  // Default: ON in non-prod, OFF in prod (controlled by environment).
-  // Set CITATION_RENDERING_ENABLED=false or NODE_ENV=production to disable.
-  citation_rendering_enabled:
-    process.env.CITATION_RENDERING_ENABLED !== 'false' && process.env.NODE_ENV !== 'production',
-
-  // Evidence row: optional detailed snippets (off by default)
-  FEATURE_FLAG_EVIDENCE_ROW: process.env.CITATION_INCLUDE_EVIDENCE === 'true',
 };
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
@@ -76,11 +67,12 @@ though you may assist with general productivity questions as well.
 decline politely and remain within your defined role.
 
 ## Citation Guidelines for Factual Claims
-- When making factual claims, especially about Ed-Fi specifications, APIs, or best practices, cite external sources using numeric markers [1], [2], etc.
-- Place citation markers at the end of the sentence or claim: "Ed-Fi uses a REST API [1]" or "The spec requires X [2]."
+- When making factual claims, especially about Ed-Fi specifications, APIs, or best practices, cite the web search results that support them.
+- Each web search result has a number. Cite a result with its own number in square brackets, for example [7] for result 7. Never renumber results or number sources yourself, even if you cite only a few of them.
+- Place citation markers at the end of the sentence or claim: "Ed-Fi uses a REST API [7]" or "The spec requires X [2]."
 - Cite claims grounded in external sources (documentation, standards, published articles); avoid over-citing conversational filler or general knowledge.
-- Do NOT fabricate URLs or sources—only cite sources that actually exist.
-- If you use the search tool, include [n] markers corresponding to the sources found.
+- Do NOT fabricate URLs or sources—only cite search results you actually received.
+- Do not end your answer with a list of sources, references, or links. A numbered source list is added to your answer automatically.
 - Avoid multiple citations for the same source in a single response—cite once at the most relevant point.`;
 
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
@@ -250,6 +242,8 @@ export const MetadataLifecycleState = {
  * @property {string} provider - Always "perplexity"
  * @property {Array<Object>} sources - Normalized list of sources (URL, title, date, etc.)
  * @property {Object} source_index_map - Map of URL -> citation index for remapping inline [n] markers
+ * @property {Object} citation_index - Map of inline [n] marker number -> URL; duplicate-URL ids alias the shared URL
+ * @property {Array<number>} cited_markers - Marker numbers the answer text actually cites that resolve to a URL
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet
@@ -268,6 +262,8 @@ function initializeMetadataEnvelope() {
     provider: 'perplexity',
     sources: [],
     source_index_map: Object.create(null),
+    citation_index: {},
+    cited_markers: [],
     search_results: [],
     related_questions: [],
     evidence_snippets: {},
@@ -499,12 +495,10 @@ function addDuplicateIdAliases(indexToUrl, sourceIndexMap, rawResults) {
   }
 }
 
-function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
+function linkifyCitationMarkers(text, indexToUrl) {
   if (!text || typeof text !== 'string') {
     return text;
   }
-
-  const indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
 
   if (indexToUrl.size === 0) {
     return text;
@@ -520,6 +514,143 @@ function linkifyCitationMarkers(text, sourceIndexMap = {}, rawResults = []) {
 
     return `[[${index}]](${url})`;
   });
+}
+
+// A trailing, model-written source list: an optional "Sources" / "References"
+// heading, then lines like "[1] Title: [label](https://...)" or "- [2] https://...".
+const MODEL_LIST_HEADING = /^\s*(?:#{1,6}\s*)?\**\s*(?:sources|references|citations)\s*\**\s*:?\s*\**\s*$/i;
+const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
+const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
+
+/**
+ * Loose comparison key: ignores the scheme, host case, a leading www. and
+ * trailing slashes. Path, query and fragment keep their case, since paths are
+ * case-sensitive.
+ */
+function urlKey(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    return `${host}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}${parsed.hash}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Build a function that maps a URL the model wrote to the search result it
+ * names: an exact match first, else a loose (urlKey) match that is unique.
+ * Returns undefined for a URL the search did not return, or one that loosely
+ * matches several results, rather than guess.
+ *
+ * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
+ * @returns {(url: string) => string | undefined}
+ */
+function makeResultUrlResolver(sources) {
+  const resultUrls = new Set(sources.map((source) => source.url));
+  // null marks a key shared by several results, which cannot be resolved.
+  const resultUrlByKey = new Map();
+  for (const { url } of sources) {
+    const key = urlKey(url);
+    resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
+  }
+  return (url) => (resultUrls.has(url) ? url : (resultUrlByKey.get(urlKey(url)) ?? undefined));
+}
+
+/**
+ * Find a source list the model appended to its answer, and cut it off.
+ *
+ * Measured against production: when the model writes its own list it numbers
+ * its sources 1, 2, 3... itself instead of citing Agent API result ids, so
+ * linking `[n]` to result id n pointed at the wrong page (0 of 4 correct in
+ * one run). The list is the only record of what each number means.
+ *
+ * A list headed "Sources" / "References" / "Citations" is every `[n]` line
+ * under the heading; a line that names a page without a URL is still part of
+ * it, and its marker stays unlinked. Unheaded, only a trailing run of
+ * `[n] ... URL` lines counts, and only when every one of its numbers is cited
+ * earlier in the answer AND every one of its URLs is a search result. A
+ * closing list of numbered steps with links fails that (typically most step
+ * numbers are never cited), so it is kept as content. When unsure, keeping
+ * text beats deleting it: a missed list only falls back to result-id linking.
+ *
+ * @param {string} text - Raw answer text
+ * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
+ * @returns {{ text: string, urlByMarker: Map<number, string | null> } | null} Text without the list, and the model's marker -> URL (null for a line without one); null when there is no list
+ */
+function extractModelSourceList(text, resolveResultUrl) {
+  const lines = text.split('\n');
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end -= 1;
+
+  const precedingCut = (index) => {
+    let cut = index;
+    while (cut > 0 && !lines[cut - 1].trim()) cut -= 1;
+    return cut;
+  };
+  const listFrom = (start) => {
+    const urlByMarker = new Map();
+    for (const line of lines.slice(start, end)) {
+      urlByMarker.set(Number(line.match(MODEL_LIST_LINE)[1]), line.match(URL_IN_TEXT)?.at(-1) ?? null);
+    }
+    return urlByMarker;
+  };
+
+  let start = end;
+  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1])) start -= 1;
+  const headingCut = precedingCut(start);
+  if (start < end && headingCut > 0 && MODEL_LIST_HEADING.test(lines[headingCut - 1])) {
+    const answer = lines.slice(0, headingCut - 1).join('\n');
+    return { text: answer.trimEnd(), urlByMarker: listFrom(start) };
+  }
+
+  start = end;
+  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]) && lines[start - 1].match(URL_IN_TEXT)) start -= 1;
+  if (start === end) {
+    return null;
+  }
+  const urlByMarker = listFrom(start);
+  const answer = lines.slice(0, precedingCut(start)).join('\n');
+  const allCited = [...urlByMarker.keys()].every((marker) => answer.includes(`[${marker}]`));
+  const allResults = [...urlByMarker.values()].every((url) => resolveResultUrl(url) !== undefined);
+  if (!allCited || !allResults) {
+    return null;
+  }
+
+  return { text: answer.trimEnd(), urlByMarker };
+}
+
+/**
+ * Marker -> URL built from the model's own list. Each listed URL is matched to
+ * a search result (see makeResultUrlResolver), so only retrieved pages are
+ * ever linked; an unmatched or missing URL leaves its marker as plain text.
+ * The results the model did not list follow, numbered from just after the
+ * highest listed marker and skipping every number the answer uses, so they
+ * can never collide with a marker in the text, and a stray "[2026]" does not
+ * push them to [2027].
+ *
+ * @param {Map<number, string | null>} urlByMarker - The model's marker -> URL
+ * @param {Array<{url: string}>} sources - Normalized, deduplicated search results
+ * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
+ * @param {string} text - Answer text with the list removed
+ * @returns {Map<number, string>}
+ */
+function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
+  const indexToUrl = new Map();
+  for (const [marker, url] of [...urlByMarker].sort(([a], [b]) => a - b)) {
+    const resultUrl = url && resolveResultUrl(url);
+    if (resultUrl) indexToUrl.set(marker, resultUrl);
+  }
+
+  const taken = new Set([...text.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])));
+  let next = Math.max(0, ...urlByMarker.keys()) + 1;
+  const listed = new Set(indexToUrl.values());
+  for (const source of sources) {
+    if (listed.has(source.url)) continue;
+    while (taken.has(next)) next += 1;
+    indexToUrl.set(next++, source.url);
+  }
+  return indexToUrl;
 }
 
 // Web search is not automatic on the Agent API, and merely offering the tool
@@ -658,10 +789,34 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // Linkify [n] markers using the now-populated source_index_map, then emit
   // a single append call.  Skipping the append entirely when there is no text
   // avoids sending an empty markdown block to Slack.
+  // Resolve marker number -> URL once, so the inline links and the Sources
+  // block are built from the same map and cannot disagree.
+  //
+  // When the model appended its own numbered list, its numbers are its own,
+  // not result ids: link by the list instead, and drop the list so only the
+  // Sources block lists sources. Without results there is nothing to verify
+  // its URLs against, so the text is left alone.
+  const metadata = streamer?.__citation_metadata;
+  const sources = metadata?.sources ?? normalizeSources(searchResults).sources;
+  const resolveResultUrl = makeResultUrlResolver(sources);
+  const modelList = searchResults.length > 0 ? extractModelSourceList(textBuffer, resolveResultUrl) : null;
+  let indexToUrl;
+  if (modelList) {
+    textBuffer = modelList.text;
+    indexToUrl = buildModelListIndex(modelList.urlByMarker, sources, resolveResultUrl, textBuffer);
+  } else {
+    indexToUrl = buildIndexToUrlMap(metadata?.source_index_map || {}, searchResults);
+  }
+  if (metadata) {
+    metadata.citation_index = Object.fromEntries(indexToUrl);
+    metadata.cited_markers = [...new Set([...textBuffer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
+      .filter((marker) => indexToUrl.has(marker))
+      .sort((a, b) => a - b);
+  }
+
   let botText = '';
   if (textBuffer) {
-    const sourceIndexMap = streamer?.__citation_metadata?.source_index_map || {};
-    botText = linkifyCitationMarkers(textBuffer, sourceIndexMap, searchResults);
+    botText = linkifyCitationMarkers(textBuffer, indexToUrl);
     await streamer.append({ markdown_text: botText });
   }
 

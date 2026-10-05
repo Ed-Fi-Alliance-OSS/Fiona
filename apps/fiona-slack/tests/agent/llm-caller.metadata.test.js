@@ -63,10 +63,6 @@ describe('METADATA_CONTRACT_VERSION', () => {
 });
 
 describe('CITATION_POLICY', () => {
-  it('defines citation_rendering_enabled flag', () => {
-    expect(typeof CITATION_POLICY.citation_rendering_enabled).toBe('boolean');
-  });
-
   it('defines METADATA_WAIT_TIMEOUT_MS as positive number', () => {
     expect(typeof CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS).toBe('number');
     expect(CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS).toBeGreaterThan(0);
@@ -76,8 +72,10 @@ describe('CITATION_POLICY', () => {
     expect(CITATION_POLICY).not.toHaveProperty('MAX_SOURCES_DISPLAYED');
   });
 
-  it('defines FEATURE_FLAG_EVIDENCE_ROW as boolean', () => {
-    expect(typeof CITATION_POLICY.FEATURE_FLAG_EVIDENCE_ROW).toBe('boolean');
+  it('does not expose the unread citation_rendering_enabled or FEATURE_FLAG_EVIDENCE_ROW flags', () => {
+    // The Sources block always renders; neither flag had a consumer.
+    expect(CITATION_POLICY).not.toHaveProperty('citation_rendering_enabled');
+    expect(CITATION_POLICY).not.toHaveProperty('FEATURE_FLAG_EVIDENCE_ROW');
   });
 
   it('does not expose unused citation_metadata_collection_enabled or TELEMETRY_ENABLED flags', () => {
