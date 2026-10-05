@@ -22,7 +22,7 @@ jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({
   },
 }));
 
-const { handleInteractionWithTelemetry, sleep, waitForMetadataReady } = await import(
+const { handleInteractionWithTelemetry, logCitationTelemetry, sleep, waitForMetadataReady } = await import(
   '../../src/agent/interaction-telemetry.js'
 );
 const { recordInteraction } = await import('../../src/agent/interaction-store.js');
@@ -524,6 +524,34 @@ describe('waitForMetadataReady', () => {
 
     const elapsedTime = Date.now() - startTime;
     expect(elapsedTime).toBeLessThan(timeout + 100); // Allow 100ms buffer for test execution
+  });
+});
+
+describe('logCitationTelemetry', () => {
+  it('logs the finalize state and source count', () => {
+    const logger = { info: jest.fn() };
+
+    logCitationTelemetry(logger, { finalize_state: 'READY_TO_FINALIZE', sources: [{}, {}] });
+
+    expect(logger.info).toHaveBeenCalledWith('[citations] state=READY_TO_FINALIZE sources=2');
+  });
+
+  it('adds the grounding outcome when there is one', () => {
+    const logger = { info: jest.fn() };
+
+    logCitationTelemetry(logger, { finalize_state: 'READY_TO_FINALIZE', grounding: 'declined_no_results' });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[citations] state=READY_TO_FINALIZE sources=0 grounding=declined_no_results',
+    );
+  });
+
+  it('logs nothing without metadata', () => {
+    const logger = { info: jest.fn() };
+
+    logCitationTelemetry(logger, undefined);
+
+    expect(logger.info).not.toHaveBeenCalled();
   });
 });
 

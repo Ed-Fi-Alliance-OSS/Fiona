@@ -504,6 +504,30 @@ describe('message (assistant thread handler)', () => {
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
   });
 
+  it('logs when the answer was declined for having no sources', async () => {
+    callLLM.mockResolvedValueOnce({
+      metadata: {
+        finalize_state: 'ready_to_finalize',
+        sources: [],
+        source_index_map: {},
+        grounding: 'declined_no_results',
+      },
+      botText: 'declined',
+      systemPromptVersion: 'v3',
+    });
+
+    await messageHandler({
+      client: mockClient,
+      context: mockContext,
+      logger: mockLogger,
+      message: mockMessage,
+      say: mockSay,
+      setStatus: mockSetStatus,
+    });
+
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
+  });
+
   it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
     const metadata = {
       finalize_state: 'ready_to_finalize',
