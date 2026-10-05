@@ -3,17 +3,37 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 import {
-  normalizeSource,
-  deduplicateSources,
-  capSources,
   buildSourceIndexMap,
+  capSources,
+  deduplicateSources,
+  normalizeSource,
   normalizeSources,
   remapCitationMarkers,
 } from '../../../src/agent/utils/source-normalizer.js';
 
 describe('normalizeSource', () => {
+  it('percent-encodes Unicode whitespace as UTF-8 bytes, so the link target is unchanged', () => {
+    // The WHATWG URL parser resolves both to these UTF-8 byte sequences.
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%E2%80%A8b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe('https://docs.ed-fi.org/a%C2%A0b');
+    expect(normalizeSource({ url: 'https://docs.ed-fi.org/a b' }).url).toBe(new URL('https://docs.ed-fi.org/a b').href);
+  });
+
+  it('percent-encodes characters that Slack parses as control syntax', () => {
+    // A raw ">" would close a Slack <url|text> link and let "<!here>" through.
+    const result = normalizeSource({ url: 'https://docs.ed-fi.org/a><!here>|x' });
+
+    expect(result.url).toBe('https://docs.ed-fi.org/a%3E%3C!here%3E%7Cx');
+  });
+
+  it('leaves ordinary URLs byte-for-byte unchanged', () => {
+    const url = 'https://docs.ed-fi.org/reference/ods-api/Case?x=1&y=2#Section';
+
+    expect(normalizeSource({ url }).url).toBe(url);
+  });
+
   it('normalizes a source with url and title', () => {
     const result = normalizeSource({ url: 'https://docs.ed-fi.org/page', title: 'Ed-Fi Docs' });
     expect(result.url).toBe('https://docs.ed-fi.org/page');
