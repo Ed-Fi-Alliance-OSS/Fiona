@@ -430,8 +430,16 @@ describe('callPerplexityChat – buffer and linkify', () => {
   // Failed and cancelled runs arrive over a successful HTTP 200. The SDK's
   // `ResponseFailedEvent` carries a top-level `error` and no `response`.
   it.each([
-    ['response.failed', { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } }, 'upstream refused'],
-    ['response.cancelled', { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } }, 'run cancelled'],
+    [
+      'response.failed',
+      { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } },
+      'upstream refused',
+    ],
+    [
+      'response.cancelled',
+      { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } },
+      'run cancelled',
+    ],
     ['bare error', { type: 'error', error: { message: 'stream broke' } }, 'stream broke'],
     ['detail-less response.failed', { type: 'response.failed', sequence_number: 3 }, 'no error detail'],
   ])('throws on a %s terminal event without appending the partial answer', async (_label, terminalEvent, expectedDetail) => {
@@ -709,9 +717,7 @@ describe('callPerplexityChat – buffer and linkify', () => {
     });
 
     it('skips numbers already in the answer when numbering uncited results', async () => {
-      const { botText, metadata } = await run(
-        'A [1]. Step [3].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',
-      );
+      const { botText, metadata } = await run('A [1]. Step [3].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)');
 
       expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). Step [3].');
       expect(metadata.citation_index).toEqual({

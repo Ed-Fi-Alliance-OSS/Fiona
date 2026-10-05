@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock interaction-store before importing the module under test.
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
@@ -13,7 +13,9 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 }));
 
 // Stub llm-caller: /fiona ask streams a real LLM answer, the other sub-commands must not.
-const mockCallLLM = jest.fn().mockResolvedValue({ metadata: null, botText: 'test response', systemPromptVersion: 'v1' });
+const mockCallLLM = jest
+  .fn()
+  .mockResolvedValue({ metadata: null, botText: 'test response', systemPromptVersion: 'v1' });
 const mockFinalizeMetadataEnvelope = jest.fn();
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: mockCallLLM,
@@ -44,12 +46,10 @@ jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () 
 
 // Mock search-caller so tests control search results without hitting the LLM.
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
-const mockFormatSearchResults = jest
-  .fn()
-  .mockImplementation((_query, sources) => ({
-    text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
-    blocks: null,
-  }));
+const mockFormatSearchResults = jest.fn().mockImplementation((_query, sources) => ({
+  text: sources.length === 0 ? '🔍 No sources found.' : `🔍 Found ${sources.length} source(s).`,
+  blocks: null,
+}));
 const MOCK_SEARCH_ERROR_TEXT = ':warning: Search encountered an error. Please try again later.';
 
 jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
@@ -138,25 +138,19 @@ describe('fionaCommandCallback', () => {
     it('calls recordInteraction with interactionType slash_help', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_help' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_help' }));
     });
 
     it('calls recordInteraction with status success', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'success' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ status: 'success' }));
     });
 
     it('calls recordInteraction with rateLimited false', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ rateLimited: false }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ rateLimited: false }));
     });
 
     it('calls recordInteraction with threadTs and messageTs equal to trigger_id', async () => {
@@ -185,9 +179,7 @@ describe('fionaCommandCallback', () => {
     it('ack() is called before recordInteraction (fire-and-forget ordering)', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockAck.mock.invocationCallOrder[0]).toBeLessThan(
-        mockRecordInteraction.mock.invocationCallOrder[0],
-      );
+      expect(mockAck.mock.invocationCallOrder[0]).toBeLessThan(mockRecordInteraction.mock.invocationCallOrder[0]);
     });
   });
 
@@ -208,9 +200,7 @@ describe('fionaCommandCallback', () => {
       mockCommand.text = '';
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_help' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_help' }));
     });
   });
 
@@ -225,26 +215,48 @@ describe('fionaCommandCallback', () => {
     });
 
     it('calls ack() exactly once', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockAck).toHaveBeenCalledTimes(1);
     });
 
     it('ack() shows the help response when no question is provided', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
     it('does not call callLLM when the question is empty', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockCallLLM).not.toHaveBeenCalled();
     });
 
     it('records slash_help telemetry (not slash_ask) when the question is empty', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_help' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_help' }));
     });
   });
 
@@ -268,13 +280,25 @@ describe('fionaCommandCallback', () => {
     });
 
     it('acknowledges once with an ephemeral "Thinking…" line, so the wait is not silent', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockAck).toHaveBeenCalledTimes(1);
       expect(mockAck).toHaveBeenCalledWith({ response_type: 'ephemeral', text: expect.stringContaining('Thinking') });
     });
 
     it('answers ephemerally, replacing the "Thinking…" line', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ response_type: 'ephemeral', replace_original: true, text: 'test response' }),
       );
@@ -285,7 +309,13 @@ describe('fionaCommandCallback', () => {
       mockRespond.mockImplementation(async () => order.push('respond'));
       mockCaptureConversation.mockImplementationOnce(async () => order.push('capture'));
 
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
 
       expect(order).toEqual(['respond', 'capture']);
     });
@@ -296,16 +326,32 @@ describe('fionaCommandCallback', () => {
       });
 
       it('tries once more with a short delivery-failure notice', async () => {
-        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+        await fionaCommandCallback({
+          command: mockCommand,
+          ack: mockAck,
+          respond: mockRespond,
+          client: mockClient,
+          logger: mockLogger,
+        });
 
         expect(mockRespond).toHaveBeenCalledTimes(2);
         expect(mockRespond.mock.calls[1][0]).toEqual(
-          expect.objectContaining({ response_type: 'ephemeral', replace_original: true, text: expect.stringContaining("couldn't deliver") }),
+          expect.objectContaining({
+            response_type: 'ephemeral',
+            replace_original: true,
+            text: expect.stringContaining("couldn't deliver"),
+          }),
         );
       });
 
       it('records respond_failed telemetry', async () => {
-        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+        await fionaCommandCallback({
+          command: mockCommand,
+          ack: mockAck,
+          respond: mockRespond,
+          client: mockClient,
+          logger: mockLogger,
+        });
         await flushMicrotasks();
 
         expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
@@ -315,7 +361,13 @@ describe('fionaCommandCallback', () => {
       });
 
       it('does not capture the undelivered answer', async () => {
-        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+        await fionaCommandCallback({
+          command: mockCommand,
+          ack: mockAck,
+          respond: mockRespond,
+          client: mockClient,
+          logger: mockLogger,
+        });
         expect(mockCaptureConversation).not.toHaveBeenCalled();
       });
 
@@ -323,7 +375,13 @@ describe('fionaCommandCallback', () => {
         mockRespond.mockRejectedValueOnce(new Error('expired_url'));
 
         await expect(
-          fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger }),
+          fionaCommandCallback({
+            command: mockCommand,
+            ack: mockAck,
+            respond: mockRespond,
+            client: mockClient,
+            logger: mockLogger,
+          }),
         ).resolves.toBeUndefined();
       });
     });
@@ -331,7 +389,13 @@ describe('fionaCommandCallback', () => {
     it('records llm_empty telemetry and sends the empty-answer copy end to end', async () => {
       mockCallLLM.mockImplementationOnce(async () => ({ metadata: null, botText: '', systemPromptVersion: 'v1' }));
 
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
 
       expect(mockRespond).toHaveBeenCalledWith(
@@ -346,7 +410,13 @@ describe('fionaCommandCallback', () => {
     it('declines an over-long question and records question_too_long', async () => {
       mockCommand.text = `ask ${'x'.repeat(3001)}`;
 
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
 
       expect(mockCallLLM).not.toHaveBeenCalled();
@@ -360,32 +430,62 @@ describe('fionaCommandCallback', () => {
       mockRespond.mockRejectedValueOnce(new Error('expired_url'));
 
       await expect(
-        fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger }),
+        fionaCommandCallback({
+          command: mockCommand,
+          ack: mockAck,
+          respond: mockRespond,
+          client: mockClient,
+          logger: mockLogger,
+        }),
       ).resolves.toBeUndefined();
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond to /fiona ask'));
     });
 
     it('never posts the answer into the channel via chatStream', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockClient.chatStream).not.toHaveBeenCalled();
     });
 
     it('calls callLLM with the question as a standalone prompt', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockCallLLM).toHaveBeenCalledTimes(1);
       const [, prompts] = mockCallLLM.mock.calls[0];
       expect(prompts).toEqual([{ role: 'user', content: 'What is the Ed-Fi Data Standard?' }]);
     });
 
     it('attaches the feedback block to the ephemeral answer', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       const [{ blocks }] = mockRespond.mock.calls[0];
       expect(blocks.at(-1).block_id).toBe('feedback|ask|slash_ask');
       expect(blocks[0]).toEqual({ type: 'markdown', text: 'test response' });
     });
 
     it('captures the conversation with entryPoint slash_ask', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockCaptureConversation).toHaveBeenCalledWith(
         expect.objectContaining({
           entryPoint: 'slash_ask',
@@ -396,7 +496,13 @@ describe('fionaCommandCallback', () => {
     });
 
     it('records slash_ask telemetry on success', async () => {
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
       expect(mockRecordInteraction).toHaveBeenCalledWith(
         expect.objectContaining({ interactionType: 'slash_ask', status: 'success', rateLimited: false }),
@@ -405,7 +511,13 @@ describe('fionaCommandCallback', () => {
 
     it('sends an ephemeral error and records error telemetry when callLLM throws', async () => {
       mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining(':warning:') }),
@@ -417,7 +529,13 @@ describe('fionaCommandCallback', () => {
 
     it('does not capture a conversation when the LLM fails', async () => {
       mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockCaptureConversation).not.toHaveBeenCalled();
     });
 
@@ -425,14 +543,25 @@ describe('fionaCommandCallback', () => {
       const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
       for (let i = 0; i < 25; i++) checkRateLimit('U_RL_ASK');
       mockCommand.user_id = 'U_RL_ASK';
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       await flushMicrotasks();
       expect(mockCallLLM).not.toHaveBeenCalled();
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ response_type: 'ephemeral', text: expect.any(String) }),
       );
       expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'rate_limited', rateLimited: true }),
+        expect.objectContaining({
+          interactionType: 'slash_ask',
+          status: 'error',
+          errorType: 'rate_limited',
+          rateLimited: true,
+        }),
       );
     });
 
@@ -443,7 +572,13 @@ describe('fionaCommandCallback', () => {
         botText: 'answer',
         systemPromptVersion: 'v1',
       });
-      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await fionaCommandCallback({
+        command: mockCommand,
+        ack: mockAck,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
+      });
       expect(mockLogCitationTelemetry).toHaveBeenCalledWith(mockLogger, metadata);
     });
   });
@@ -474,9 +609,7 @@ describe('fionaCommandCallback', () => {
       it('records slash_help when no query is provided', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         await flushMicrotasks();
-        expect(mockRecordInteraction).toHaveBeenCalledWith(
-          expect.objectContaining({ interactionType: 'slash_help' }),
-        );
+        expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_help' }));
       });
 
       it('does not call searchForSources when no query is provided', async () => {
@@ -498,7 +631,10 @@ describe('fionaCommandCallback', () => {
 
       it('calls searchForSources with the extracted query', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
-        expect(mockSearchForSources).toHaveBeenCalledWith('Ed-Fi ODS API', expect.objectContaining({ logger: mockLogger }));
+        expect(mockSearchForSources).toHaveBeenCalledWith(
+          'Ed-Fi ODS API',
+          expect.objectContaining({ logger: mockLogger }),
+        );
       });
 
       it('responds with SEARCH_ERROR_TEXT when searchForSources fails', async () => {
@@ -565,12 +701,12 @@ describe('fionaCommandCallback', () => {
       });
 
       it('respond() text contains formatted search results', async () => {
-        mockSearchForSources.mockResolvedValueOnce([{ url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' }]);
+        mockSearchForSources.mockResolvedValueOnce([
+          { url: 'https://docs.ed-fi.org/', title: 'Ed-Fi Docs', hostname: 'docs.ed-fi.org' },
+        ]);
         mockFormatSearchResults.mockReturnValueOnce({ text: '🔍 Found 1 source(s).', blocks: null });
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
-        expect(mockRespond).toHaveBeenCalledWith(
-          expect.objectContaining({ text: '🔍 Found 1 source(s).' }),
-        );
+        expect(mockRespond).toHaveBeenCalledWith(expect.objectContaining({ text: '🔍 Found 1 source(s).' }));
       });
 
       it('records slash_search telemetry', async () => {
@@ -584,9 +720,7 @@ describe('fionaCommandCallback', () => {
       it('records slash_search with status success', async () => {
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
         await flushMicrotasks();
-        expect(mockRecordInteraction).toHaveBeenCalledWith(
-          expect.objectContaining({ status: 'success' }),
-        );
+        expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ status: 'success' }));
       });
 
       it('does not call respond() when ack() rejects', async () => {
@@ -612,9 +746,7 @@ describe('fionaCommandCallback', () => {
         const { user_id: _u, ...cmd } = mockCommand;
         cmd.text = 'search Ed-Fi ODS API';
         await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
-        expect(mockRespond).toHaveBeenCalledWith(
-          expect.objectContaining({ text: MOCK_SEARCH_ERROR_TEXT }),
-        );
+        expect(mockRespond).toHaveBeenCalledWith(expect.objectContaining({ text: MOCK_SEARCH_ERROR_TEXT }));
       });
 
       it('does not call searchForSources when required fields are missing', async () => {
@@ -650,22 +782,17 @@ describe('fionaCommandCallback', () => {
   });
 
   describe('unknown sub-command fallback', () => {
-    it.each([['foo'], ['bar']])(
-      'falls back to help for unrecognized sub-command "%s"',
-      async (subCommand) => {
-        mockCommand.text = subCommand;
-        await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-        expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
-      },
-    );
+    it.each([['foo'], ['bar']])('falls back to help for unrecognized sub-command "%s"', async (subCommand) => {
+      mockCommand.text = subCommand;
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Fiona'));
+    });
 
     it('records slash_unknown for unknown sub-command', async () => {
       mockCommand.text = 'foo';
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_unknown' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_unknown' }));
     });
 
     it('logs a warning containing the unrecognized sub-command name', async () => {
@@ -707,9 +834,7 @@ describe('fionaCommandCallback', () => {
   describe('missing required command fields', () => {
     it('does not throw when user_id is missing', async () => {
       const { user_id: _u, ...cmd } = mockCommand;
-      await expect(
-        fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger }),
-      ).resolves.toBeUndefined();
+      await expect(fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger })).resolves.toBeUndefined();
     });
 
     it('skips recordInteraction when user_id is missing', async () => {
@@ -721,9 +846,7 @@ describe('fionaCommandCallback', () => {
 
     it('does not throw when channel_id is missing', async () => {
       const { channel_id: _c, ...cmd } = mockCommand;
-      await expect(
-        fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger }),
-      ).resolves.toBeUndefined();
+      await expect(fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger })).resolves.toBeUndefined();
     });
 
     it('skips recordInteraction when channel_id is missing', async () => {
@@ -735,9 +858,7 @@ describe('fionaCommandCallback', () => {
 
     it('does not throw when trigger_id is missing', async () => {
       const { trigger_id: _t, ...cmd } = mockCommand;
-      await expect(
-        fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger }),
-      ).resolves.toBeUndefined();
+      await expect(fionaCommandCallback({ command: cmd, ack: mockAck, logger: mockLogger })).resolves.toBeUndefined();
     });
 
     it('skips recordInteraction when trigger_id is missing', async () => {
@@ -782,7 +903,12 @@ describe('fionaCommandCallback', () => {
     });
 
     const cmd = (over = {}) => ({
-      user_id: 'U1', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1', text: 'escalate', ...over,
+      user_id: 'U1',
+      team_id: 'T1',
+      channel_id: 'C1',
+      trigger_id: 'trig-1',
+      text: 'escalate',
+      ...over,
     });
 
     it('acks and delegates to postEscalation with source slash_escalate', async () => {
@@ -808,7 +934,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ channel_id: 'D9', channel_name: 'directmessage' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockPostEscalation).toHaveBeenCalledWith(expect.objectContaining({ isDm: true }));
       expect(mockRespond).toHaveBeenCalledWith(
@@ -831,7 +960,11 @@ describe('fionaCommandCallback', () => {
       for (let i = 0; i < 25; i++) checkRateLimit('U_RL');
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ user_id: 'U_RL' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ user_id: 'U_RL' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockPostEscalation).not.toHaveBeenCalled();
       expect(mockRespond).toHaveBeenCalledWith(
@@ -854,14 +987,23 @@ describe('fionaCommandCallback', () => {
     });
 
     const cmd = (over = {}) => ({
-      user_id: 'U_TICKET', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1',
-      channel_name: 'general', text: 'bug', ...over,
+      user_id: 'U_TICKET',
+      team_id: 'T1',
+      channel_id: 'C1',
+      trigger_id: 'trig-1',
+      channel_name: 'general',
+      text: 'bug',
+      ...over,
     });
 
     it('opens the bug modal with trigger_id when enabled', async () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'bug' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'bug' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(ack).toHaveBeenCalledTimes(1);
       expect(mockBuildTicketModal).toHaveBeenCalledWith(
@@ -873,7 +1015,11 @@ describe('fionaCommandCallback', () => {
     it('opens the feature modal with trigger_id when enabled', async () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'feature' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockBuildTicketModal).toHaveBeenCalledWith(
         expect.objectContaining({ ticketType: 'feature', channelId: 'C1' }),
@@ -884,19 +1030,25 @@ describe('fionaCommandCallback', () => {
     it('records slash_bug telemetry after opening the modal', async () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'bug' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'bug' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
-      expect(mockRecordInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({ interactionType: 'slash_bug' }),
-      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_bug' }));
     });
 
     it('responds not-configured and does not open a modal when disabled', async () => {
       mockIsTicketingEnabled.mockReturnValue(false);
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'feature' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockClient.views.open).not.toHaveBeenCalled();
       expect(mockRespond).toHaveBeenCalledWith(
@@ -908,7 +1060,11 @@ describe('fionaCommandCallback', () => {
       mockIsTicketingEnabled.mockReturnValue(false);
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'feature' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'feature' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
       expect(mockClient.views.open).not.toHaveBeenCalled();
@@ -926,7 +1082,11 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await expect(
         fionaCommandCallback({
-          command: cmdWithoutTrigger, ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+          command: cmdWithoutTrigger,
+          ack,
+          respond: mockRespond,
+          client: mockClient,
+          logger: mockLogger,
         }),
       ).resolves.toBeUndefined();
       expect(mockClient.views.open).not.toHaveBeenCalled();
@@ -941,7 +1101,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'bug', user_id: 'U_TICKET_RL' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockClient.views.open).not.toHaveBeenCalled();
       expect(mockRespond).toHaveBeenCalledWith(
@@ -955,7 +1118,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'bug', user_id: 'U_TICKET_RL2' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
       expect(mockClient.views.open).not.toHaveBeenCalled();
@@ -974,7 +1140,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'bug', user_id: 'U_TICKET_ERR' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringMatching(/could not create/i) }),
@@ -989,7 +1158,11 @@ describe('fionaCommandCallback', () => {
     it('opens the modal preselected to feature for /fiona ticket', async () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'ticket' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'ticket' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(ack).toHaveBeenCalledTimes(1);
       expect(mockBuildTicketModal).toHaveBeenCalledWith(
@@ -1007,7 +1180,11 @@ describe('fionaCommandCallback', () => {
     ])('records %s as %s', async (text, interactionType) => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
       expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType }));
@@ -1017,7 +1194,11 @@ describe('fionaCommandCallback', () => {
       mockIsTicketingEnabled.mockReturnValue(false);
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
-        command: cmd({ text: 'ticket' }), ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        command: cmd({ text: 'ticket' }),
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
       expect(mockRecordInteraction).toHaveBeenCalledWith(
@@ -1031,7 +1212,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'ticket', user_id: 'U_TICKET_RL3' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       await flushMicrotasks();
       expect(mockClient.views.open).not.toHaveBeenCalled();
@@ -1045,7 +1229,10 @@ describe('fionaCommandCallback', () => {
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'ticket', user_id: 'U_TICKET_ERR2' }),
-        ack, respond: mockRespond, client: mockClient, logger: mockLogger,
+        ack,
+        respond: mockRespond,
+        client: mockClient,
+        logger: mockLogger,
       });
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('ticket'));
     });
@@ -1073,12 +1260,21 @@ describe('fionaCommandCallback — flagged-off sub-commands', () => {
   });
 
   const cmd = (text) => ({
-    user_id: 'U_FLAG', team_id: 'T1', channel_id: 'C1', trigger_id: 'trig-1', channel_name: 'general', text,
+    user_id: 'U_FLAG',
+    team_id: 'T1',
+    channel_id: 'C1',
+    trigger_id: 'trig-1',
+    channel_name: 'general',
+    text,
   });
 
   const invoke = (text) =>
     fionaCommandCallback({
-      command: cmd(text), ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger,
+      command: cmd(text),
+      ack: mockAck,
+      respond: mockRespond,
+      client: mockClient,
+      logger: mockLogger,
     });
 
   it('does not escalate when escalation is off', async () => {
@@ -1095,9 +1291,7 @@ describe('fionaCommandCallback — flagged-off sub-commands', () => {
   it('records the flagged-off escalate as slash_unknown', async () => {
     await invoke('escalate');
     await flushMicrotasks();
-    expect(mockRecordInteraction).toHaveBeenCalledWith(
-      expect.objectContaining({ interactionType: 'slash_unknown' }),
-    );
+    expect(mockRecordInteraction).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'slash_unknown' }));
   });
 
   it.each(['ticket', 'bug', 'feature'])('does not open the modal for "%s" when ticketing is off', async (text) => {

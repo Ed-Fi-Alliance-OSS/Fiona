@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeAll, afterAll } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 
 // Mock @azure/cosmos and @azure/identity BEFORE the module under test is imported
 const mockUpsert = jest.fn().mockResolvedValue({});
@@ -6,14 +6,14 @@ const mockContainerObj = { items: { upsert: mockUpsert } };
 const mockDatabase = {
   container: jest.fn().mockReturnValue(mockContainerObj),
   containers: {
-    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj })
-  }
+    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj }),
+  },
 };
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
   database: jest.fn().mockReturnValue(mockDatabase),
   databases: {
-    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase })
-  }
+    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase }),
+  },
 }));
 
 jest.unstable_mockModule('@azure/cosmos', () => ({
@@ -79,8 +79,7 @@ describe('interaction-store - with connection string', () => {
   let recordInteraction;
 
   beforeAll(async () => {
-    process.env.COSMOS_CONNECTION_STRING =
-      'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==';
+    process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://test.documents.azure.com:443/;AccountKey=dGVzdA==';
     jest.resetModules();
     ({ getContainer, recordInteraction } = await import('../../src/agent/interaction-store.js'));
   });

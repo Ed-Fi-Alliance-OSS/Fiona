@@ -3,15 +3,15 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import {
+  clearFinalizedResponses,
   generateResponseId,
+  getFinalizedResponseCount,
   isResponseFinalized,
   markResponseFinalized,
-  shouldFinalize,
   rollbackFinalization,
-  clearFinalizedResponses,
-  getFinalizedResponseCount,
+  shouldFinalize,
 } from '../../../src/agent/utils/idempotent-finalize.js';
 
 describe('idempotent-finalize', () => {
@@ -83,7 +83,7 @@ describe('idempotent-finalize', () => {
 
     it('atomically claims the response ID so a second call returns false', () => {
       const id = generateResponseId('C123', 't456');
-      expect(shouldFinalize(id)).toBe(true);  // claims the slot
+      expect(shouldFinalize(id)).toBe(true); // claims the slot
       expect(shouldFinalize(id)).toBe(false); // slot already claimed
     });
 
@@ -365,7 +365,7 @@ describe('idempotent-finalize', () => {
 
         // Dynamic import should throw
         await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
-          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS',
         );
       } finally {
         if (priorTtl) {
@@ -384,7 +384,7 @@ describe('idempotent-finalize', () => {
         jest.resetModules();
 
         await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
-          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS',
         );
       } finally {
         if (priorTtl) {
@@ -403,7 +403,7 @@ describe('idempotent-finalize', () => {
         jest.resetModules();
 
         await expect(import('../../../src/agent/utils/idempotent-finalize.js')).rejects.toThrow(
-          'Invalid IDEMPOTENT_FINALIZE_TTL_MS'
+          'Invalid IDEMPOTENT_FINALIZE_TTL_MS',
         );
       } finally {
         if (priorTtl) {

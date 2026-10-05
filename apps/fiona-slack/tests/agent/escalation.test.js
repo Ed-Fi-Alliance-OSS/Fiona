@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
 const mockRecordFeedback = jest.fn().mockResolvedValue(undefined);
@@ -11,7 +11,10 @@ const mockSummarize = jest.fn();
 
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({ recordInteraction: mockRecordInteraction }));
 jest.unstable_mockModule('../../src/agent/feedback-store.js', () => ({ recordFeedback: mockRecordFeedback }));
-jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({ summarizeForEscalation: mockSummarize, searchForSources: jest.fn().mockResolvedValue([]) }));
+jest.unstable_mockModule('../../src/agent/llm-caller.js', () => ({
+  summarizeForEscalation: mockSummarize,
+  searchForSources: jest.fn().mockResolvedValue([]),
+}));
 
 const { postEscalation, escalateViaSay } = await import('../../src/agent/escalation.js');
 const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } = await import(
@@ -21,14 +24,18 @@ const { ESCALATE_CONFIRM_TEXT, ESCALATE_DM_TEXT, ESCALATE_ERROR_TEXT } = await i
 function makeClient() {
   return {
     conversations: {
-      replies: jest.fn().mockResolvedValue({ messages: [
-        { user: 'U1', text: 'I need help with the ODS' },
-        { bot_id: 'B1', text: 'Here is some info' },
-      ] }),
-      history: jest.fn().mockResolvedValue({ messages: [
-        { bot_id: 'B1', text: 'reply two' },
-        { user: 'U1', text: 'message one' },
-      ] }),
+      replies: jest.fn().mockResolvedValue({
+        messages: [
+          { user: 'U1', text: 'I need help with the ODS' },
+          { bot_id: 'B1', text: 'Here is some info' },
+        ],
+      }),
+      history: jest.fn().mockResolvedValue({
+        messages: [
+          { bot_id: 'B1', text: 'reply two' },
+          { user: 'U1', text: 'message one' },
+        ],
+      }),
     },
     chat: {
       postMessage: jest.fn().mockResolvedValue({ ts: '111.222' }),

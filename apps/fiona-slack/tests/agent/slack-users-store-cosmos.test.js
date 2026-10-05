@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockUpsert = jest.fn().mockResolvedValue({});
 const mockRead = jest.fn();
@@ -82,9 +82,7 @@ describe('upsertUser — with connection string', () => {
     const logger = { warn: jest.fn() };
     const result = await upsertUser(mockUser, logger);
     expect(result).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to upsert Slack user U12345'),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to upsert Slack user U12345'));
   });
 
   it('does not throw when upsert fails', async () => {
@@ -104,8 +102,7 @@ describe('upsertUser — with connection string', () => {
     // Re-register ESM mocks after resetModules so the fresh import stays fully mocked.
     jest.unstable_mockModule('@azure/cosmos', () => ({ CosmosClient: MockCosmosClient }));
     jest.unstable_mockModule('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
-    process.env.COSMOS_CONNECTION_STRING =
-      'AccountEndpoint=https://localhost:8081/;AccountKey=dGVzdA==;';
+    process.env.COSMOS_CONNECTION_STRING = 'AccountEndpoint=https://localhost:8081/;AccountKey=dGVzdA==;';
     const mod = await import('../../src/agent/slack-users-store.js');
     MockCosmosClient.mockClear();
     mockUpsert.mockClear();
@@ -137,9 +134,7 @@ describe('getUser — with connection string', () => {
     const logger = { warn: jest.fn() };
     const result = await getUser('U12345', logger);
     expect(result).toBeNull();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to read Slack user U12345'),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to read Slack user U12345'));
   });
 
   it('returns null for empty string userId without throwing', async () => {

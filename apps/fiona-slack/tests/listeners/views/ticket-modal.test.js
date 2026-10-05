@@ -3,15 +3,15 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it } from '@jest/globals';
 import { TICKET_TYPES } from '../../../src/listeners/commands/command-handler.js';
 import {
   buildTicketModal,
+  DEFAULT_PRIORITY_OPTION_NAMES,
   defaultPriorityName,
   priorityOptionNames,
   readPrefill,
   readTicketType,
-  DEFAULT_PRIORITY_OPTION_NAMES,
   TICKET_MODAL_CALLBACK,
   TICKET_TYPE_ACTION,
   TICKET_TYPE_OPTIONS,

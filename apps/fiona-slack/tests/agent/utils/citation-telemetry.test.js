@@ -3,15 +3,15 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it } from '@jest/globals';
 import {
+  clearTelemetry,
+  getTelemetrySummary,
+  incrementDegradedNoMetadataCount,
+  incrementMetadataCollectionErrors,
+  incrementTotalResponseCount,
   recordMetadataWaitDuration,
   recordSourceCount,
-  incrementDegradedNoMetadataCount,
-  incrementTotalResponseCount,
-  incrementMetadataCollectionErrors,
-  getTelemetrySummary,
-  clearTelemetry,
 } from '../../../src/agent/utils/citation-telemetry.js';
 
 describe('citation-telemetry', () => {
