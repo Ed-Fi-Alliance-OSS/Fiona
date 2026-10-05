@@ -181,6 +181,28 @@ describe('resolveCitations', () => {
       );
     });
 
+    it('keeps an unheaded trailing list whose URL-less line sits a blank line above the linked ones', () => {
+      const { botText } = run('A [1]. B [2].\n\n[1] Ed-Fi docs home\n\n[2] [Four](https://docs.ed-fi.org/four/)');
+
+      expect(botText).toBe(
+        'A [[1]](https://docs.ed-fi.org/one/). B [[2]](https://docs.ed-fi.org/two/).\n\n[[1]](https://docs.ed-fi.org/one/) Ed-Fi docs home\n\n[[2]](https://docs.ed-fi.org/two/) [Four](https://docs.ed-fi.org/four/)',
+      );
+    });
+
+    it('removes a whole unheaded list whose entries are separated by blank lines', () => {
+      const { botText, citationIndex } = run(
+        'A [1]. B [2].\n\n[1] [Four](https://docs.ed-fi.org/four/)\n\n[2] [Two](https://docs.ed-fi.org/two/)',
+      );
+
+      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [[2]](https://docs.ed-fi.org/two/).');
+      expect(citationIndex).toEqual({
+        1: 'https://docs.ed-fi.org/four/',
+        2: 'https://docs.ed-fi.org/two/',
+        3: 'https://docs.ed-fi.org/one/',
+        4: 'https://docs.ed-fi.org/three/',
+      });
+    });
+
     it('removes a whole headed list whose entries are separated by blank lines', () => {
       const { botText, citationIndex } = run(
         'A [1]. B [2].\n\nSources:\n\n[1] [Four](https://docs.ed-fi.org/four/)\n\n[2] [Two](https://docs.ed-fi.org/two/)',

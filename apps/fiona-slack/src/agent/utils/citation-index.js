@@ -114,11 +114,12 @@ function makeResultUrlResolver(sources) {
  * page without a URL is still part of it, and its marker stays unlinked. A
  * headed list with no URL at all is kept: it may be steps, and deleting it
  * would leave its markers unexplained. Unheaded, the whole trailing run of
- * `[n]` lines must carry URLs, every one of its numbers must be cited earlier
- * in the answer AND every one of its URLs must be a search result. A closing
- * list of numbered steps with links fails that (typically most step numbers
- * are never cited), so it is kept as content. When unsure, keeping text beats
- * deleting it: a missed list only falls back to result-id linking.
+ * `[n]` lines (blank lines between entries allowed) must carry URLs, every one
+ * of its numbers must be cited earlier in the answer AND every one of its URLs
+ * must be a search result. A closing list of numbered steps with links fails
+ * that (typically most step numbers are never cited), so it is kept as
+ * content. When unsure, keeping text beats deleting it: a missed list only
+ * falls back to result-id linking.
  *
  * @param {string} text - Raw answer text
  * @param {(url: string) => string | undefined} resolveResultUrl - From makeResultUrlResolver
@@ -156,7 +157,8 @@ function extractModelSourceList(text, resolveResultUrl) {
   }
 
   start = end;
-  while (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]) && lines[start - 1].match(URL_IN_TEXT)) start -= 1;
+  const isLinkedEntry = (line) => MODEL_LIST_LINE.test(line) && line.match(URL_IN_TEXT);
+  while (start > 0 && (isLinkedEntry(lines[start - 1]) || !lines[start - 1].trim())) start -= 1;
   if (start === end || (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]))) {
     return null;
   }
