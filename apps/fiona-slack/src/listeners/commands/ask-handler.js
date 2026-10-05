@@ -17,10 +17,12 @@ import { createSourcesBlocks } from '../views/sources_block.js';
 
 export const ASK_ERROR_TEXT = ':warning: Sorry, I could not answer that right now. Please try again later.';
 
-// Slack rejects a section block whose mrkdwn text exceeds 3000 characters, and an
-// LLM answer regularly runs longer than that. Split below the limit rather than at
-// it so the linkified citation markers appended by llm-caller cannot push a block over.
-const SECTION_TEXT_LIMIT = 2900;
+// The answer is standard Markdown (llm-caller links citation markers as
+// `[[n]](url)`), which section/mrkdwn blocks show as literal text. Slack's
+// `markdown` block renders it, but caps all markdown blocks in one message at
+// 12,000 characters in total.
+const MARKDOWN_BLOCK_LIMIT = 12000;
+const SHORTENED_NOTICE = '_This answer was shortened to fit in Slack._';
 
 /**
  * Stands in for a Slack chat streamer so the answer can be buffered instead of
@@ -42,28 +44,27 @@ function createTextCollector() {
   };
 }
 
-/** Splits `text` into chunks Slack will accept in a section block, preferring line breaks. */
-function chunkForSections(text) {
-  if (text.length <= SECTION_TEXT_LIMIT) return [text];
+/**
+ * Fits an answer into one markdown block. A longer answer is cut at the last
+ * line break that fits, an open code fence is closed, and a notice is added.
+ *
+ * @returns {{ text: string, shortened: boolean }}
+ */
+function fitMarkdownBlock(text) {
+  if (text.length <= MARKDOWN_BLOCK_LIMIT) return { text, shortened: false };
 
-  const chunks = [];
-  let rest = text;
-  while (rest.length > SECTION_TEXT_LIMIT) {
-    const window = rest.slice(0, SECTION_TEXT_LIMIT);
-    // Break on the last newline in the window; fall back to a hard cut when a
-    // single paragraph is longer than the limit.
-    const breakAt = window.lastIndexOf('\n');
-    const cut = breakAt > 0 ? breakAt : SECTION_TEXT_LIMIT;
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut).replace(/^\n/, '');
-  }
-  if (rest) chunks.push(rest);
-  return chunks;
+  const closingFence = '\n```';
+  const budget = MARKDOWN_BLOCK_LIMIT - closingFence.length - SHORTENED_NOTICE.length - 2;
+  const window = text.slice(0, budget);
+  const breakAt = window.lastIndexOf('\n');
+  let kept = breakAt > 0 ? window.slice(0, breakAt) : window;
+  if ((kept.match(/^```/gm) ?? []).length % 2 === 1) kept += closingFence;
+  return { text: `${kept}\n\n${SHORTENED_NOTICE}`, shortened: true };
 }
 
-function buildAskBlocks(text, interactionType, sourcesBlocks = []) {
+function buildAskBlocks(bodyBlock, interactionType, sourcesBlocks = []) {
   return [
-    ...chunkForSections(text).map((chunk) => ({ type: 'section', text: { type: 'mrkdwn', text: chunk } })),
+    bodyBlock,
     ...sourcesBlocks,
     { type: 'divider' },
     createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
@@ -75,7 +76,7 @@ function buildAskErrorResponse(interactionType, errorType) {
   return {
     response: {
       text: ASK_ERROR_TEXT,
-      blocks: buildAskBlocks(ASK_ERROR_TEXT, interactionType),
+      blocks: buildAskBlocks({ type: 'section', text: { type: 'mrkdwn', text: ASK_ERROR_TEXT } }, interactionType),
       unfurl_links: false,
       unfurl_media: false,
     },
@@ -205,10 +206,17 @@ export async function buildAskResponse({
     logger,
   });
 
+  const body = fitMarkdownBlock(botText);
+  if (body.shortened) {
+    logger.warn(
+      `[ask] answer shortened from ${botText.length} to ${body.text.length} characters to fit a markdown block`,
+    );
+  }
+
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks(botText, interactionType, sourcesBlocks),
+      blocks: buildAskBlocks({ type: 'markdown', text: body.text }, interactionType, sourcesBlocks),
       unfurl_links: false,
       unfurl_media: false,
     },

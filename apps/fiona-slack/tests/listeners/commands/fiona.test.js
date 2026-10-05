@@ -294,7 +294,7 @@ describe('fionaCommandCallback', () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
       const [{ blocks }] = mockRespond.mock.calls[0];
       expect(blocks.at(-1).block_id).toBe('feedback|ask|slash_ask');
-      expect(blocks[0]).toMatchObject({ type: 'section', text: { type: 'mrkdwn', text: 'test response' } });
+      expect(blocks[0]).toEqual({ type: 'markdown', text: 'test response' });
     });
 
     it('captures the conversation with entryPoint slash_ask', async () => {

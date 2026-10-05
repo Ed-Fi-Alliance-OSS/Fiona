@@ -104,7 +104,7 @@ describe('buildAskResponse', () => {
     expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
   });
 
-  it('renders the answer as a section block followed by a divider and feedback buttons', async () => {
+  it('renders the answer as a markdown block followed by a divider and feedback buttons', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
     const { response } = await buildAskResponse({
@@ -114,7 +114,7 @@ describe('buildAskResponse', () => {
       ...ids,
     });
 
-    expect(response.blocks[0]).toMatchObject({ type: 'section', text: { type: 'mrkdwn', text: 'answer' } });
+    expect(response.blocks[0]).toEqual({ type: 'markdown', text: 'answer' });
     expect(response.blocks[1]).toEqual({ type: 'divider' });
     expect(response.blocks[2].block_id).toBe('feedback|ask|app_mention');
   });
@@ -127,44 +127,56 @@ describe('buildAskResponse', () => {
     expect(response).toMatchObject({ unfurl_links: false, unfurl_media: false });
   });
 
-  it('splits an answer longer than a section block across several blocks', async () => {
-    // 5 paragraphs of 800 chars: over Slack's 3000-char section limit in total,
-    // with newlines available to break on.
-    const long = Array.from({ length: 5 }, (_, i) => `${'x'.repeat(799)}${i}`).join('\n');
-    mockCallLLM.mockImplementation(answersWith(long));
+  // llm-caller linkifies markers as standard Markdown. Slack's mrkdwn shows
+  // that as literal text; the markdown block renders it as a link.
+  it('delivers linkified citation markers in a block that renders Markdown links', async () => {
+    const answer = 'ODS/API 7 supports this [[1]](https://docs.ed-fi.org/a). **Note:** see [[2]](https://docs.ed-fi.org/b).';
+    mockCallLLM.mockImplementation(answersWith(answer));
 
     const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
 
-    const sections = response.blocks.filter((b) => b.type === 'section');
-    expect(sections.length).toBeGreaterThan(1);
-    for (const section of sections) {
-      expect(section.text.text.length).toBeLessThanOrEqual(3000);
-    }
+    expect(response.blocks[0]).toEqual({ type: 'markdown', text: answer });
   });
 
-  it('splits a single unbroken paragraph that exceeds the limit', async () => {
-    mockCallLLM.mockImplementation(answersWith('y'.repeat(7000)));
+  it('keeps a long answer with a code block in one block, so the fence is never split', async () => {
+    const code = Array.from({ length: 150 }, (_, i) => `  const field${i} = record.get('field${i}');`).join('\n');
+    const answer = `Map the fields like this:\n\n\`\`\`js\n${code}\n\`\`\`\n\nThen post the record [1].`;
+    expect(answer.length).toBeGreaterThan(3000);
+    mockCallLLM.mockImplementation(answersWith(answer));
 
     const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
 
-    const sections = response.blocks.filter((b) => b.type === 'section');
-    expect(sections).toHaveLength(3);
-    for (const section of sections) {
-      expect(section.text.text.length).toBeLessThanOrEqual(3000);
-    }
+    const markdownBlocks = response.blocks.filter((b) => b.type === 'markdown');
+    expect(markdownBlocks).toEqual([{ type: 'markdown', text: answer }]);
   });
 
-  it('loses no text when it splits', async () => {
-    const long = Array.from({ length: 5 }, (_, i) => `${'x'.repeat(799)}${i}`).join('\n');
-    mockCallLLM.mockImplementation(answersWith(long));
+  describe('when the answer exceeds the markdown block limit', () => {
+    const lines = (count) => Array.from({ length: count }, (_, i) => `${'z'.repeat(99)}${i % 10}`);
 
-    const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    it('shortens it at a line break to fit, and says so', async () => {
+      const answer = lines(130).join('\n');
+      mockCallLLM.mockImplementation(answersWith(answer));
 
-    const rejoined = response.blocks
-      .filter((b) => b.type === 'section')
-      .map((b) => b.text.text)
-      .join('\n');
-    expect(rejoined).toBe(long);
+      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+      const [block] = response.blocks.filter((b) => b.type === 'markdown');
+      expect(block.text.length).toBeLessThanOrEqual(12000);
+      const [kept, notice] = block.text.split('\n\n');
+      expect(answer.startsWith(`${kept}\n`)).toBe(true);
+      expect(notice).toMatch(/shortened/i);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('shortened'));
+    });
+
+    it('closes a code fence the cut leaves open', async () => {
+      const answer = `Example:\n\`\`\`\n${lines(130).join('\n')}\n\`\`\``;
+      mockCallLLM.mockImplementation(answersWith(answer));
+
+      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+      const [block] = response.blocks.filter((b) => b.type === 'markdown');
+      expect(block.text.length).toBeLessThanOrEqual(12000);
+      expect(block.text.match(/^```/gm)).toHaveLength(2);
+    });
   });
 
   it('captures the conversation under the caller’s entry point', async () => {
@@ -241,8 +253,8 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'section', 'divider', 'context_actions']);
-      expect(response.blocks[0].text.text).toBe('A [1] B [2]');
+      expect(response.blocks.map((block) => block.type)).toEqual(['markdown', 'section', 'divider', 'context_actions']);
+      expect(response.blocks[0].text).toBe('A [1] B [2]');
       expect(response.blocks[1].text.text).toBe(SOURCES_TEXT);
     });
 
@@ -258,7 +270,7 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.blocks.map((block) => block.type)).toEqual(['section', 'divider', 'context_actions']);
+      expect(response.blocks.map((block) => block.type)).toEqual(['markdown', 'divider', 'context_actions']);
     });
 
     it('omits the Sources block from the empty-answer fallback', async () => {
