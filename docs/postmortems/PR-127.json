@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 127,
+  "title": "[AI-182] Implement /fiona ask — private LLM answers on every surface",
+  "state": "merged",
+  "jiraKey": "AI-182",
+  "authorKind": "human",
+  "stats": {
+    "additions": 2714,
+    "deletions": 158,
+    "changedFiles": 21,
+    "commits": 8,
+    "reviewCycles": 1,
+    "reviewComments": 5,
+    "timeToFirstGreenCiMinutes": 357,
+    "timeToMergeMinutes": 1568,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 18,
+      "md": 3
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 2,
+      "correctness": 0,
+      "rework": 3
+    },
+    "followupCommits": {
+      "fix": 2,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-06T17:45:12.364Z"
+}
