@@ -482,14 +482,113 @@ describe('appMentionCallback', () => {
       expect(callLLM).toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when mention text starts with "ask "', async () => {
+    it('answers "ask <question>" ephemerally, not in the channel', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C123', user: 'U456' }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
+    });
+
+    it('skips a duplicate ask retry before calling the LLM', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
       expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+    });
+
+    it('strips the "ask" keyword before prompting the LLM', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
+    });
+
+    it('keeps the ask answer in-thread when the mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ thread_ts: '1234567890.000000' }),
+      );
+    });
+
+    describe('when the ephemeral ask answer cannot be posted', () => {
+      beforeEach(() => {
+        mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+        callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+        mockClient.chat.postEphemeral.mockRejectedValueOnce(
+          Object.assign(new Error('invalid_blocks'), { name: 'SlackAPIError' }),
+        );
+      });
+
+      it('records post_failed for the turn', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(recordInteraction).toHaveBeenCalledTimes(1);
+        expect(recordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'app_mention', status: 'error', errorType: 'post_failed' }),
+        );
+      });
+
+      it('posts no public warning, only a private delivery-failure notice', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(mockSay).not.toHaveBeenCalled();
+        expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(2);
+        expect(mockClient.chat.postEphemeral.mock.calls[1][0]).toEqual(
+          expect.objectContaining({ user: 'U456', text: expect.stringContaining("couldn't deliver") }),
+        );
+      });
+
+      it('does not capture the undelivered answer', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(captureConversation).not.toHaveBeenCalled();
+      });
+
+      it('releases the response slot so a retry runs the pipeline again', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
+        expect(callLLM).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('captures a delivered ask answer', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ entryPoint: 'app_mention', botResponse: 'answer' }),
+      );
+    });
+
+    // A bare `ask` used to reach the LLM as the question "ask", answered in the
+    // channel for everyone, on the keyword that promises a private answer.
+    it.each(['ask', 'ASK', 'ask   ', 'fiona ask'])('answers a bare "@fiona %s" with help, not the LLM', async (text) => {
+      mockEvent.text = `<@UFIONA> ${text}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
     });
 
     it('responds with search results when mention text starts with "search "', async () => {
@@ -547,14 +646,14 @@ describe('appMentionCallback', () => {
       // is covered in tests/agent/interaction-telemetry.test.js.
     });
 
-    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+    it('answers "@fiona fiona ask <question>" ephemerally too', async () => {
       mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
-      expect(callLLM).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     // AI-217: with escalation off the keyword is no longer a command, so the

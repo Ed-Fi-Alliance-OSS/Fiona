@@ -9,7 +9,7 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi (coming soon)',
+  'ask <question>          Ask a question about Ed-Fi (see who can see it below)',
   'search <query>          Search Ed-Fi documentation',
 ];
 
@@ -44,13 +44,14 @@ ${commands.join('\n')}
 • *@-mention* (\`@fiona …\`) — in a channel or thread
 • *Keyword* (\`help\` or \`fiona help\`) — in a DM or the agent panel
 
+*Who can see your question:*
+• *Slash command* — only you see your question and Fiona's answer
+• *DM or agent panel* — only you see your question and Fiona's answer
+• *@-mention* — the channel sees your question. To keep Fiona's answer to yourself, start with \`ask\` or \`search\` (\`@fiona ask …\`). Any other @-mention gets a reply the whole channel can see
+_Conversations with Fiona may be retained to review and improve answer quality._
+
 _Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
 }
-
-export const ASK_NOT_YET_TEXT =
-  `*/fiona ask* is not yet available. ` +
-  `In the meantime, @-mention Fiona in any channel or send a direct message. ` +
-  `When available, it will also work as \`@fiona ask <question>\` in a thread or the agent panel.`;
 
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the
 // keyword path (escalation.js escalateViaSay) so both entry points stay in lockstep.
@@ -176,7 +177,10 @@ export function parseCommandKeyword(text) {
   const body = lower.startsWith('fiona ') ? trimmed.slice('fiona '.length).trim() : trimmed;
   const bodyLower = body.toLowerCase();
 
-  if (bodyLower === 'help') {
+  // A bare `ask` gets help, as `/fiona ask` does. Handing the lone word to the
+  // LLM would answer it in public, on the one keyword that promises a private
+  // answer. A bare `search` stays an ordinary question (see the AI-179 test plan).
+  if (bodyLower === 'help' || bodyLower === 'ask') {
     return { keyword: 'help', rawArgs: '' };
   }
 
@@ -217,13 +221,16 @@ export function parseCommandKeyword(text) {
  * @param {{ keyword: string, rawArgs: string }} cmd
  */
 export async function routeCommandViaSay(say, logger, cmd, options = {}) {
-  if (cmd.keyword === 'help') {
-    await handleHelpViaSay(say, logger);
-  } else if (cmd.keyword === 'search') {
+  if (cmd.keyword === 'search') {
     await handleSearchViaSay(say, logger, cmd.rawArgs, options);
-  } else {
-    await handleComingSoonViaSay(say, logger, cmd.keyword, ASK_NOT_YET_TEXT);
+    return;
   }
+  // `help` and anything command-dispatch did not claim: the help text is the
+  // safe answer, and it is what an unrecognised sub-command already gets.
+  if (cmd.keyword !== 'help') {
+    logger?.warn?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
+  }
+  await handleHelpViaSay(say, logger);
 }
 
 /**
@@ -320,21 +327,5 @@ export async function handleSearchEphemeral(
     });
   } catch (err) {
     logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
-  }
-}
-
-/**
- * Sends a "coming soon" response via say() for ask commands in non-slash contexts.
- *
- * @param {Function} say
- * @param {import('@slack/logger').Logger} logger
- * @param {string} keyword - The command keyword ('ask')
- * @param {string} text - The coming-soon message text to send.
- */
-export async function handleComingSoonViaSay(say, logger, keyword, text) {
-  try {
-    await say(text);
-  } catch (err) {
-    logger?.error?.(`Failed to send coming-soon response for ${keyword}: ${err.name}`);
   }
 }
