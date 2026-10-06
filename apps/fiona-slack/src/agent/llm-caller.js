@@ -515,7 +515,7 @@ async function validateSources(sources, logger) {
   const { kept, removed } = filterSources(sources, verdicts, CITATION_PATH_DENYLIST);
   const count = (verdict) => [...verdicts.values()].filter((v) => v === verdict).length;
   const stats = {
-    checked: toCheck.length,
+    checked: new Set(toCheck).size,
     dead: count('dead'),
     unknown: count('unknown'),
     denylisted: removed.filter((entry) => entry.reason === 'denylisted').length,

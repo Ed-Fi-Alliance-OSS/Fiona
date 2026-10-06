@@ -47,12 +47,13 @@ function remember(url, verdict, now) {
 
 const bareHost = (host) => host.toLowerCase().replace(/^www\./, '');
 
-function isAllowedHost(url, allowedHosts) {
+/** @param {string[]} allowedBases - Allowlisted hosts already passed through bareHost */
+function isAllowedHost(url, allowedBases) {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
     const host = bareHost(parsed.hostname);
-    return allowedHosts.map(bareHost).some((base) => host === base || host.endsWith(`.${base}`));
+    return allowedBases.some((base) => host === base || host.endsWith(`.${base}`));
   } catch {
     return false;
   }
@@ -69,7 +70,7 @@ function verdictFor(status) {
  * every hop is held to the allowlist: a page redirecting off the allowed hosts
  * (or looping) is never fetched, and returns null ("unknown").
  */
-async function finalStatus(url, method, signal, fetchImpl, allowedHosts) {
+async function finalStatus(url, method, signal, fetchImpl, allowedBases) {
   const init = { method, redirect: 'manual', signal, headers: { 'User-Agent': LINK_CHECK_USER_AGENT } };
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
@@ -84,15 +85,15 @@ async function finalStatus(url, method, signal, fetchImpl, allowedHosts) {
     const location = REDIRECT_STATUSES.has(response.status) ? response.headers?.get?.('location') : null;
     if (!location) return response.status;
     current = new URL(location, current).href;
-    if (!isAllowedHost(current, allowedHosts)) return null;
+    if (!isAllowedHost(current, allowedBases)) return null;
   }
   return null;
 }
 
-async function probe(url, signal, fetchImpl, allowedHosts) {
-  let status = await finalStatus(url, 'HEAD', signal, fetchImpl, allowedHosts);
+async function probe(url, signal, fetchImpl, allowedBases) {
+  let status = await finalStatus(url, 'HEAD', signal, fetchImpl, allowedBases);
   if (HEAD_REFUSED.has(status)) {
-    status = await finalStatus(url, 'GET', signal, fetchImpl, allowedHosts);
+    status = await finalStatus(url, 'GET', signal, fetchImpl, allowedBases);
   }
   return status === null ? 'unknown' : verdictFor(status);
 }
@@ -102,7 +103,7 @@ async function probe(url, signal, fetchImpl, allowedHosts) {
  *
  * @param {string[]} urls
  * @param {Object} options
- * @param {number} options.timeoutMs - Budget for the whole batch; checks still running when it ends are "unknown"
+ * @param {number} options.timeoutMs - Budget for the whole batch, a hard deadline; checks still running when it ends are "unknown"
  * @param {string[]} options.allowedHosts - Only these hosts and their subdomains are fetched (a leading www. is ignored), redirect targets included; others are "unknown"
  * @param {typeof fetch} [options.fetchImpl]
  * @param {() => number} [options.now]
@@ -110,13 +111,25 @@ async function probe(url, signal, fetchImpl, allowedHosts) {
  */
 export async function checkUrls(urls, { timeoutMs, allowedHosts, fetchImpl = globalThis.fetch, now = Date.now }) {
   const verdicts = new Map();
+  const allowedBases = allowedHosts.map(bareHost);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // The budget is a hard deadline: when it ends, requests are aborted and the
+  // batch returns at once, even if a request ignores the abort.
+  let endBudget;
+  const budgetEnded = new Promise((resolve) => {
+    endBudget = resolve;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    endBudget();
+  }, timeoutMs);
   timer.unref?.();
 
+  let returned = false;
+  const checking = [];
   const pending = [];
   for (const url of new Set(urls)) {
-    if (!isAllowedHost(url, allowedHosts)) {
+    if (!isAllowedHost(url, allowedBases)) {
       verdicts.set(url, 'unknown');
       continue;
     }
@@ -125,20 +138,27 @@ export async function checkUrls(urls, { timeoutMs, allowedHosts, fetchImpl = glo
       verdicts.set(url, hit.verdict);
       continue;
     }
+    checking.push(url);
     pending.push(
-      probe(url, controller.signal, fetchImpl, allowedHosts)
+      probe(url, controller.signal, fetchImpl, allowedBases)
         .catch(() => 'unknown')
         .then((verdict) => {
-          verdicts.set(url, verdict);
           remember(url, verdict, now());
+          // A check that finishes after the batch returned must not change the
+          // verdicts the caller already has.
+          if (!returned) verdicts.set(url, verdict);
         }),
     );
   }
 
   try {
-    await Promise.all(pending);
+    await Promise.race([Promise.all(pending), budgetEnded]);
   } finally {
     clearTimeout(timer);
+  }
+  returned = true;
+  for (const url of checking) {
+    if (!verdicts.has(url)) verdicts.set(url, 'unknown');
   }
   return verdicts;
 }

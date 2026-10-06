@@ -205,6 +205,26 @@ describe('checkUrls time budget', () => {
     const verdicts = await check([`${DOCS}/slow`], fetchImpl, { timeoutMs: 20 });
     expect(verdicts.get(`${DOCS}/slow`)).toBe('unknown');
   });
+
+  it('returns when the budget ends even if a request ignores the abort, keeping finished verdicts', async () => {
+    let finishHung;
+    const fetchImpl = jest.fn((url) => {
+      if (url === `${DOCS}/fast`) return Promise.resolve({ status: 404, headers: new Headers(), body: null });
+      return new Promise((resolve) => {
+        finishHung = () => resolve({ status: 404, headers: new Headers(), body: null });
+      });
+    });
+
+    const verdicts = await check([`${DOCS}/fast`, `${DOCS}/hung`], fetchImpl, { timeoutMs: 20 });
+
+    expect(verdicts.get(`${DOCS}/fast`)).toBe('dead');
+    expect(verdicts.get(`${DOCS}/hung`)).toBe('unknown');
+
+    // The hung request finishing later must not change what the caller already has.
+    finishHung();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(verdicts.get(`${DOCS}/hung`)).toBe('unknown');
+  });
 });
 
 describe('checkUrls cache', () => {

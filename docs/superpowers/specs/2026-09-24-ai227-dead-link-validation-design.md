@@ -102,8 +102,9 @@ stream ends (answer held back, as today)
   with `.` + that base (a dot boundary, so `evil-ed-fi.org` and `ed-fi.org.evil.com` do not match `ed-fi.org`). Any
   other host is not fetched and counts as `unknown`. This guarantees Fiona can't be steered into fetching arbitrary
   hosts.
-- **Time limit:** each request has its own abort timer, and the whole batch shares one budget
-  (`CITATION_LINK_CHECK_TIMEOUT_MS`, default 2000). Anything unfinished when the budget runs out counts as `unknown`.
+- **Time limit:** the whole batch shares one budget (`CITATION_LINK_CHECK_TIMEOUT_MS`, default 2000), enforced as a
+  hard deadline. When it runs out, every request still in flight is aborted and the batch returns at once, even if a
+  request ignores the abort. Anything unfinished counts as `unknown`.
 - **The link keeps the original URL.** A redirect works for the user as well, so nothing is rewritten.
 - **Cache:** in-memory, in the process, at most 2,000 entries with the oldest removed first.
   - Live results are kept 1h and dead results 24h.
