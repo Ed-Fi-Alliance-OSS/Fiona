@@ -180,7 +180,8 @@ function settleCitations(metadata) {
   return sourcesBlocks;
 }
 
-function isQuestionTooLong(question, logger) {
+/** True, and logged, when an ask question is over MAX_QUESTION_LENGTH. */
+export function isQuestionTooLong(question, logger) {
   if (question.length <= MAX_QUESTION_LENGTH) return false;
   logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
   return true;

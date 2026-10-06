@@ -9,7 +9,7 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi (see who can see it below)',
+  'ask <question>          Ask a question about Ed-Fi',
   'search <query>          Search Ed-Fi documentation',
 ];
 

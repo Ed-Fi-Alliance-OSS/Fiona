@@ -506,6 +506,24 @@ describe('appMentionCallback', () => {
       );
     });
 
+    // AI-250. The length check runs before the rate limit, so a question that
+    // will be declined anyway does not spend the user's budget.
+    it('declines an over-long ask privately without touching the rate limit', async () => {
+      mockEvent.text = `<@UFIONA> ask ${'x'.repeat(3001)}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(checkRateLimit).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockSay).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ user: 'U456', text: expect.stringContaining('too long') }),
+      );
+      expect(recordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'app_mention', status: 'error', errorType: 'question_too_long' }),
+      );
+    });
+
     describe('when the ephemeral ask answer cannot be posted', () => {
       beforeEach(() => {
         mockEvent.text = '<@UFIONA> ask how do I set up ODS?';

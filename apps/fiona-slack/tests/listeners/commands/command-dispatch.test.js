@@ -19,8 +19,10 @@ const mockCapture = jest.fn().mockResolvedValue(undefined);
 jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () => ({
   ASK_DELIVERY_FAILED_TEXT: ':warning: could not deliver',
   ASK_ERROR_TEXT: ':warning: ask failed',
+  ASK_TOO_LONG_TEXT: ':warning: too long',
   buildAskResponse: mockBuildAskResponse,
   describeError: (err) => err.name,
+  isQuestionTooLong: (question) => question.length > 3000,
   streamAskResponse: mockStreamAskResponse,
 }));
 
@@ -41,7 +43,9 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: mockRollbackFinalization,
 }));
 
-const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
+const { declineOverLongAsk, dispatchKeywordViaSay } = await import(
+  '../../../src/listeners/commands/command-dispatch.js'
+);
 const { CREATE_TICKET_ACTION, parseCommandKeyword, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
 );
@@ -221,14 +225,53 @@ describe('dispatchKeywordViaSay — ask', () => {
     );
   });
 
-  it('clears the thinking status even when generation throws', async () => {
-    const params = askCtx();
-    mockBuildAskResponse.mockRejectedValueOnce(new Error('boom'));
+  // AI-250. An error escaping to the telemetry wrapper would post its warning
+  // with say(), in front of the whole channel.
+  describe('when building the answer throws unexpectedly', () => {
+    beforeEach(() => {
+      mockBuildAskResponse.mockRejectedValueOnce(new TypeError('boom'));
+    });
 
-    await expect(dispatchKeywordViaSay(params)).rejects.toThrow('boom');
-    expect(params.client.assistant.threads.setStatus).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: '' }),
-    );
+    it('answers ephemerally instead of letting the error reach the public warning', async () => {
+      const params = askCtx();
+
+      await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+
+      expect(params.say).not.toHaveBeenCalled();
+      expect(params.client.chat.postEphemeral).toHaveBeenCalledWith({
+        channel: 'C1',
+        user: 'U1',
+        text: ':warning: ask failed',
+      });
+    });
+
+    it('records ask_failed and releases the slot so a retry runs again', async () => {
+      const params = askCtx();
+
+      await dispatchKeywordViaSay(params);
+
+      expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('ask_failed');
+      expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
+      expect(mockCapture).not.toHaveBeenCalled();
+    });
+
+    it('still clears the thinking status', async () => {
+      const params = askCtx();
+
+      await dispatchKeywordViaSay(params);
+
+      expect(params.client.assistant.threads.setStatus).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: '' }),
+      );
+    });
+
+    it('survives the error notice failing too', async () => {
+      const params = askCtx();
+      params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+      await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('ask error notice'));
+    });
   });
 
   it('still answers when the thinking status cannot be set', async () => {
@@ -388,5 +431,69 @@ describe('dispatchKeywordViaSay — keyword coverage', () => {
     }
 
     expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('Unrouted command keyword'));
+  });
+});
+
+// AI-250. Checked before the rate limit by both say() listeners, so a question
+// that will be declined anyway does not spend the user's budget.
+describe('declineOverLongAsk', () => {
+  const base = (over = {}) => ({
+    cmd: { keyword: 'ask', rawArgs: 'x'.repeat(3001) },
+    say: jest.fn().mockResolvedValue(undefined),
+    client: { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } },
+    logger,
+    userId: 'U1',
+    channelId: 'C1',
+    threadTs: '100.00',
+    messageTs: '200.00',
+    interactionType: 'app_mention',
+    markInteractionError: jest.fn(),
+    ...over,
+  });
+
+  it('declines an over-long @-mention ask ephemerally, in its thread', async () => {
+    const params = base();
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith({
+      channel: 'C1',
+      user: 'U1',
+      text: ':warning: too long',
+      thread_ts: '100.00',
+    });
+    expect(params.say).not.toHaveBeenCalled();
+    expect(params.markInteractionError).toHaveBeenCalledWith('question_too_long');
+  });
+
+  it('declines in the assistant panel with say(), which only the user sees', async () => {
+    const params = base({ interactionType: 'assistant_message' });
+
+    await declineOverLongAsk(params);
+
+    expect(params.say).toHaveBeenCalledWith({ text: ':warning: too long', thread_ts: '100.00' });
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a question within the limit', { cmd: { keyword: 'ask', rawArgs: 'x'.repeat(3000) } }],
+    ['another keyword', { cmd: { keyword: 'search', rawArgs: 'x'.repeat(5000) } }],
+    ['no command at all', { cmd: null }],
+  ])('leaves %s alone', async (_label, over) => {
+    const params = base(over);
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(false);
+
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(params.say).not.toHaveBeenCalled();
+    expect(params.markInteractionError).not.toHaveBeenCalled();
+  });
+
+  it('still reports the decline when the notice fails to send', async () => {
+    const params = base();
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('too-long notice'));
   });
 });

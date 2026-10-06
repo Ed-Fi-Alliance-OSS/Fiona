@@ -20,7 +20,7 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
@@ -86,6 +86,25 @@ export const message = async ({ client, context, logger, message, say, setStatus
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
+      const cmd = parseCommandKeyword(text);
+
+      if (
+        await declineOverLongAsk({
+          cmd,
+          say,
+          client,
+          logger,
+          userId,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          interactionType: 'assistant_message',
+          markInteractionError,
+        })
+      ) {
+        return;
+      }
+
       if (
         await handleRateLimitedInteraction({
           userId,
@@ -105,7 +124,6 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       // Route command keywords (help, ask, search, escalate) before invoking the LLM.
       // Only exact "help"/"escalate" match; "help me with X" falls through to the LLM.
-      const cmd = parseCommandKeyword(text);
       if (cmd) {
         await dispatchKeywordViaSay({
           cmd,

@@ -10,7 +10,14 @@ import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
-import { ASK_DELIVERY_FAILED_TEXT, ASK_ERROR_TEXT, buildAskResponse, describeError } from './ask-handler.js';
+import {
+  ASK_DELIVERY_FAILED_TEXT,
+  ASK_ERROR_TEXT,
+  ASK_TOO_LONG_TEXT,
+  buildAskResponse,
+  describeError,
+  isQuestionTooLong,
+} from './ask-handler.js';
 import {
   buildHelpText,
   buildSearchResponse,
@@ -236,14 +243,23 @@ async function handleAsk({ command, ack, respond, logger }) {
     ackMessage: { response_type: 'ephemeral', text: ASK_THINKING_TEXT },
     replaceOriginal: true,
     missingFieldsText: ASK_ERROR_TEXT,
+    // Before the rate limit, so a question that will be declined anyway does not
+    // spend the user's budget.
+    checkAvailable: async (sendReply) => {
+      if (!isQuestionTooLong(question, logger)) return true;
+      await sendReply({ text: ASK_TOO_LONG_TEXT });
+      fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'question_too_long' });
+      return false;
+    },
   });
   if (!reply) return;
 
-  // buildAskResponse never throws on LLM failure — it substitutes an error
-  // message and reports the failure via errorType, so carry that into telemetry.
-  // The conversation is captured only once the answer has been delivered.
+  // buildAskResponse absorbs LLM failures and reports them through errorType.
+  // Anything else it throws is a bug in building the answer, recorded as
+  // ask_failed and kept apart from a failure to deliver a built answer.
+  let built;
   try {
-    const { response, errorType, capture } = await buildAskResponse({
+    built = await buildAskResponse({
       question,
       logger,
       interactionType: 'slash_ask',
@@ -255,14 +271,25 @@ async function handleAsk({ command, ack, respond, logger }) {
       threadTs: command.trigger_id,
       messageTs: command.trigger_id,
     });
+  } catch (err) {
+    logger?.error?.(`Failed to build /fiona ask answer: ${describeError(err)}`);
+    await reply({ text: ASK_ERROR_TEXT });
+    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'ask_failed' });
+    return;
+  }
+
+  // The conversation is captured only once the answer has been delivered.
+  const { response, errorType, capture } = built;
+  try {
     await respond({ response_type: 'ephemeral', replace_original: true, ...response });
-    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
-    await capture();
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`);
     await reply({ text: ASK_DELIVERY_FAILED_TEXT });
     fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'respond_failed' });
+    return;
   }
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
+  await capture();
 }
 
 async function handleSearch({ command, ack, respond, logger }) {

@@ -66,7 +66,7 @@ may still be kept to review answer quality.
 | **T8** | In your DM: `ASK what is Ed-Fi`, `/ask what is Ed-Fi`, `fiona ask what is Ed-Fi` | All three behave like `ask what is Ed-Fi`. Capital letters, a leading slash, and a leading `fiona ` don't change anything |
 | **T9** | In a thread with earlier messages about something specific, `@fiona ask what about the second one?` | Fiona has no idea what "the second one" means. Deliberate: `ask` sends only the question, not the thread |
 | **T10** | `/fiona help` | Lists **`ask <question>`** with no "(coming soon)" note. The *Who can see your question* section says only you see slash-command and DM answers; that in a channel, the answer to an @-mention stays with you only if it starts with `ask` or `search`; and that conversations may be retained. Nothing in it says "private" |
-| **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons |
+| **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons. It does not count toward your hourly limit |
 | **T11a** | `/fiona ask Is *this* bold, and is https://docs.ed-fi.org a link?` | The *You asked:* line shows exactly what you typed, as plain text: the asterisks stay visible, with no bold. Note whether Slack makes the URL clickable, and report it either way |
 
 ## C. Answer content and rendering

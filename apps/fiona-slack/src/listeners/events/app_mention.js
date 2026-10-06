@@ -19,7 +19,7 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
 import { parseCommandKeyword } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
@@ -53,6 +53,27 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
+      // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
+      const text = (event.text || '').replace(/<[@#!][^>]+>/g, '').trim();
+      const cmd = text ? parseCommandKeyword(text) : null;
+
+      if (
+        await declineOverLongAsk({
+          cmd,
+          say,
+          client,
+          logger,
+          userId: user,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          interactionType: 'app_mention',
+          markInteractionError,
+        })
+      ) {
+        return;
+      }
+
       if (
         await handleRateLimitedInteraction({
           userId: user,
@@ -70,9 +91,6 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         return;
       }
 
-      // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
-      const text = (event.text || '').replace(/<[@#!][^>]+>/g, '').trim();
-
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
@@ -84,7 +102,6 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
       // Route command keywords (help, ask, search, escalate) before invoking the LLM.
       // Only exact "help"/"escalate" match; "@fiona help me with X" falls through to the LLM.
-      const cmd = parseCommandKeyword(text);
       if (cmd) {
         await dispatchKeywordViaSay({
           cmd,

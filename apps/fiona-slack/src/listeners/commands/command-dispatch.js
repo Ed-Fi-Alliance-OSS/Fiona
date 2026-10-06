@@ -6,7 +6,15 @@
 import { escalateViaSay } from '../../agent/escalation.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { ASK_DELIVERY_FAILED_TEXT, buildAskResponse, describeError, streamAskResponse } from './ask-handler.js';
+import {
+  ASK_DELIVERY_FAILED_TEXT,
+  ASK_ERROR_TEXT,
+  ASK_TOO_LONG_TEXT,
+  buildAskResponse,
+  describeError,
+  isQuestionTooLong,
+  streamAskResponse,
+} from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
   ephemeralThreadTs,
@@ -153,6 +161,45 @@ export async function dispatchKeywordViaSay({
 }
 
 /**
+ * Declines an over-long `ask` question before the caller spends the user's rate
+ * limit on it. Call it ahead of the rate-limit check; it returns true when it
+ * has answered and the caller should stop.
+ *
+ * The decline is private: ephemeral on an @-mention, where the channel would
+ * otherwise see it, and an ordinary say() in the assistant panel, which only the
+ * user sees.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function declineOverLongAsk({
+  cmd,
+  say,
+  client,
+  logger,
+  userId,
+  channelId,
+  threadTs,
+  messageTs,
+  interactionType,
+  markInteractionError,
+}) {
+  if (cmd?.keyword !== 'ask' || !isQuestionTooLong(cmd.rawArgs, logger)) return false;
+  markInteractionError('question_too_long');
+  const replyThreadTs = ephemeralThreadTs(threadTs, messageTs);
+  const send =
+    interactionType === 'assistant_message'
+      ? say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs })
+      : client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: ASK_TOO_LONG_TEXT,
+          ...(replyThreadTs ? { thread_ts: replyThreadTs } : {}),
+        });
+  await send.catch((err) => logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`));
+  return true;
+}
+
+/**
  * Sets or clears the thread's "thinking" status. Best effort: a status is a
  * courtesy, and failing to show one must not stop the answer.
  */
@@ -176,6 +223,10 @@ async function setThinkingStatus(client, logger, channelId, threadTs, status) {
  * If the post fails, the user gets a short plain-text notice instead of
  * silence, and the conversation is not captured, because the answer was never
  * seen.
+ *
+ * Nothing is rethrown. An error escaping to handleInteractionWithTelemetry
+ * would post its warning with say(), in front of the whole channel, so an
+ * unexpected failure building the answer is answered ephemerally here instead.
  */
 async function answerAskEphemerally({
   client,
@@ -210,6 +261,15 @@ async function answerAskEphemerally({
       threadTs,
       messageTs,
     });
+  } catch (err) {
+    // A retry should run the pipeline again rather than hit the duplicate guard.
+    rollbackFinalization(responseId);
+    markInteractionError('ask_failed');
+    logger?.error?.(`Failed to build ask answer: ${describeError(err)}`);
+    await client.chat
+      .postEphemeral({ ...ephemeralTarget, text: ASK_ERROR_TEXT })
+      .catch((noticeErr) => logger?.warn?.(`Failed to send ask error notice: ${describeError(noticeErr)}`));
+    return;
   } finally {
     await setThinkingStatus(client, logger, channelId, threadTs, '');
   }

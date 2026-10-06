@@ -59,7 +59,7 @@ descriptions and example usage.
 > | Command                 | Description                                       |
 > | ----------------------- | ------------------------------------------------- |
 > | `/fiona help`           | Show this usage guide                             |
-> | `/fiona ask <question>` | Ask Fiona a question privately                    |
+> | `/fiona ask <question>` | Ask Fiona a question; only you see the answer     |
 > | `/fiona search <query>` | Search Ed-Fi sources without a synthesized answer |
 > | `/fiona escalate`       | Escalate the current conversation to a human      |
 >
@@ -138,8 +138,12 @@ captured, because nobody saw the answer.
 - If `<question>` is empty or blank, Fiona responds with the help output
   (equivalent to `/fiona help`). A bare `@fiona ask` does the same; it is not
   sent to the LLM, which would answer it publicly.
-- A question over 3,000 characters is declined with a short message and is not
-  sent to the LLM (`errorType: question_too_long`).
+- A question over 3,000 characters is declined with a short message, is not
+  sent to the LLM, and does not count toward the rate limit: the length check
+  runs first (`errorType: question_too_long`).
+- An unexpected error while building the answer (as opposed to an LLM failure)
+  is answered privately with the error copy and recorded as `ask_failed`. On the
+  @-mention path it never reaches the generic public warning.
 - An error reply carries no feedback buttons. A failed call and an empty
   generation get different copy; the empty case suggests rephrasing or
   `/fiona search`.

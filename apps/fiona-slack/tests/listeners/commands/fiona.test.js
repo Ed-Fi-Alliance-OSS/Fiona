@@ -348,6 +348,52 @@ describe('fionaCommandCallback', () => {
       expect(mockCaptureConversation).not.toHaveBeenCalled();
     });
 
+    it('declines an over-long question before spending the rate limit', async () => {
+      exhaustRateLimit(mockCommand.user_id);
+      mockCommand.text = `ask ${'x'.repeat(3001)}`;
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ replace_original: true, text: expect.stringContaining('too long') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', errorType: 'question_too_long', rateLimited: false }),
+      );
+    });
+
+    it('does not spend the rate limit on an over-long question', async () => {
+      const { checkRateLimit: peek } = await import('../../../src/agent/rate-limiter.js');
+      mockCommand.text = `ask ${'x'.repeat(3001)}`;
+
+      for (let i = 0; i < 30; i++) {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      }
+
+      expect(peek(mockCommand.user_id).allowed).toBe(true);
+    });
+
+    // AI-250. A bug while building the answer is not a delivery failure.
+    it('records ask_failed, not respond_failed, when building the answer throws', async () => {
+      // A non-string botText passes the LLM call and throws later, while the
+      // answer is being completed — outside the LLM-failure handling.
+      mockCallLLM.mockImplementationOnce(async () => ({ metadata: null, botText: 42, systemPromptVersion: 'v1' }));
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ replace_original: true, text: expect.stringContaining('could not answer') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'ask_failed' }),
+      );
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+
     it('declines an over-long question and records question_too_long', async () => {
       mockCommand.text = `ask ${'x'.repeat(3001)}`;
 
