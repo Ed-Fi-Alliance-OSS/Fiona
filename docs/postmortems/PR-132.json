@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 132,
+  "title": "[AI-182] test: fix flaky post_failed test by sharing mock instances in app-mention tests",
+  "state": "merged",
+  "jiraKey": "AI-182",
+  "authorKind": "human",
+  "stats": {
+    "additions": 50,
+    "deletions": 28,
+    "changedFiles": 1,
+    "commits": 1,
+    "reviewCycles": 1,
+    "reviewComments": 1,
+    "timeToFirstGreenCiMinutes": 8,
+    "timeToMergeMinutes": 23,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 1
+    },
+    "testToSourceRatio": null,
+    "docsTouched": false,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 1,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-06T20:09:36.308Z"
+}
