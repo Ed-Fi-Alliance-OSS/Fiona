@@ -38,23 +38,58 @@ function compactSearchQuery(searchQuery) {
   return `${searchQuery.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
 }
 
-function buildPrivateMetadata(baseMetadata, searchContext = null) {
-  if (!searchContext) {
+/**
+ * Text worth keeping in private_metadata at click time, keyed by response type.
+ *
+ * An ephemeral message can never be re-fetched through
+ * conversations.history/replies, so the click is the only chance to store its
+ * text. That applies to every search response (app_mention and
+ * assistant_message search results are ephemeral too) and to `ask` answers on
+ * the public surfaces, which are ephemeral for the same privacy reason.
+ *
+ * Only search gets a query: a search response quotes the query in its header, so
+ * extractSearchQuery can recover it. An `ask` answer does not quote the
+ * question, and running extractSearchQuery over prose would invent one.
+ */
+function buildClickTimeContext(responseType, messageText) {
+  if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+    return { searchQuery: extractSearchQuery(messageText), botResponse: messageText ?? null };
+  }
+  if (responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
+    return { botResponse: messageText ?? null };
+  }
+  return null;
+}
+
+function buildPrivateMetadata(baseMetadata, contextToStore = null) {
+  if (!contextToStore) {
     return JSON.stringify(baseMetadata);
   }
 
-  const searchQuery = compactSearchQuery(searchContext.searchQuery);
-  const botResponse = compactBotResponse(searchContext.botResponse);
+  const searchQuery = compactSearchQuery(contextToStore.searchQuery);
+  let botResponse = compactBotResponse(contextToStore.botResponse);
 
-  const privateMetadata = JSON.stringify({
-    ...baseMetadata,
-    ...(searchQuery ? { searchQuery } : {}),
-    ...(botResponse ? { botResponse } : {}),
-  });
+  const encode = () =>
+    JSON.stringify({
+      ...baseMetadata,
+      ...(searchQuery ? { searchQuery } : {}),
+      ...(botResponse ? { botResponse } : {}),
+    });
 
-  // compactSearchQuery/compactBotResponse already cap combined size well under
-  // PRIVATE_METADATA_MAX_CHARS; this is a guard against Slack's limit in case
-  // those caps are loosened later without re-checking the invariant.
+  // The character caps above count raw text, but Slack's limit applies to the
+  // JSON encoding, where every quote, backslash and newline doubles. An answer
+  // full of code can overflow, so trim the stored response by the overflow
+  // until it fits rather than dropping it.
+  let privateMetadata = encode();
+  while (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS && botResponse) {
+    const overflow = privateMetadata.length - PRIVATE_METADATA_MAX_CHARS;
+    const keep = botResponse.length - overflow - 1;
+    botResponse = keep > 0 ? `${botResponse.slice(0, keep)}…` : null;
+    privateMetadata = encode();
+  }
+
+  // A guard against Slack's limit if the query cap is ever loosened without
+  // re-checking the invariant.
   if (privateMetadata.length > PRIVATE_METADATA_MAX_CHARS) {
     return JSON.stringify(baseMetadata);
   }
@@ -125,15 +160,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
             responseType,
             interactionType,
           },
-          // Captured for every search interaction type, not just slash_search: ephemeral
-          // messages (app_mention, assistant_message) can never be re-fetched later via
-          // conversations.history/replies, so click-time is the only chance to store them.
-          responseType === FEEDBACK_RESPONSE_TYPES.SEARCH
-            ? {
-                searchQuery: extractSearchQuery(body.message?.text),
-                botResponse: body.message?.text ?? null,
-              }
-            : null,
+          buildClickTimeContext(responseType, body.message?.text),
         ),
         blocks: [
           {

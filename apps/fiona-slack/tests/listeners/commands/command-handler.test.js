@@ -24,13 +24,11 @@ const {
   buildHelpText,
   handleHelpViaSay,
   handleSearchViaSay,
-  handleComingSoonViaSay,
   routeCommandViaSay,
   buildCreateTicketBlocks,
   normalizeTicketType,
   TICKET_TYPES,
   CREATE_TICKET_ACTION,
-  ASK_NOT_YET_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } = await import('../../../src/listeners/commands/command-handler.js');
 
@@ -73,12 +71,10 @@ describe('parseCommandKeyword', () => {
       expect(parseCommandKeyword('ASK something')).toEqual({ keyword: 'ask', rawArgs: 'something' });
     });
 
-    it('does not match bare "ask" with no argument', () => {
-      expect(parseCommandKeyword('ask')).toBeNull();
-    });
-
-    it('does not match "ask" with only whitespace after it', () => {
-      expect(parseCommandKeyword('ask   ')).toBeNull();
+    // Handing a bare `ask` to the LLM would answer it publicly, so it gets help,
+    // as `/fiona ask` with no question does.
+    it.each(['ask', 'ask   ', 'ASK', 'Ask', '/ask'])('answers bare %j with help', (text) => {
+      expect(parseCommandKeyword(text)).toEqual({ keyword: 'help', rawArgs: '' });
     });
   });
 
@@ -198,8 +194,8 @@ describe('parseCommandKeyword', () => {
       });
     });
 
-    it('returns null for bare "fiona ask" with no argument', () => {
-      expect(parseCommandKeyword('fiona ask')).toBeNull();
+    it('answers bare "fiona ask" with help', () => {
+      expect(parseCommandKeyword('fiona ask')).toEqual({ keyword: 'help', rawArgs: '' });
     });
 
     it('returns null for bare "fiona search" with no argument', () => {
@@ -520,38 +516,6 @@ describe('handleSearchViaSay', () => {
   });
 });
 
-describe('handleComingSoonViaSay', () => {
-  let mockSay;
-  let mockLogger;
-
-  beforeEach(() => {
-    mockSay = jest.fn().mockResolvedValue(undefined);
-    mockLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
-  });
-
-  it('calls say() with ASK_NOT_YET_TEXT for ask sub-command', async () => {
-    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
-  });
-
-  it('logs error when say() throws', async () => {
-    mockSay.mockRejectedValueOnce(new Error('timeout'));
-    await handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT);
-    expect(mockLogger.error).toHaveBeenCalled();
-  });
-
-  it('does not throw when say() throws', async () => {
-    mockSay.mockRejectedValueOnce(new Error('timeout'));
-    await expect(
-      handleComingSoonViaSay(mockSay, mockLogger, 'ask', ASK_NOT_YET_TEXT),
-    ).resolves.not.toThrow();
-  });
-
-  it('ASK_NOT_YET_TEXT mentions @fiona ask as alternative', () => {
-    expect(ASK_NOT_YET_TEXT).toMatch('@fiona ask');
-  });
-});
-
 describe('routeCommandViaSay', () => {
   let mockSay;
   let mockLogger;
@@ -569,9 +533,19 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('sends ASK_NOT_YET_TEXT when keyword is "ask"', async () => {
+  it('falls back to the help text for a keyword command-dispatch did not claim', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
-    expect(mockSay).toHaveBeenCalledWith(ASK_NOT_YET_TEXT);
+    expect(mockSay).toHaveBeenCalledWith(buildHelpText());
+  });
+
+  it('warns when it has to fall back, so an unrouted keyword is visible in logs', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('ask'));
+  });
+
+  it('does not warn on the ordinary help route', async () => {
+    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
   it('calls searchForSources and say() results when keyword is "search"', async () => {
@@ -627,6 +601,32 @@ describe('buildHelpText — ticket line is flag-gated', () => {
 
   it('keeps the reach-Fiona guidance regardless of the flag', () => {
     expect(buildHelpText()).toMatch('fiona help');
+  });
+
+  it('states which ask entry points expose the question to the channel', () => {
+    const text = buildHelpText();
+
+    expect(text).toMatch(/slash command.*only you see your question and Fiona's answer/i);
+    expect(text).toMatch(/DM.*only you see your question and Fiona's answer/i);
+    expect(text).toMatch(/@-mention.*the channel sees your question/i);
+  });
+
+  it('limits the private @-mention answer to ask and search, and says how to get it', () => {
+    const text = buildHelpText();
+
+    // A plain @fiona question is answered in the thread for everyone, so the
+    // help text must not promise privacy for every @-mention answer.
+    expect(text).toMatch(/keep Fiona's answer to yourself, start with `ask` or `search`/i);
+    expect(text).toMatch(/any other @-mention.*whole channel can see/i);
+  });
+
+  // Visibility in Slack is not the same as not being stored: conversations can be
+  // captured for quality review, so the copy must not promise more than that.
+  it('says conversations may be retained, rather than calling them private', () => {
+    const text = buildHelpText();
+
+    expect(text).toMatch(/may be retained/i);
+    expect(text).not.toMatch(/\bprivate\b/i);
   });
 });
 
