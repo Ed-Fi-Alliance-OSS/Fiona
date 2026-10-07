@@ -76,9 +76,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
-        await say(
-          "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
-        );
+        await say({
+          text: "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+          thread_ts,
+        });
         return;
       }
 

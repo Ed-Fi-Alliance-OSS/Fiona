@@ -9,6 +9,7 @@ import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../
 import { ASK_DELIVERY_FAILED_TEXT, buildAskResponse, describeError, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
+  handleHelpEphemeral,
   handleSearchEphemeral,
   routeCommandViaSay,
   TICKET_NOT_CONFIGURED_TEXT,
@@ -18,8 +19,8 @@ import {
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
  * @-mention event or the assistant panel). The `escalate` keyword needs the
  * conversation context (client, ids, thread) and routes to `escalateViaSay`;
- * `ask` and `search` answer through their own pipelines; `help` falls through
- * to `routeCommandViaSay`.
+ * `ask` and `search` answer through their own pipelines; `help` is ephemeral
+ * from an @-mention and otherwise falls through to `routeCommandViaSay`.
  *
  * Shared by the app_mention and assistant message listeners so the
  * escalate-vs-route branch — and the "record the escalate turn exactly once"
@@ -140,6 +141,16 @@ export async function dispatchKeywordViaSay({
       threadTs: threadTs === messageTs ? null : threadTs,
       query: cmd.rawArgs,
       interactionType,
+    });
+    return;
+  }
+  if (cmd.keyword === 'help' && interactionType === 'app_mention') {
+    // Matches /fiona help, which is ephemeral. The agent panel keeps say(): it is
+    // already private, and whether an ephemeral renders there is unverified.
+    await handleHelpEphemeral(client, logger, {
+      userId,
+      channelId,
+      threadTs: threadTs === messageTs ? null : threadTs,
     });
     return;
   }

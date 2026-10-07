@@ -295,6 +295,30 @@ export async function handleHelpViaSay(say, logger) {
 }
 
 /**
+ * Sends the help response ephemerally, visible only to the invoking user.
+ *
+ * `threadTs` must be null for a top-level mention: Slack shows an ephemeral in a
+ * thread only if that thread already exists, so a top-level message's own ts
+ * would show the user nothing at all.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {{ userId: string, channelId: string, threadTs: string|null }} target
+ */
+export async function handleHelpEphemeral(client, logger, { userId, channelId, threadTs }) {
+  try {
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+      text: buildHelpText(),
+    });
+  } catch (err) {
+    logger?.error?.(`Failed to send ephemeral help response: ${err.name}: ${err.message}`);
+  }
+}
+
+/**
  * Performs a source search and sends results via say() — visible to all
  * thread/channel participants. Used in contexts where slash-command ack()
  * is not available (threads, agent panel, @-mention).
