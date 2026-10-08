@@ -630,6 +630,51 @@ describe('buildHelpText — ticket line is flag-gated', () => {
   });
 });
 
+// AI-252. Escalation is advertised again now that it is live, behind the same
+// AI-217 gate as the ticket line.
+describe('buildHelpText — escalate line is flag-gated', () => {
+  beforeEach(() => {
+    delete process.env.ESCALATION_ENABLED;
+  });
+
+  it('omits the escalate command and hint when the feature is off', () => {
+    const text = buildHelpText();
+    expect(text).not.toMatch(/escalate/i);
+    expect(text).not.toMatch(/need a human/i);
+  });
+
+  it('advertises the escalate command when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    expect(buildHelpText()).toMatch(/^escalate\s+Escalate your conversation to a human$/m);
+  });
+
+  it('tells the user how to reach a human when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const text = buildHelpText();
+    expect(text).toMatch(/^\*Need a human\?\* Use `\/fiona escalate` \(or type `escalate` in a DM\/thread\)/m);
+  });
+
+  it('keeps the hint outside the command list', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const [, fence, after] = buildHelpText().split('```');
+    expect(fence).not.toMatch(/need a human/i);
+    expect(after).toMatch(/need a human/i);
+  });
+
+  it('leaves no blank line in the command list when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const fence = buildHelpText().split('```')[1];
+    expect(fence.split('\n').filter((l, i, a) => l === '' && i > 0 && i < a.length - 1)).toEqual([]);
+  });
+
+  // Each state keeps exactly one blank line before the reach-Fiona section.
+  it('spaces the sections the same way whether the feature is on or off', () => {
+    expect(buildHelpText()).toMatch(/```\n\n\*How to reach Fiona:\*/);
+    process.env.ESCALATION_ENABLED = 'true';
+    expect(buildHelpText()).toMatch(/```\n\*Need a human\?\*[^\n]*\n\n\*How to reach Fiona:\*/);
+  });
+});
+
 describe('parseCommandKeyword — escalate is flag-gated', () => {
   beforeEach(() => {
     delete process.env.ESCALATION_ENABLED;
