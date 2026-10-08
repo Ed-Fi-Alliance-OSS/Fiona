@@ -571,6 +571,34 @@ describe('appMentionCallback', () => {
       expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
     });
 
+    // The question is shown back ("You asked:") and stored with feedback, so a
+    // mention inside it keeps its place as a neutral marker rather than leaving
+    // a hole. No user or channel id is kept.
+    it.each([
+      ['a user', '<@UFIONA> ask Can <@UALICE> help with ODS?', 'Can @someone help with ODS?'],
+      ['a user group', '<@UFIONA> ask Is <!subteam^S123|@ods-team> the right group?', 'Is @someone the right group?'],
+      ['a channel', '<@UFIONA> ask Should I post in <#C999|ods-help>?', 'Should I post in #a-channel?'],
+      ['@here', '<@UFIONA> ask Does <!here> need to know?', 'Does @here need to know?'],
+    ])('keeps the place of %s mentioned inside an ask question', async (_label, text, question) => {
+      mockEvent.text = text;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: question }]);
+      const [{ blocks }] = mockClient.chat.postEphemeral.mock.calls[0];
+      expect(blocks[0].elements[0].text).toBe(`You asked: ${question}`);
+    });
+
+    it('still removes mentions entirely from an ordinary question', async () => {
+      mockEvent.text = '<@UFIONA> can <@UALICE> help with ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const prompts = callLLM.mock.calls[0][1];
+      expect(prompts.at(-1)).toEqual({ role: 'user', content: 'can  help with ODS?' });
+    });
+
     it('keeps the ask answer in-thread when the mention occurs inside a thread', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
       mockEvent.thread_ts = '1234567890.000000';

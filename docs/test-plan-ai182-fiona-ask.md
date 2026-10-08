@@ -167,7 +167,7 @@ Also worth reporting even though it's not a failure:
   that uses the thread, use a normal `@fiona` question in the thread.
 - **Bare `search` with no query isn't a command.** It's answered as a normal question. Bare
   `ask` is different: it shows the help message (T7).
-- **The *You asked:* line shortens a very long question.** It shows the first 300 characters.
+- **The *You asked:* line shortens a very long question.** A question over 300 characters shows its first 299, then `…`.
   Feedback saves the question as shown in that line.
 
 ---
