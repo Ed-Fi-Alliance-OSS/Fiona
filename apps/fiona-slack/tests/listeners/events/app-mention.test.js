@@ -739,10 +739,25 @@ describe('appMentionCallback', () => {
           userId: 'U456',
           threadTs: '1234567890.000001',
           messageTs: '1234567890.000001',
-          say: mockSay,
+          say: expect.any(Function),
         }),
       );
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    // say is bound to the thread once, at the top of the callback (AI-198), so
+    // every keyword path receives the wrapper rather than Bolt's raw say().
+    it('hands keyword handlers a say() that posts into the thread', async () => {
+      mockEvent.text = '<@UFIONA> escalate';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const { say } = escalateViaSay.mock.calls[0][0];
+      await say('plain');
+      await say({ text: 'object', blocks: [] });
+      expect(mockSay).toHaveBeenNthCalledWith(1, { text: 'plain', thread_ts: '1234567890.000000' });
+      expect(mockSay).toHaveBeenNthCalledWith(2, { text: 'object', blocks: [], thread_ts: '1234567890.000000' });
     });
 
     it('does not escalate a rate-limited user mentioning "escalate"', async () => {

@@ -125,9 +125,7 @@ export async function handleInteractionWithTelemetry(
     }
 
     logger.error('Failed to handle a user message event:', e);
-    // Without thread_ts Slack posts to the parent channel, so a failure inside a
-    // thread would report itself somewhere the user isn't.
-    await say({ text: ':warning: Something went wrong! Please try again later.', thread_ts: threadTs }).catch(() => {
+    await say(':warning: Something went wrong! Please try again later.').catch(() => {
       logger.warn?.('Failed to send error message to Slack');
     });
   } finally {
