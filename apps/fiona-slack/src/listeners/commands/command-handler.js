@@ -14,6 +14,9 @@ const HELP_COMMAND_LINES = [
 ];
 
 const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
+const HELP_ESCALATE_LINE = 'escalate                Escalate your conversation to a human';
+const HELP_ESCALATE_HINT =
+  '*Need a human?* Use `/fiona escalate` (or type `escalate` in a DM/thread) to hand your conversation to the team.\n';
 
 /**
  * The help message, built per call because the command list depends on which
@@ -26,11 +29,14 @@ const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket
  * TICKET_NOT_CONFIGURED_TEXT, which is a recoverable operator error rather than
  * a deliberate withdrawal.
  *
- * Escalation is not listed either way — it never was.
+ * Escalation follows the same rule on `isEscalationEnabled`, and also adds the
+ * "Need a human?" hint below the list (AI-252).
  */
 export function buildHelpText() {
   const commands = [...HELP_COMMAND_LINES];
   if (isTicketingFeatureEnabled()) commands.push(HELP_TICKET_LINE);
+  const escalationEnabled = isEscalationEnabled();
+  if (escalationEnabled) commands.push(HELP_ESCALATE_LINE);
   return `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
@@ -38,7 +44,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 \`\`\`
 ${commands.join('\n')}
 \`\`\`
-
+${escalationEnabled ? HELP_ESCALATE_HINT : ''}
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel
 • *@-mention* (\`@fiona …\`) — in a channel or thread
