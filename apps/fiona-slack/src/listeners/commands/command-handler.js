@@ -286,8 +286,8 @@ export async function buildSearchResponse(query, logger, interactionType = null)
 }
 
 /**
- * Sends the help response via say() — visible to all thread/channel participants.
- * Used in contexts where slash-command ack() is not available (threads, agent panel).
+ * Sends help via say(). Used by the agent panel, which is already private, and
+ * by the routeCommandViaSay fallthrough; @-mentions use handleHelpEphemeral.
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
@@ -296,8 +296,60 @@ export async function handleHelpViaSay(say, logger) {
   try {
     await say(buildHelpText());
   } catch (err) {
-    logger?.error?.(`Failed to send help response: ${err.name}`);
+    logger?.error?.(`Failed to send help response: ${err.name}: ${err.message}`);
   }
+}
+
+/**
+ * The postEphemeral addressing for a reply to one user, shared by every
+ * ephemeral keyword answer (help, search, ask).
+ *
+ * `thread_ts` is set only when the message is inside an existing thread: Slack
+ * shows an ephemeral in a thread only if that thread already exists, so a
+ * top-level message's own ts would show the user nothing at all.
+ *
+ * @param {{ channelId: string, userId: string, threadTs?: string|null, messageTs: string }} ids
+ * @returns {{ channel: string, user: string, thread_ts?: string }}
+ */
+export function ephemeralTarget({ channelId, userId, threadTs, messageTs }) {
+  return {
+    channel: channelId,
+    user: userId,
+    ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
+  };
+}
+
+/**
+ * Posts an ephemeral and reports the outcome instead of throwing, so the caller
+ * can record a failed delivery rather than count it as a success.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @param {Object} message - `text` and optionally `blocks` and unfurl flags.
+ * @param {string} label - Names the response in the failure log line.
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+async function postEphemeralSafely(client, logger, target, message, label) {
+  try {
+    await client.chat.postEphemeral({ ...target, ...message });
+    return { errorType: null };
+  } catch (err) {
+    logger?.error?.(`Failed to send ephemeral ${label} response: ${err.name}: ${err.message}`);
+    return { errorType: 'post_failed' };
+  }
+}
+
+/**
+ * Sends the help response ephemerally, visible only to the invoking user.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+export async function handleHelpEphemeral(client, logger, target) {
+  return postEphemeralSafely(client, logger, target, { text: buildHelpText() }, 'help');
 }
 
 /**
@@ -318,20 +370,20 @@ export async function handleSearchViaSay(say, logger, query, { interactionType =
   }
 }
 
-export async function handleSearchEphemeral(
-  client,
-  logger,
-  { userId, channelId, threadTs, query, interactionType = null },
-) {
-  try {
-    const { response } = await buildSearchResponse(query, logger, interactionType);
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      ...(threadTs ? { thread_ts: threadTs } : {}),
-      ...response,
-    });
-  } catch (err) {
-    logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
-  }
+/**
+ * Performs a source search and sends the results ephemerally.
+ *
+ * A failed post outranks a failed search in the returned `errorType`: if the
+ * post fails, the user saw nothing at all, not even the search error notice.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @param {{ query: string, interactionType?: string|null }} search
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+export async function handleSearchEphemeral(client, logger, target, { query, interactionType = null }) {
+  const { response, errorType: searchErrorType } = await buildSearchResponse(query, logger, interactionType);
+  const { errorType: postErrorType } = await postEphemeralSafely(client, logger, target, response, 'search');
+  return { errorType: postErrorType ?? searchErrorType };
 }

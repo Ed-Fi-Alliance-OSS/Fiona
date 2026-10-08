@@ -9,6 +9,8 @@ import { generateResponseId, rollbackFinalization, shouldFinalize } from '../../
 import { ASK_DELIVERY_FAILED_TEXT, buildAskResponse, describeError, streamAskResponse } from './ask-handler.js';
 import {
   buildCreateTicketBlocks,
+  ephemeralTarget,
+  handleHelpEphemeral,
   handleSearchEphemeral,
   routeCommandViaSay,
   TICKET_NOT_CONFIGURED_TEXT,
@@ -18,8 +20,8 @@ import {
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
  * @-mention event or the assistant panel). The `escalate` keyword needs the
  * conversation context (client, ids, thread) and routes to `escalateViaSay`;
- * `ask` and `search` answer through their own pipelines; `help` falls through
- * to `routeCommandViaSay`.
+ * `ask`, `search` and `help` answer ephemerally everywhere except the agent
+ * panel, where search and help fall through to `routeCommandViaSay`.
  *
  * Shared by the app_mention and assistant message listeners so the
  * escalate-vs-route branch — and the "record the escalate turn exactly once"
@@ -133,14 +135,16 @@ export async function dispatchKeywordViaSay({
     if (streamResult?.errorType) markInteractionError(streamResult.errorType);
     return;
   }
-  if (cmd.keyword === 'search' && interactionType === 'app_mention') {
-    await handleSearchEphemeral(client, logger, {
-      userId,
-      channelId,
-      threadTs: threadTs === messageTs ? null : threadTs,
-      query: cmd.rawArgs,
-      interactionType,
-    });
+  // Help and search use the same fail-closed rule as ask: only the agent panel,
+  // which is already private, answers through say(). Help matches /fiona help,
+  // which is ephemeral; whether an ephemeral renders in the panel is unverified.
+  if ((cmd.keyword === 'search' || cmd.keyword === 'help') && interactionType !== 'assistant_message') {
+    const target = ephemeralTarget({ channelId, userId, threadTs, messageTs });
+    const { errorType } =
+      cmd.keyword === 'search'
+        ? await handleSearchEphemeral(client, logger, target, { query: cmd.rawArgs, interactionType })
+        : await handleHelpEphemeral(client, logger, target);
+    if (errorType) markInteractionError(errorType);
     return;
   }
   await routeCommandViaSay(say, logger, cmd, { interactionType });
@@ -184,11 +188,7 @@ async function answerAskEphemerally({
   responseId,
   markInteractionError,
 }) {
-  const ephemeralTarget = {
-    channel: channelId,
-    user: userId,
-    ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
-  };
+  const target = ephemeralTarget({ channelId, userId, threadTs, messageTs });
 
   await setThinkingStatus(client, logger, channelId, threadTs, 'thinking...');
   let built;
@@ -210,13 +210,13 @@ async function answerAskEphemerally({
   const { response, errorType, capture } = built;
   if (errorType) markInteractionError(errorType);
   try {
-    await client.chat.postEphemeral({ ...ephemeralTarget, ...response });
+    await client.chat.postEphemeral({ ...target, ...response });
   } catch (err) {
     rollbackFinalization(responseId);
     markInteractionError('post_failed');
     logger?.error?.(`Failed to send ephemeral ask response: ${describeError(err)}`);
     await client.chat
-      .postEphemeral({ ...ephemeralTarget, text: ASK_DELIVERY_FAILED_TEXT })
+      .postEphemeral({ ...target, text: ASK_DELIVERY_FAILED_TEXT })
       .catch((fallbackErr) =>
         logger?.warn?.(`Failed to send ask delivery-failure notice: ${describeError(fallbackErr)}`),
       );

@@ -22,6 +22,8 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
 const {
   parseCommandKeyword,
   buildHelpText,
+  ephemeralTarget,
+  handleHelpEphemeral,
   handleHelpViaSay,
   handleSearchViaSay,
   routeCommandViaSay,
@@ -410,6 +412,53 @@ describe('buildHelpText (all features on)', () => {
   });
 });
 
+// AI-198 review. One rule for where an ephemeral keyword answer lands, shared by
+// help, search and ask.
+describe('ephemeralTarget', () => {
+  it('omits thread_ts for a top-level message, whose own ts is not yet a thread', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: '123.45', messageTs: '123.45' })).toEqual({
+      channel: 'C1',
+      user: 'U1',
+    });
+  });
+
+  it('sets thread_ts for a message inside an existing thread', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: '100.00', messageTs: '123.45' })).toEqual({
+      channel: 'C1',
+      user: 'U1',
+      thread_ts: '100.00',
+    });
+  });
+
+  it('omits thread_ts when there is no thread at all', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: null, messageTs: '123.45' })).not.toHaveProperty(
+      'thread_ts',
+    );
+  });
+});
+
+describe('handleHelpEphemeral', () => {
+  const target = { channel: 'C1', user: 'U1' };
+  let client;
+  let logger;
+
+  beforeEach(() => {
+    client = { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } };
+    logger = { error: jest.fn() };
+  });
+
+  it('posts the help text to the target and reports no error', async () => {
+    await expect(handleHelpEphemeral(client, logger, target)).resolves.toEqual({ errorType: null });
+    expect(client.chat.postEphemeral).toHaveBeenCalledWith({ ...target, text: buildHelpText() });
+  });
+
+  it('reports post_failed instead of throwing when the post fails', async () => {
+    client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+    await expect(handleHelpEphemeral(client, logger, target)).resolves.toEqual({ errorType: 'post_failed' });
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('channel_not_found'));
+  });
+});
+
 describe('handleHelpViaSay', () => {
   let mockSay;
   let mockLogger;
@@ -425,10 +474,10 @@ describe('handleHelpViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('logs error when say() throws', async () => {
+  it('logs the error name and message when say() throws', async () => {
     mockSay.mockRejectedValueOnce(new Error('network error'));
     await handleHelpViaSay(mockSay, mockLogger);
-    expect(mockLogger.error).toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Error: network error'));
   });
 
   it('does not throw when say() throws', async () => {
