@@ -69,7 +69,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (
         await declineOverLongAsk({
           cmd,
-          say,
+          say: threadedSay,
           client,
           logger,
           userId: user,

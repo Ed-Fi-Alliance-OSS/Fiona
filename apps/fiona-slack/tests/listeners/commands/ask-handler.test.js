@@ -129,7 +129,7 @@ describe('buildAskResponse', () => {
       expect(response.blocks[0]).toEqual({
         type: 'context',
         block_id: 'ask_question',
-        elements: [{ type: 'plain_text', text: `You asked: ${question}`, emoji: false }],
+        elements: [{ type: 'plain_text', text: 'You asked: is *this* a link or @U123 or `code`?', emoji: false }],
       });
     });
 

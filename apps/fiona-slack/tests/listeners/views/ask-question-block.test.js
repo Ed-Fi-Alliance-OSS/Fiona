@@ -12,9 +12,21 @@ import {
 
 describe('ask question block', () => {
   it('round-trips a question through the block', () => {
-    const question = 'How do I *authenticate* to <the ODS/API> & get a token?';
+    const question = 'How do I *authenticate* to the ODS/API?';
 
     expect(extractAskQuestion([createAskQuestionBlock(question)])).toBe(question);
+  });
+
+  // Slack sends message text with &, < and > escaped and links wrapped in <…>.
+  // plain_text would show that markup literally, and feedback would store it.
+  it.each([
+    ['escaped characters', 'Is &lt;Descriptor&gt; A &amp; B?', 'Is <Descriptor> A & B?'],
+    ['a bare link', 'is <https://docs.ed-fi.org> current?', 'is https://docs.ed-fi.org current?'],
+    ['a labelled link', 'see <https://docs.ed-fi.org/a|the docs>', 'see the docs'],
+    ['a mailto link', 'email <mailto:help@ed-fi.org|help@ed-fi.org>', 'email help@ed-fi.org'],
+    ['an escaped entity name, decoded once', '&amp;lt;', '&lt;'],
+  ])('shows %s as the user typed them', (_label, slackText, shown) => {
+    expect(extractAskQuestion([createAskQuestionBlock(slackText)])).toBe(shown);
   });
 
   it('renders plain text, never mrkdwn', () => {
@@ -40,6 +52,19 @@ describe('ask question block', () => {
 
     expect(recovered).toBe(`${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}😀…`);
     expect(recovered.isWellFormed()).toBe(true);
+  });
+
+  // A flag or a ZWJ family is several code points shown as one character.
+  it.each([
+    ['a flag', '🇺🇸'],
+    ['a ZWJ family', '👩‍👩‍👧'],
+    ['a skin-tone modifier', '👍🏽'],
+  ])('does not split %s that straddles the cutoff', (_label, emoji) => {
+    const question = `${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}${emoji} and more`;
+
+    expect(extractAskQuestion([createAskQuestionBlock(question)])).toBe(
+      `${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}${emoji}…`,
+    );
   });
 
   it('keeps a question exactly at the limit whole', () => {

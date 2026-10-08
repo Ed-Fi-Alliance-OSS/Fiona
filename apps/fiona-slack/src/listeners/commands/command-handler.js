@@ -332,7 +332,7 @@ export function ephemeralTarget({ channelId, userId, threadTs, messageTs }) {
  * @param {string} label - Names the response in the failure log line.
  * @returns {Promise<{ errorType: string|null }>}
  */
-async function postEphemeralSafely(client, logger, target, message, label) {
+export async function postEphemeralSafely(client, logger, target, message, label) {
   try {
     await client.chat.postEphemeral({ ...target, ...message });
     return { errorType: null };

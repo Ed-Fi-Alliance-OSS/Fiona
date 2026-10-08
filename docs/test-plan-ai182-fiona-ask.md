@@ -68,6 +68,7 @@ may still be kept to review answer quality.
 | **T10** | `/fiona help` | Lists **`ask <question>`** with no "(coming soon)" note. The *Who can see your question* section says only you see slash-command and DM answers; that in a channel, the answer to an @-mention stays with you only if it starts with `ask` or `search`; and that conversations may be retained. Nothing in it says "private" |
 | **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons. It does not count toward your hourly limit |
 | **T11a** | `/fiona ask Is *this* bold, and is https://docs.ed-fi.org a link?` | The *You asked:* line shows exactly what you typed, as plain text: the asterisks stay visible, with no bold. Note whether Slack makes the URL clickable, and report it either way |
+| **T11b** | In a channel: `@fiona ask Is A & B the same as <Descriptor>? See https://docs.ed-fi.org` | The *You asked:* line reads exactly as typed: no `&amp;` or `&lt;`, and no angle brackets added around the URL. Rate the answer 👎 and confirm the stored feedback question reads the same way |
 
 ## C. Answer content and rendering
 

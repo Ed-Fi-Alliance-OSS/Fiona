@@ -19,15 +19,31 @@ export const ASK_QUESTION_BLOCK_ID = 'ask_question';
 const PREFIX = 'You asked: ';
 // Long enough for any real question and well under Slack's text-object limit;
 // the full question is captured with the conversation either way. Counted in
-// code points, so the cut never splits an emoji into a lone surrogate.
+// graphemes, so the cut never splits a character, emoji sequences included.
 export const ASK_QUESTION_DISPLAY_MAX_CHARS = 300;
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const SLACK_ENTITIES = { '&lt;': '<', '&gt;': '>', '&amp;': '&' };
+
+/**
+ * Undoes Slack's message formatting so the line reads as the user typed it.
+ * Slack escapes `&`, `<` and `>` and wraps links as `<url>` or `<url|label>`;
+ * plain_text would show that markup literally. Links are unwrapped before the
+ * entities are decoded, so an escaped `&lt;` the user typed is not mistaken for
+ * link markup.
+ */
+function toDisplayText(text) {
+  return text
+    .replace(/<([^<>|]+)(?:\|([^<>]*))?>/g, (_match, target, label) => label || target)
+    .replace(/&(?:lt|gt|amp);/g, (entity) => SLACK_ENTITIES[entity]);
+}
+
 export function createAskQuestionBlock(question) {
-  const chars = Array.from(question);
+  const chars = Array.from(graphemes.segment(toDisplayText(question)), ({ segment }) => segment);
   const shown =
     chars.length > ASK_QUESTION_DISPLAY_MAX_CHARS
       ? `${chars.slice(0, ASK_QUESTION_DISPLAY_MAX_CHARS - 1).join('')}…`
-      : question;
+      : chars.join('');
   return {
     type: 'context',
     block_id: ASK_QUESTION_BLOCK_ID,

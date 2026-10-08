@@ -20,6 +20,7 @@ import {
   ephemeralTarget,
   handleHelpEphemeral,
   handleSearchEphemeral,
+  postEphemeralSafely,
   routeCommandViaSay,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
@@ -188,14 +189,14 @@ export async function declineOverLongAsk({
 }) {
   if (cmd?.keyword !== 'ask' || !isQuestionTooLong(cmd.rawArgs, logger)) return false;
   markInteractionError('question_too_long');
-  const send =
-    interactionType === 'assistant_message'
-      ? say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs })
-      : client.chat.postEphemeral({
-          ...ephemeralTarget({ channelId, userId, threadTs, messageTs }),
-          text: ASK_TOO_LONG_TEXT,
-        });
-  await send.catch((err) => logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`));
+  if (interactionType === 'assistant_message') {
+    await say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs }).catch((err) =>
+      logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`),
+    );
+  } else {
+    const target = ephemeralTarget({ channelId, userId, threadTs, messageTs });
+    await postEphemeralSafely(client, logger, target, { text: ASK_TOO_LONG_TEXT }, 'ask too-long');
+  }
   return true;
 }
 
@@ -261,9 +262,7 @@ async function answerAskEphemerally({
     rollbackFinalization(responseId);
     markInteractionError('ask_failed');
     logger?.error?.(`Failed to build ask answer: ${describeError(err)}`);
-    await client.chat
-      .postEphemeral({ ...target, text: ASK_ERROR_TEXT })
-      .catch((noticeErr) => logger?.warn?.(`Failed to send ask error notice: ${describeError(noticeErr)}`));
+    await postEphemeralSafely(client, logger, target, { text: ASK_ERROR_TEXT }, 'ask error');
     return;
   } finally {
     await setThinkingStatus(client, logger, channelId, threadTs, '');
@@ -271,17 +270,11 @@ async function answerAskEphemerally({
 
   const { response, errorType, capture } = built;
   if (errorType) markInteractionError(errorType);
-  try {
-    await client.chat.postEphemeral({ ...target, ...response });
-  } catch (err) {
+  const { errorType: postErrorType } = await postEphemeralSafely(client, logger, target, response, 'ask');
+  if (postErrorType) {
     rollbackFinalization(responseId);
-    markInteractionError('post_failed');
-    logger?.error?.(`Failed to send ephemeral ask response: ${describeError(err)}`);
-    await client.chat
-      .postEphemeral({ ...target, text: ASK_DELIVERY_FAILED_TEXT })
-      .catch((fallbackErr) =>
-        logger?.warn?.(`Failed to send ask delivery-failure notice: ${describeError(fallbackErr)}`),
-      );
+    markInteractionError(postErrorType);
+    await postEphemeralSafely(client, logger, target, { text: ASK_DELIVERY_FAILED_TEXT }, 'ask delivery-failure');
     return;
   }
   await capture();

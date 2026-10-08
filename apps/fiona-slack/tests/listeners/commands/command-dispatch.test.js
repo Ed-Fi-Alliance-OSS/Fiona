@@ -193,7 +193,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     params.client.chat.postEphemeral.mockRejectedValue(new Error('channel_not_found'));
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('delivery-failure notice'));
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask delivery-failure response'));
   });
 
   it('captures the conversation only once the answer is posted', async () => {
@@ -278,7 +278,7 @@ describe('dispatchKeywordViaSay — ask', () => {
       params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
 
       await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('ask error notice'));
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask error response'));
     });
   });
 
@@ -502,7 +502,7 @@ describe('declineOverLongAsk', () => {
     params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await expect(declineOverLongAsk(params)).resolves.toBe(true);
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('too-long notice'));
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask too-long response'));
   });
 });
 
