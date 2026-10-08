@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 133,
+  "title": "[AI-252] Restore escalate to Fiona help text",
+  "state": "merged",
+  "jiraKey": "AI-252",
+  "authorKind": "human",
+  "stats": {
+    "additions": 58,
+    "deletions": 6,
+    "changedFiles": 3,
+    "commits": 1,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 1139,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 3
+    },
+    "testToSourceRatio": 2,
+    "docsTouched": false,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-08T16:47:41.744Z"
+}
