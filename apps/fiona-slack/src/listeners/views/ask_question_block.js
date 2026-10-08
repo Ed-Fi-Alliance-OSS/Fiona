@@ -7,9 +7,9 @@
  * The "You asked:" line above an ephemeral `ask` answer (AI-248).
  *
  * It does two jobs. It tells the reader which question an answer belongs to,
- * since an ephemeral answer is not threaded under it. And it is the only place
- * the question survives: an ephemeral message cannot be fetched back later, so
- * the feedback handler reads the question from this block at click time.
+ * since an ephemeral answer is not threaded under it. And it is the only copy
+ * Slack can hand back: an ephemeral message cannot be fetched later, so the
+ * feedback handler reads the question from this block at click time.
  *
  * The question is rendered as `plain_text`, so nothing the user typed (`*`,
  * `_`, `<url>`, a mention) is interpreted as formatting or a link.
@@ -18,13 +18,15 @@
 export const ASK_QUESTION_BLOCK_ID = 'ask_question';
 const PREFIX = 'You asked: ';
 // Long enough for any real question and well under Slack's text-object limit;
-// the full question is captured with the conversation either way.
+// the full question is captured with the conversation either way. Counted in
+// code points, so the cut never splits an emoji into a lone surrogate.
 export const ASK_QUESTION_DISPLAY_MAX_CHARS = 300;
 
 export function createAskQuestionBlock(question) {
+  const chars = Array.from(question);
   const shown =
-    question.length > ASK_QUESTION_DISPLAY_MAX_CHARS
-      ? `${question.slice(0, ASK_QUESTION_DISPLAY_MAX_CHARS - 1)}…`
+    chars.length > ASK_QUESTION_DISPLAY_MAX_CHARS
+      ? `${chars.slice(0, ASK_QUESTION_DISPLAY_MAX_CHARS - 1).join('')}…`
       : question;
   return {
     type: 'context',

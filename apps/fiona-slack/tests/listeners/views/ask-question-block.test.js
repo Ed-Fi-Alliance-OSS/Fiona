@@ -32,6 +32,16 @@ describe('ask question block', () => {
     expect(recovered.endsWith('…')).toBe(true);
   });
 
+  // An emoji is two UTF-16 code units; cutting between them would leave a lone
+  // surrogate, which Slack shows as a broken character and feedback stores.
+  it('does not split an emoji that straddles the cutoff', () => {
+    const question = `${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}😀 and more`;
+    const recovered = extractAskQuestion([createAskQuestionBlock(question)]);
+
+    expect(recovered).toBe(`${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}😀…`);
+    expect(recovered.isWellFormed()).toBe(true);
+  });
+
   it('keeps a question exactly at the limit whole', () => {
     const question = 'y'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS);
 

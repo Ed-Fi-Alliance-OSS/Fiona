@@ -96,8 +96,9 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 6. The ephemeral answer opens with a plain-text "You asked: …" line repeating
    the question (shortened to 300 characters), because an ephemeral answer is
    not threaded under it. Feedback reads the question back from this line at
-   click time (AI-248); it is the only copy, since an ephemeral message cannot
-   be fetched later.
+   click time (AI-248); it is the only copy Slack can give back at that point,
+   since an ephemeral message cannot be fetched later. (Conversation capture,
+   below, may separately keep the full question.)
 7. The numbered Sources block (AI-230) sits between the answer and the feedback
    buttons, exactly as on a standard `app_mention` answer, and the grounding rules
    (AI-231) apply unchanged — a question with no usable sources gets the same
