@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 98,
+  "title": "[AI-198] fix: reply in the originating thread, and make @-mention help ephemeral",
+  "state": "merged",
+  "jiraKey": "AI-198",
+  "authorKind": "human",
+  "stats": {
+    "additions": 335,
+    "deletions": 57,
+    "changedFiles": 6,
+    "commits": 3,
+    "reviewCycles": 1,
+    "reviewComments": 3,
+    "timeToFirstGreenCiMinutes": 97654,
+    "timeToMergeMinutes": 99149,
+    "ciRuns": {
+      "total": 4,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 6
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": false,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 2,
+      "correctness": 1,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 3,
+      "feature": 0
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-08T19:32:23.408Z"
+}
