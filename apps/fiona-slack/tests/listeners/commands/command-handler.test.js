@@ -19,7 +19,20 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   SEARCH_ERROR_TEXT: ':warning: Search error.',
 }));
 
-const { buildCreateTicketBlocks, buildHelpText, CREATE_TICKET_ACTION, ephemeralThreadTs, handleHelpViaSay, handleSearchViaSay, normalizeTicketType, parseCommandKeyword, routeCommandViaSay, TICKET_NOT_CONFIGURED_TEXT, TICKET_TYPES } = await import('../../../src/listeners/commands/command-handler.js');
+const {
+  parseCommandKeyword,
+  buildHelpText,
+  ephemeralTarget,
+  handleHelpEphemeral,
+  handleHelpViaSay,
+  handleSearchViaSay,
+  routeCommandViaSay,
+  buildCreateTicketBlocks,
+  normalizeTicketType,
+  TICKET_TYPES,
+  CREATE_TICKET_ACTION,
+  TICKET_NOT_CONFIGURED_TEXT,
+} = await import('../../../src/listeners/commands/command-handler.js');
 
 // The AI-217 flags default to off. Suites that need a feature on set it in their
 // own beforeEach; clearing here keeps suite ordering from being load-bearing.
@@ -399,6 +412,53 @@ describe('buildHelpText (all features on)', () => {
   });
 });
 
+// AI-198 review. One rule for where an ephemeral keyword answer lands, shared by
+// help, search and ask.
+describe('ephemeralTarget', () => {
+  it('omits thread_ts for a top-level message, whose own ts is not yet a thread', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: '123.45', messageTs: '123.45' })).toEqual({
+      channel: 'C1',
+      user: 'U1',
+    });
+  });
+
+  it('sets thread_ts for a message inside an existing thread', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: '100.00', messageTs: '123.45' })).toEqual({
+      channel: 'C1',
+      user: 'U1',
+      thread_ts: '100.00',
+    });
+  });
+
+  it('omits thread_ts when there is no thread at all', () => {
+    expect(ephemeralTarget({ channelId: 'C1', userId: 'U1', threadTs: null, messageTs: '123.45' })).not.toHaveProperty(
+      'thread_ts',
+    );
+  });
+});
+
+describe('handleHelpEphemeral', () => {
+  const target = { channel: 'C1', user: 'U1' };
+  let client;
+  let logger;
+
+  beforeEach(() => {
+    client = { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } };
+    logger = { error: jest.fn() };
+  });
+
+  it('posts the help text to the target and reports no error', async () => {
+    await expect(handleHelpEphemeral(client, logger, target)).resolves.toEqual({ errorType: null });
+    expect(client.chat.postEphemeral).toHaveBeenCalledWith({ ...target, text: buildHelpText() });
+  });
+
+  it('reports post_failed instead of throwing when the post fails', async () => {
+    client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+    await expect(handleHelpEphemeral(client, logger, target)).resolves.toEqual({ errorType: 'post_failed' });
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('channel_not_found'));
+  });
+});
+
 describe('handleHelpViaSay', () => {
   let mockSay;
   let mockLogger;
@@ -414,10 +474,10 @@ describe('handleHelpViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('logs error when say() throws', async () => {
+  it('logs the error name and message when say() throws', async () => {
     mockSay.mockRejectedValueOnce(new Error('network error'));
     await handleHelpViaSay(mockSay, mockLogger);
-    expect(mockLogger.error).toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Error: network error'));
   });
 
   it('does not throw when say() throws', async () => {
@@ -538,17 +598,6 @@ describe('routeCommandViaSay', () => {
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
-  describe('ephemeralThreadTs', () => {
-    it.each([
-      ['a mention inside a thread', '100.00', '200.00', '100.00'],
-      ['a mention that started its own thread', '200.00', '200.00', null],
-      ['no thread at all', null, '200.00', null],
-      ['an undefined thread', undefined, '200.00', null],
-    ])('%s → %p', (_label, threadTs, messageTs, expected) => {
-      expect(ephemeralThreadTs(threadTs, messageTs)).toBe(expected);
-    });
-  });
-
   it('calls searchForSources and say() results when keyword is "search"', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' }, { interactionType: 'app_mention' });
     expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
@@ -628,6 +677,51 @@ describe('buildHelpText — ticket line is flag-gated', () => {
 
     expect(text).toMatch(/may be retained/i);
     expect(text).not.toMatch(/\bprivate\b/i);
+  });
+});
+
+// AI-252. Escalation is advertised again now that it is live, behind the same
+// AI-217 gate as the ticket line.
+describe('buildHelpText — escalate line is flag-gated', () => {
+  beforeEach(() => {
+    delete process.env.ESCALATION_ENABLED;
+  });
+
+  it('omits the escalate command and hint when the feature is off', () => {
+    const text = buildHelpText();
+    expect(text).not.toMatch(/escalate/i);
+    expect(text).not.toMatch(/need a human/i);
+  });
+
+  it('advertises the escalate command when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    expect(buildHelpText()).toMatch(/^escalate\s+Escalate your conversation to a human$/m);
+  });
+
+  it('tells the user how to reach a human when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const text = buildHelpText();
+    expect(text).toMatch(/^\*Need a human\?\* Use `\/fiona escalate` \(or type `escalate` in a DM\/thread\)/m);
+  });
+
+  it('keeps the hint outside the command list', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const [, fence, after] = buildHelpText().split('```');
+    expect(fence).not.toMatch(/need a human/i);
+    expect(after).toMatch(/need a human/i);
+  });
+
+  it('leaves no blank line in the command list when the feature is on', () => {
+    process.env.ESCALATION_ENABLED = 'true';
+    const fence = buildHelpText().split('```')[1];
+    expect(fence.split('\n').filter((l, i, a) => l === '' && i > 0 && i < a.length - 1)).toEqual([]);
+  });
+
+  // Each state keeps exactly one blank line before the reach-Fiona section.
+  it('spaces the sections the same way whether the feature is on or off', () => {
+    expect(buildHelpText()).toMatch(/```\n\n\*How to reach Fiona:\*/);
+    process.env.ESCALATION_ENABLED = 'true';
+    expect(buildHelpText()).toMatch(/```\n\*Need a human\?\*[^\n]*\n\n\*How to reach Fiona:\*/);
   });
 });
 

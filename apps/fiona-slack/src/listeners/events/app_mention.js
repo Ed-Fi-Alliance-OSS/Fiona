@@ -40,6 +40,15 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
   const { channel, team, user } = event;
   const thread_ts = event.thread_ts || event.ts;
   const messageTs = event.ts;
+  // Bolt's say() posts to the channel root, so every reply in the mention flow
+  // (telemetry's error notice, the rate-limit notice, the greeting, keyword
+  // replies) goes through this wrapper instead of adding thread_ts per call.
+  //
+  // For a top-level mention, thread_ts is the mention's own ts, so these notices
+  // open a thread under it: the same place the streamed answer goes. Ephemeral
+  // keyword answers are the exception (see ephemeralTarget). Slack cannot start
+  // a thread with an ephemeral, so for a top-level mention those appear inline.
+  const threadedSay = (msg) => say(typeof msg === 'string' ? { text: msg, thread_ts } : { thread_ts, ...msg });
 
   await handleInteractionWithTelemetry(
     {
@@ -50,7 +59,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       messageTs,
       interactionType: 'app_mention',
       logger,
-      say,
+      say: threadedSay,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
@@ -83,7 +92,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           messageTs,
           interactionType: 'app_mention',
           logger,
-          say,
+          say: threadedSay,
           markRateLimited,
           markInteractionRecorded,
         })
@@ -94,7 +103,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
-        await say(
+        await threadedSay(
           "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
         );
         return;
@@ -105,7 +114,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (cmd) {
         await dispatchKeywordViaSay({
           cmd,
-          say,
+          say: threadedSay,
           logger,
           telemetry: { markInteractionRecorded, markInteractionError, claimResponseId },
           client,
