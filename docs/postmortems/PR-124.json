@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 124,
+  "title": "[AI-245] Terminal based chat for prompt testing",
+  "state": "merged",
+  "jiraKey": "AI-245",
+  "authorKind": "human",
+  "stats": {
+    "additions": 2561,
+    "deletions": 1,
+    "changedFiles": 7,
+    "commits": 8,
+    "reviewCycles": 1,
+    "reviewComments": 3,
+    "timeToFirstGreenCiMinutes": 5468,
+    "timeToMergeMinutes": 8856,
+    "ciRuns": {
+      "total": 4,
+      "failed": 2,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 1,
+      "build": 0,
+      "other": 1
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 1,
+      "json": 1,
+      "js": 5
+    },
+    "testToSourceRatio": 1.5,
+    "docsTouched": true,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 2,
+      "correctness": 1,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 1,
+      "feature": 2
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-09T22:08:34.482Z"
+}
