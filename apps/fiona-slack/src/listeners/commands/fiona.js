@@ -24,6 +24,7 @@ import {
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
+  postEphemeralSafely,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
@@ -68,7 +69,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleHelp({ command, ack, logger });
       break;
     case 'ask':
-      await handleAsk({ command, ack, respond, logger });
+      await handleAsk({ command, ack, respond, client, logger });
       break;
     case 'search':
       await handleSearch({ command, ack, respond, logger });
@@ -138,8 +139,9 @@ function fireAndForgetRecord({ command, logger, interactionType, errorType = nul
  * answers the user ephemerally and, where it is a real interaction, records it.
  *
  * Returns a `reply` function that sends an ephemeral message and logs rather
- * than throws, or null when the sub-command should stop. A handler that needs to
- * know whether its main response was delivered calls `respond` itself.
+ * than throws, resolving to whether it was delivered, or null when the
+ * sub-command should stop. A handler that needs the error itself from its main
+ * response calls `respond` directly.
  *
  * @param {Object} params
  * @param {string} params.name - The sub-command, for the missing-fields log line.
@@ -152,7 +154,7 @@ function fireAndForgetRecord({ command, logger, interactionType, errorType = nul
  * @param {(reply: Function) => Promise<boolean>} [params.checkAvailable] - Runs
  *   before the rate limit; returning false stops the sub-command (it has already
  *   replied).
- * @returns {Promise<((message: Object) => Promise<void>) | null>}
+ * @returns {Promise<((message: Object) => Promise<boolean>) | null>}
  */
 async function startPrivateSlashCommand({
   command,
@@ -175,8 +177,12 @@ async function startPrivateSlashCommand({
   }
 
   const reply = (message) =>
-    respond({ response_type: 'ephemeral', ...(replaceOriginal ? { replace_original: true } : {}), ...message }).catch(
-      (err) => logger?.error?.(`Failed to respond to /fiona ${invokedAs}: ${describeError(err)}`),
+    respond({ response_type: 'ephemeral', ...(replaceOriginal ? { replace_original: true } : {}), ...message }).then(
+      () => true,
+      (err) => {
+        logger?.error?.(`Failed to respond to /fiona ${invokedAs}: ${describeError(err)}`);
+        return false;
+      },
     );
 
   if (!hasRequiredFields(command)) {
@@ -224,7 +230,7 @@ const ASK_THINKING_TEXT = ':hourglass_flowing_sand: Thinking…';
  *
  * Falls back to the help response when no question is provided.
  */
-async function handleAsk({ command, ack, respond, logger }) {
+async function handleAsk({ command, ack, respond, client, logger }) {
   const question = (command.text ?? '').trim().slice('ask'.length).trim();
 
   // Empty question: fall back to help (same as /fiona with no sub-command)
@@ -270,6 +276,8 @@ async function handleAsk({ command, ack, respond, logger }) {
       // per invocation and stands in for both, as in slashInteractionRecord.
       threadTs: command.trigger_id,
       messageTs: command.trigger_id,
+      // should_escape is false, so slash text has no <url> markup to unwrap.
+      linkMarkup: false,
     });
   } catch (err) {
     logger?.error?.(`Failed to build /fiona ask answer: ${describeError(err)}`);
@@ -284,7 +292,13 @@ async function handleAsk({ command, ack, respond, logger }) {
     await respond({ response_type: 'ephemeral', replace_original: true, ...response });
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`);
-    await reply({ text: ASK_DELIVERY_FAILED_TEXT });
+    // A small reply through respond() can still replace the "Thinking…" line
+    // (the answer may have failed for its size). If respond() is down too, the
+    // notice goes through the Web API instead, so the user is not left waiting.
+    if (!(await reply({ text: ASK_DELIVERY_FAILED_TEXT }))) {
+      const target = { channel: command.channel_id, user: command.user_id };
+      await postEphemeralSafely(client, logger, target, { text: ASK_DELIVERY_FAILED_TEXT }, 'ask delivery-failure');
+    }
     fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'respond_failed' });
     return;
   }

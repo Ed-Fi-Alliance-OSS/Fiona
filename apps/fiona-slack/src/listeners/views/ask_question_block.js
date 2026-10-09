@@ -35,11 +35,17 @@ const SLACK_ENTITIES = { '&lt;': '<', '&gt;': '>', '&amp;': '&' };
  * plain_text would show that markup literally. Links are unwrapped before the
  * entities are decoded, so an escaped `&lt;` the user typed is not mistaken for
  * link markup.
+ *
+ * Slash-command text has no link markup to undo: the manifest sets
+ * `should_escape: false`, so links and mentions arrive as typed, and a literal
+ * `<Descriptor>` must not be unwrapped. Its entities are still decoded, which
+ * reads correctly whether or not Slack escaped them.
  */
-function toDisplayText(text) {
-  return text
-    .replace(/<([^<>|]+)(?:\|([^<>]*))?>/g, (_match, target, label) => label || target)
-    .replace(/&(?:lt|gt|amp);/g, (entity) => SLACK_ENTITIES[entity]);
+function toDisplayText(text, { linkMarkup }) {
+  const unwrapped = linkMarkup
+    ? text.replace(/<([^<>|]+)(?:\|([^<>]*))?>/g, (_match, target, label) => label || target)
+    : text;
+  return unwrapped.replace(/&(?:lt|gt|amp);/g, (entity) => SLACK_ENTITIES[entity]);
 }
 
 function shorten(text) {
@@ -54,8 +60,13 @@ function shorten(text) {
   return `${shown}…`;
 }
 
-export function createAskQuestionBlock(question) {
-  const shown = shorten(toDisplayText(question));
+/**
+ * @param {string} question - The question as Slack sent it.
+ * @param {{ linkMarkup?: boolean }} [options] - `linkMarkup: false` for
+ *   slash-command text, which carries no `<url>` markup (see toDisplayText).
+ */
+export function createAskQuestionBlock(question, { linkMarkup = true } = {}) {
+  const shown = shorten(toDisplayText(question, { linkMarkup }));
   return {
     type: 'context',
     block_id: ASK_QUESTION_BLOCK_ID,

@@ -105,9 +105,9 @@ export function fitMarkdownBlock(text) {
 
 // The question goes first: an ephemeral answer is not threaded under it, and the
 // feedback handler reads it back from this block (see ask_question_block.js).
-function buildAskBlocks({ question, body, interactionType, sourcesBlocks = [] }) {
+function buildAskBlocks({ question, linkMarkup, body, interactionType, sourcesBlocks = [] }) {
   return [
-    createAskQuestionBlock(question),
+    createAskQuestionBlock(question, { linkMarkup }),
     body,
     ...sourcesBlocks,
     { type: 'divider' },
@@ -261,6 +261,9 @@ async function captureAsk({
  * answer has actually been delivered, so an answer that never reached the user
  * is not stored as a successful conversation.
  *
+ * `linkMarkup` says whether the question can carry Slack's `<url>` markup. Slash
+ * text cannot, so the slash command passes false (see ask_question_block.js).
+ *
  * @returns {Promise<{ response: Object, errorType: string|null, capture: () => Promise<void> }>}
  */
 export async function buildAskResponse({
@@ -272,6 +275,7 @@ export async function buildAskResponse({
   channelId,
   threadTs = null,
   messageTs,
+  linkMarkup = true,
 }) {
   if (isQuestionTooLong(question, logger)) return buildAskErrorResponse('question_too_long');
 
@@ -298,7 +302,13 @@ export async function buildAskResponse({
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks({ question, body: { type: 'markdown', text: body.text }, interactionType, sourcesBlocks }),
+      blocks: buildAskBlocks({
+        question,
+        linkMarkup,
+        body: { type: 'markdown', text: body.text },
+        interactionType,
+        sourcesBlocks,
+      }),
       unfurl_links: false,
       unfurl_media: false,
     },

@@ -86,29 +86,91 @@ describe('module graph', () => {
   });
 });
 
+/** Every module reachable from `start`, never passing through `blocked`. */
+function reachableFrom(graph, start, blocked) {
+  const seen = new Set();
+  const pending = [start];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    for (const next of graph.get(node) ?? []) {
+      if (next === blocked || seen.has(next)) continue;
+      seen.add(next);
+      pending.push(next);
+    }
+  }
+  return seen;
+}
+
+/** The names `file` imports from `target`; a namespace or default import is `*`. */
+function namesImportedFrom(file, target) {
+  const source = readFileSync(file, 'utf8');
+  return [...source.matchAll(/^\s*import\s+([^;]*?)\s+from\s+'([^']+)'/gm)]
+    .filter((m) => m[2].startsWith('.') && resolve(dirname(file), m[2]) === target)
+    .flatMap((m) => {
+      const named = m[1].match(/\{([^}]*)\}/);
+      if (!named || /^\s*[\w$]+\s*,|\*/.test(m[1])) return ['*'];
+      return named[1]
+        .split(',')
+        .map((name) => name.trim().split(/\s+as\s+/)[0])
+        .filter(Boolean);
+    });
+}
+
+const toLabel = (file) => relative(SRC_DIR, file).replace(/\\/g, '/');
+
 /**
  * The command modules serve help, search, escalate and ticket, none of which
  * synthesizes an answer. Only `ask` does, and it reaches the LLM through
- * ask-handler.js. A direct llm-caller import here would let a non-ask
- * sub-command start calling the LLM unnoticed; search goes through
- * search-caller.js instead.
+ * ask-handler.js. Any other route to the answer pipeline, direct or through a
+ * helper, would let a non-ask sub-command start calling the LLM unnoticed.
+ *
+ * Every module in listeners/commands is checked, so a new one is covered
+ * without editing a list, and imports are followed transitively with
+ * ask-handler.js taken out of the graph. Two helpers legitimately use
+ * llm-caller for something other than an answer: search-caller.js for the
+ * source search, and escalation.js for the hand-off summary. They may import
+ * exactly those functions and nothing else from it.
  */
+const SANCTIONED_LLM_IMPORTS = {
+  'agent/search-caller.js': ['searchForSources'],
+  'agent/escalation.js': ['summarizeForEscalation'],
+};
+
 describe('command modules and the LLM', () => {
   const graph = buildGraph();
   const llmCaller = join(SRC_DIR, 'agent', 'llm-caller.js');
-  const commandModules = ['fiona.js', 'command-handler.js', 'command-dispatch.js'].map((name) =>
-    join(SRC_DIR, 'listeners', 'commands', name),
-  );
+  const commandsDir = join(SRC_DIR, 'listeners', 'commands');
+  const askHandler = join(commandsDir, 'ask-handler.js');
+  const commandModules = jsFilesUnder(commandsDir).filter((file) => file !== askHandler);
 
-  it.each(commandModules.map((file) => [relative(SRC_DIR, file).replace(/\\/g, '/'), file]))(
-    '%s does not import llm-caller directly',
+  it('finds the command modules', () => {
+    expect(commandModules.map((file) => relative(commandsDir, file))).toEqual(
+      expect.arrayContaining(['fiona.js', 'command-handler.js', 'command-dispatch.js']),
+    );
+  });
+
+  it.each(commandModules.map((file) => [toLabel(file), file]))(
+    '%s reaches the LLM only through ask-handler.js',
     (_label, file) => {
       expect(graph.has(file)).toBe(true);
-      expect(graph.get(file)).not.toContain(llmCaller);
+      const reachable = [file, ...reachableFrom(graph, file, askHandler)];
+      const llmImports = Object.fromEntries(
+        reachable
+          .filter((module) => graph.get(module)?.includes(llmCaller))
+          .map((module) => [toLabel(module), namesImportedFrom(module, llmCaller).sort()]),
+      );
+      for (const [module, names] of Object.entries(llmImports)) {
+        expect([module, names]).toEqual([module, SANCTIONED_LLM_IMPORTS[module] ?? []]);
+      }
     },
   );
 
+  it('reads the names a module imports from llm-caller', () => {
+    expect(namesImportedFrom(join(SRC_DIR, 'agent', 'escalation.js'), llmCaller)).toEqual(['summarizeForEscalation']);
+    expect(namesImportedFrom(askHandler, llmCaller)).toContain('callLLM');
+  });
+
   it('ask-handler.js is the command layer’s one route to the LLM', () => {
-    expect(graph.get(join(SRC_DIR, 'listeners', 'commands', 'ask-handler.js'))).toContain(llmCaller);
+    expect(graph.get(askHandler)).toContain(llmCaller);
   });
 });

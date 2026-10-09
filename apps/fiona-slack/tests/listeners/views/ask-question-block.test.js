@@ -30,6 +30,15 @@ describe('ask question block', () => {
     expect(extractAskQuestion([createAskQuestionBlock(slackText)])).toBe(shown);
   });
 
+  // Slash-command text carries no link markup (should_escape is false).
+  it.each([
+    ['a literal <…>', 'Is <Descriptor> ok?', 'Is <Descriptor> ok?'],
+    ['a typed URL in brackets', 'see <https://docs.ed-fi.org|docs>', 'see <https://docs.ed-fi.org|docs>'],
+    ['escaped characters', 'Is &lt;Descriptor&gt; A &amp; B?', 'Is <Descriptor> A & B?'],
+  ])('keeps %s as typed when the text has no link markup', (_label, text, shown) => {
+    expect(extractAskQuestion([createAskQuestionBlock(text, { linkMarkup: false })])).toBe(shown);
+  });
+
   it('renders plain text, never mrkdwn', () => {
     const [element] = createAskQuestionBlock('q').elements;
 

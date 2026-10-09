@@ -590,6 +590,31 @@ describe('appMentionCallback', () => {
       expect(blocks[0].elements[0].text).toBe(`You asked: ${question}`);
     });
 
+    it('keeps the markers when a mention comes before the keyword', async () => {
+      mockEvent.text = '<@UFIONA> <!here> ask Can <@UALICE> help?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'Can @someone help?' }]);
+    });
+
+    // A question made only of mentions is a bare `ask`, which gets help rather
+    // than a public LLM answer.
+    it.each([
+      ['a user', '<@UFIONA> ask <@UALICE>'],
+      ['a channel and @here', '<@UFIONA> ask <#C999|ods-help> <!here>'],
+    ])('answers an ask made only of %s with help, not the LLM', async (_label, text) => {
+      mockEvent.text = text;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ user: 'U456', text: expect.stringContaining('Available commands') }),
+      );
+    });
+
     it('still removes mentions entirely from an ordinary question', async () => {
       mockEvent.text = '<@UFIONA> can <@UALICE> help with ODS?';
 

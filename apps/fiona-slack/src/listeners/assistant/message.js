@@ -99,7 +99,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
           threadTs: thread_ts,
           messageTs,
           interactionType: 'assistant_message',
-          markInteractionError,
+          telemetry: { markInteractionError, claimResponseId },
         })
       ) {
         return;

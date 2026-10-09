@@ -20,7 +20,7 @@ import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.j
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
-import { parseMessageCommand } from '../commands/command-handler.js';
+import { parseMessageCommand, stripMentions } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -63,8 +63,8 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
-      const text = (event.text || '').replace(/<[@#!][^>]+>/g, '').trim();
-      const cmd = text ? parseMessageCommand(event.text) : null;
+      const text = stripMentions(event.text);
+      const cmd = parseMessageCommand(event.text);
 
       if (
         await declineOverLongAsk({
@@ -77,7 +77,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           threadTs: thread_ts,
           messageTs,
           interactionType: 'app_mention',
-          markInteractionError,
+          telemetry: { markInteractionError, claimResponseId },
         })
       ) {
         return;

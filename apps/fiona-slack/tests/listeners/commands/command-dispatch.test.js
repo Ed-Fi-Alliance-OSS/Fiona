@@ -26,14 +26,6 @@ jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () =>
   streamAskResponse: mockStreamAskResponse,
 }));
 
-// Real search would hit the network from the keyword-coverage test below.
-jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
-  searchForSources: jest.fn().mockResolvedValue([]),
-  formatSearchResults: jest.fn(() => ({ text: 'no sources', blocks: null })),
-  extractSearchQuery: jest.fn(() => null),
-  SEARCH_ERROR_TEXT: ':warning: search failed',
-}));
-
 const mockGenerateResponseId = jest.fn().mockReturnValue('C1:123.45:123.45');
 const mockShouldFinalize = jest.fn().mockReturnValue(true);
 const mockRollbackFinalization = jest.fn();
@@ -43,6 +35,7 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: mockRollbackFinalization,
 }));
 
+// Real search would hit the network, including from the keyword-coverage test.
 const mockSearchForSources = jest.fn();
 jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   searchForSources: mockSearchForSources,
@@ -53,7 +46,7 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
 const { declineOverLongAsk, dispatchKeywordViaSay } = await import(
   '../../../src/listeners/commands/command-dispatch.js'
 );
-const { CREATE_TICKET_ACTION, parseCommandKeyword, TICKET_NOT_CONFIGURED_TEXT } = await import(
+const { COMMAND_KEYWORDS, CREATE_TICKET_ACTION, parseCommandKeyword, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
 );
 
@@ -406,7 +399,16 @@ describe('dispatchKeywordViaSay — file_ticket', () => {
 // routeCommandViaSay answers an unrouted keyword with help and logs an error.
 // Every keyword the parser can return must be routed somewhere on purpose.
 describe('dispatchKeywordViaSay — keyword coverage', () => {
-  const SAMPLE_COMMANDS = ['help', 'escalate', 'ask what is Ed-Fi?', 'search Data Standard', 'file a bug'];
+  // One message per keyword. Keyed by COMMAND_KEYWORDS, so a keyword added to
+  // the parser fails the first test below until it has a sample here.
+  const SAMPLE_BY_KEYWORD = {
+    help: 'help',
+    escalate: 'escalate',
+    ask: 'ask what is Ed-Fi?',
+    search: 'search Data Standard',
+    file_ticket: 'file a bug',
+  };
+  const SAMPLE_COMMANDS = Object.values(SAMPLE_BY_KEYWORD);
 
   beforeEach(() => {
     process.env.ESCALATION_ENABLED = 'true';
@@ -421,7 +423,8 @@ describe('dispatchKeywordViaSay — keyword coverage', () => {
   const parsedKeywords = () => SAMPLE_COMMANDS.map((text) => parseCommandKeyword(text)?.keyword);
 
   it('samples every keyword the parser can return', () => {
-    expect(new Set(parsedKeywords())).toEqual(new Set(['help', 'escalate', 'ask', 'search', 'file_ticket']));
+    expect(Object.keys(SAMPLE_BY_KEYWORD).sort()).toEqual(Object.values(COMMAND_KEYWORDS).sort());
+    expect(parsedKeywords()).toEqual(Object.keys(SAMPLE_BY_KEYWORD));
   });
 
   it.each(['app_mention', 'assistant_message'])('routes every keyword on %s without the unrouted fallback', async (interactionType) => {
@@ -455,7 +458,7 @@ describe('declineOverLongAsk', () => {
     threadTs: '100.00',
     messageTs: '200.00',
     interactionType: 'app_mention',
-    markInteractionError: jest.fn(),
+    telemetry: { markInteractionError: jest.fn(), claimResponseId: jest.fn() },
     ...over,
   });
 
@@ -471,7 +474,20 @@ describe('declineOverLongAsk', () => {
       thread_ts: '100.00',
     });
     expect(params.say).not.toHaveBeenCalled();
-    expect(params.markInteractionError).toHaveBeenCalledWith('question_too_long');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('question_too_long');
+  });
+
+  // A Slack retry of the same event must not post the decline twice.
+  it('claims the response and declines a duplicate silently', async () => {
+    const params = base();
+    mockShouldFinalize.mockReturnValueOnce(false);
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+
+    expect(mockGenerateResponseId).toHaveBeenCalledWith('C1', '100.00', '200.00');
+    expect(params.telemetry.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).not.toHaveBeenCalled();
   });
 
   it('declines in the assistant panel with say(), which only the user sees', async () => {
@@ -494,7 +510,8 @@ describe('declineOverLongAsk', () => {
 
     expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
     expect(params.say).not.toHaveBeenCalled();
-    expect(params.markInteractionError).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).not.toHaveBeenCalled();
+    expect(params.telemetry.claimResponseId).not.toHaveBeenCalled();
   });
 
   it('still reports the decline when the notice fails to send', async () => {

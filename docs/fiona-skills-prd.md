@@ -101,7 +101,13 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    (Conversation capture, below, may separately keep the full question.) A
    mention inside an `ask` question (`@fiona ask`, or `ask` in the assistant
    panel) becomes `@someone` or `#a-channel`, so no user or channel id is shown,
-   stored with feedback, or captured.
+   stored with feedback, or captured. Slash-command text is shown as typed: the
+   manifest sets `should_escape: false`, so a `<Descriptor>` in it is literal
+   text, not Slack link markup.
+   The question stored with a feedback rating is this displayed text: decoded,
+   with mention markers, and shortened the same way. A stored question ending
+   in `…` may therefore have been cut. It can contain whatever the user typed,
+   names included, and is kept under the same retention as the rated answer.
 7. The numbered Sources block (AI-230) sits between the answer and the feedback
    buttons, exactly as on a standard `app_mention` answer, and the grounding rules
    (AI-231) apply unchanged — a question with no usable sources gets the same
@@ -135,16 +141,22 @@ replaces, and the @-mention path shows a thread "thinking" status while the LLM
 runs. If the answer cannot be delivered, the user gets a short notice instead of
 silence, the interaction is recorded as an error (`respond_failed` on the slash
 command, `post_failed` on the @-mention path), and the conversation is not
-captured, because nobody saw the answer.
+captured, because nobody saw the answer. On the slash command the notice is
+tried through `respond()` first, so it can replace the "Thinking…" line, and
+through `chat.postEphemeral` if that fails too.
 
 **Edge cases:**
 
 - If `<question>` is empty or blank, Fiona responds with the help output
-  (equivalent to `/fiona help`). A bare `@fiona ask` does the same; it is not
-  sent to the LLM, which would answer it publicly.
+  (equivalent to `/fiona help`). A bare `@fiona ask` does the same, and so does
+  one whose question is only mentions (`@fiona ask @someone`); neither is sent
+  to the LLM, which would answer it publicly.
 - A question over 3,000 characters is declined with a short message, is not
   sent to the LLM, and does not count toward the rate limit: the length check
-  runs first (`errorType: question_too_long`).
+  runs first (`errorType: question_too_long`). Leaving the decline unthrottled
+  is deliberate. It costs no LLM call and only the sender sees it, and counting
+  it would let one over-long paste spend the budget the shorter question needs.
+  A Slack retry of the same @-mention or panel message is declined only once.
 - An unexpected error while building the answer (as opposed to an LLM failure)
   is answered privately with the error copy and recorded as `ask_failed`. On the
   @-mention path it never reaches the generic public warning.

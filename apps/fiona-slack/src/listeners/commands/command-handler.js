@@ -157,6 +157,18 @@ export function buildCreateTicketBlocks(ticketType, channelId, threadTs) {
 }
 
 /**
+ * Every keyword parseCommandKeyword can return. The parser returns only these
+ * constants, so command-dispatch.test.js can check that each one is routed.
+ */
+export const COMMAND_KEYWORDS = Object.freeze({
+  HELP: 'help',
+  ESCALATE: 'escalate',
+  ASK: 'ask',
+  SEARCH: 'search',
+  FILE_TICKET: 'file_ticket',
+});
+
+/**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
  * Disambiguation rules:
@@ -187,7 +199,7 @@ export function parseCommandKeyword(text) {
   // LLM would answer it in public, on the one keyword that promises a private
   // answer. A bare `search` stays an ordinary question (see the AI-179 test plan).
   if (bodyLower === 'help' || bodyLower === 'ask') {
-    return { keyword: 'help', rawArgs: '' };
+    return { keyword: COMMAND_KEYWORDS.HELP, rawArgs: '' };
   }
 
   // A flagged-off feature simply fails to match here, so the message falls
@@ -195,10 +207,10 @@ export function parseCommandKeyword(text) {
   // as an ordinary question — which is what "the feature disappears" means
   // (AI-217). Nothing between here and that return can match a bare `escalate`.
   if (isEscalationEnabled() && bodyLower === 'escalate') {
-    return { keyword: 'escalate', rawArgs: '' };
+    return { keyword: COMMAND_KEYWORDS.ESCALATE, rawArgs: '' };
   }
 
-  for (const kw of ['ask', 'search']) {
+  for (const kw of [COMMAND_KEYWORDS.ASK, COMMAND_KEYWORDS.SEARCH]) {
     if (bodyLower.startsWith(`${kw} `)) {
       const rawArgs = body.slice(kw.length + 1).trim();
       if (rawArgs.length > 0) {
@@ -212,21 +224,34 @@ export function parseCommandKeyword(text) {
   // with TICKET_NOT_CONFIGURED_TEXT; only the flag being off makes the phrases
   // fall through to the LLM. Flag-first, matching the escalate gate above.
   if (isTicketingFeatureEnabled() && TICKET_PHRASES.has(bodyLower)) {
-    return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
+    return { keyword: COMMAND_KEYWORDS.FILE_TICKET, rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
   return null;
 }
 
 /**
- * The text of an `ask` message with any leading invocation mention removed and
- * every other mention replaced by a neutral marker, so the question still reads
- * as a sentence. The question is shown back to the user ("You asked:"), stored
- * with feedback and captured, so no user or channel id is kept.
+ * A Slack message's text with every mention token (users, channels, groups,
+ * `<!here>`) removed: the form used to match a command keyword and, for an
+ * ordinary question, the text sent to the LLM.
+ *
+ * @param {string|undefined} rawText - The message text as Slack sent it.
+ * @returns {string}
+ */
+export function stripMentions(rawText) {
+  return (rawText || '').replace(/<[@#!][^>]+>/g, '').trim();
+}
+
+/**
+ * The text of an `ask` message with the mentions ahead of the keyword removed
+ * (the invocation, and anything else typed before `ask`) and every other
+ * mention replaced by a neutral marker, so the question still reads as a
+ * sentence. The question is shown back to the user ("You asked:"), stored with
+ * feedback and captured, so no user or channel id is kept.
  */
 function askTextWithMentionMarkers(text) {
   return text
-    .replace(/^(?:\s*<@[^>]+>)+/, '')
+    .replace(/^(?:\s*<[@#!][^>]+>)+/, '')
     .replace(/<(?:@|!subteam\^)[^>]+>/g, '@someone')
     .replace(/<#[^>]+>/g, '#a-channel')
     .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
@@ -237,15 +262,22 @@ function askTextWithMentionMarkers(text) {
 
 /**
  * Parses a command keyword from a Slack message's raw text (an @-mention or an
- * assistant-panel message). Mention tokens are removed before matching. An
- * `ask` question keeps a marker where each mention was (see
+ * assistant-panel message). Mention tokens are removed before matching, so a
+ * question made only of mentions (`@fiona ask @someone`) is a bare `ask` and
+ * gets help. An `ask` question keeps a marker where each mention was (see
  * askTextWithMentionMarkers), the same on every surface.
+ *
+ * The keyword is matched twice, once with every mention removed and once with
+ * markers. The two can disagree only when a mention sits inside the keyword
+ * itself (`fiona <@U1> ask …`). The keyword decision then follows the
+ * mention-free text, and the question is taken from it too, with those
+ * mentions dropped rather than marked.
  *
  * @param {string} rawText - The message text as Slack sent it.
  * @returns {{ keyword: string, rawArgs: string }|null}
  */
 export function parseMessageCommand(rawText) {
-  const text = (rawText || '').replace(/<[@#!][^>]+>/g, '').trim();
+  const text = stripMentions(rawText);
   const cmd = text ? parseCommandKeyword(text) : null;
   if (cmd?.keyword !== 'ask') return cmd;
   const marked = parseCommandKeyword(askTextWithMentionMarkers(rawText));

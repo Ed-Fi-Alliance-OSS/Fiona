@@ -286,6 +286,20 @@ describe('fionaCommandCallback', () => {
       );
     });
 
+    // Slash text keeps a literal `<…>`: should_escape is false, so it is not
+    // Slack link markup and must not be unwrapped.
+    it.each([
+      ['raw angle brackets', 'ask Is <Descriptor> ok?', 'Is <Descriptor> ok?'],
+      ['escaped angle brackets', 'ask Is &lt;Descriptor&gt; A &amp; B?', 'Is <Descriptor> A & B?'],
+    ])('shows a question with %s as typed in the "You asked:" line', async (_label, text, shown) => {
+      mockCommand.text = text;
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+      const { blocks } = mockRespond.mock.calls.at(-1)[0];
+      expect(blocks[0].elements[0].text).toBe(`You asked: ${shown}`);
+    });
+
     it('captures the conversation only after the answer is delivered', async () => {
       const order = [];
       mockRespond.mockImplementation(async () => order.push('respond'));
@@ -331,6 +345,27 @@ describe('fionaCommandCallback', () => {
         await expect(
           fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger }),
         ).resolves.toBeUndefined();
+      });
+
+      it('sends the notice through chat.postEphemeral when respond() fails again', async () => {
+        mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+        mockClient.chat = { postEphemeral: jest.fn().mockResolvedValue(undefined) };
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+        expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith({
+          channel: mockCommand.channel_id,
+          user: mockCommand.user_id,
+          text: expect.stringContaining("couldn't deliver"),
+        });
+      });
+
+      it('does not use chat.postEphemeral when the notice gets through', async () => {
+        mockClient.chat = { postEphemeral: jest.fn().mockResolvedValue(undefined) };
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+        expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
       });
     });
 

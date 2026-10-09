@@ -25,6 +25,10 @@ import {
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
 
+// The one surface that is already private, so it answers with say() and
+// streams `ask`. Every other surface answers ephemerally (fail closed).
+const ASSISTANT_PANEL = 'assistant_message';
+
 /**
  * Dispatches a parsed keyword command from a `say()`-based entry point (the
  * @-mention event or the assistant panel). The `escalate` keyword needs the
@@ -119,7 +123,7 @@ export async function dispatchKeywordViaSay({
       return;
     }
 
-    if (interactionType !== 'assistant_message') {
+    if (interactionType !== ASSISTANT_PANEL) {
       await answerAskEphemerally({
         client,
         logger,
@@ -152,7 +156,7 @@ export async function dispatchKeywordViaSay({
   // Help and search use the same fail-closed rule as ask: only the agent panel,
   // which is already private, answers through say(). Help matches /fiona help,
   // which is ephemeral; whether an ephemeral renders in the panel is unverified.
-  if ((cmd.keyword === 'search' || cmd.keyword === 'help') && interactionType !== 'assistant_message') {
+  if ((cmd.keyword === 'search' || cmd.keyword === 'help') && interactionType !== ASSISTANT_PANEL) {
     const target = ephemeralTarget({ channelId, userId, threadTs, messageTs });
     const { errorType } =
       cmd.keyword === 'search'
@@ -173,6 +177,13 @@ export async function dispatchKeywordViaSay({
  * otherwise see it, and an ordinary say() in the assistant panel, which only the
  * user sees.
  *
+ * Not being rate limited is deliberate (AI-250): the decline costs no LLM call
+ * and only the sender sees it, while counting it would let an over-long paste
+ * lock the user out of asking the shorter question. A Slack retry of the same
+ * event is still caught by the duplicate guard, so it is declined only once.
+ *
+ * @param {Object} params - As for dispatchKeywordViaSay. `telemetry` needs
+ *   `markInteractionError` and `claimResponseId`.
  * @returns {Promise<boolean>}
  */
 export async function declineOverLongAsk({
@@ -180,16 +191,20 @@ export async function declineOverLongAsk({
   say,
   client,
   logger,
+  telemetry,
   userId,
   channelId,
   threadTs,
   messageTs,
   interactionType,
-  markInteractionError,
 }) {
   if (cmd?.keyword !== 'ask' || !isQuestionTooLong(cmd.rawArgs, logger)) return false;
-  markInteractionError('question_too_long');
-  if (interactionType === 'assistant_message') {
+  // Claimed before the duplicate check, as the ask path in dispatchKeywordViaSay does.
+  const responseId = generateResponseId(channelId, threadTs, messageTs);
+  telemetry.claimResponseId(responseId);
+  if (!shouldFinalize(responseId, logger)) return true;
+  telemetry.markInteractionError('question_too_long');
+  if (interactionType === ASSISTANT_PANEL) {
     await say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs }).catch((err) =>
       logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`),
     );

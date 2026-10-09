@@ -9,7 +9,7 @@ import { extractAskQuestion } from '../views/ask_question_block.js';
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
 const PRIVATE_METADATA_MAX_CHARS = 3000;
-const PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS = 1000;
+const PRIVATE_METADATA_QUERY_MAX_CHARS = 1000;
 const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
 
 /**
@@ -36,8 +36,8 @@ function compactBotResponse(messageText) {
 
 function compactQuery(query) {
   if (typeof query !== 'string') return null;
-  if (query.length <= PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS) return query;
-  return `${query.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
+  if (query.length <= PRIVATE_METADATA_QUERY_MAX_CHARS) return query;
+  return `${query.slice(0, PRIVATE_METADATA_QUERY_MAX_CHARS - 1)}…`;
 }
 
 /**
