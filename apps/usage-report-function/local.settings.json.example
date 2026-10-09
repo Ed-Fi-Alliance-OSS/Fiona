@@ -8,6 +8,7 @@
     "COSMOS_DATABASE": "chatbot",
     "COSMOS_INTERACTIONS_CONTAINER": "interactions",
     "COSMOS_FEEDBACK_CONTAINER": "feedback",
+    "COSMOS_USERS_CONTAINER": "slack-users",
 
     "DEPLOYMENT_TYPE": "local",
 
