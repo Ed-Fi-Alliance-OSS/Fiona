@@ -5,9 +5,10 @@
 
 import { fetchAllForIds } from './cosmos-chunks.js';
 import { isSuccessful } from './kpi-core.js';
+import { lastIncludedDate, MS_PER_DAY } from './report-dates.js';
 import { requireUserDirectory, tryGetUserDirectory } from './user-segments.js';
 
-export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export { lastIncludedDate, MS_PER_DAY };
 
 /** The scheduled report covers this many whole UTC days. */
 export const REPORT_WINDOW_DAYS = 7;
@@ -19,11 +20,6 @@ export function assertReportWindow(startISO, endISO) {
   if (Number.isNaN(start) || Number.isNaN(end) || start >= end) {
     throw new Error(`Invalid report window [${startISO}, ${endISO})`);
   }
-}
-
-/** The last calendar day (YYYY-MM-DD, UTC) inside a half-open window ending at `endISO`. */
-export function lastIncludedDate(endISO) {
-  return new Date(Date.parse(endISO) - 1).toISOString().split('T')[0];
 }
 
 /**
@@ -127,7 +123,8 @@ export function sliceActivity(activity, startISO, endISO) {
 
   const priorUserIds = new Set(activity.priorUserIds);
   for (const record of activity.interactions) {
-    if (Date.parse(record.timestamp) < start && isSuccessful(record)) priorUserIds.add(record.userId);
+    // Same null normalization as kpi-core, so a userId-less record seen earlier counts as returning.
+    if (Date.parse(record.timestamp) < start && isSuccessful(record)) priorUserIds.add(record.userId ?? null);
   }
   return {
     startISO,

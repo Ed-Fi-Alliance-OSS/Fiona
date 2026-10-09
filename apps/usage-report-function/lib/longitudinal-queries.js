@@ -3,8 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { loadActivity, MS_PER_DAY } from './activity-records.js';
+import { loadActivity } from './activity-records.js';
 import { summarizeActivityByPeriod } from './kpi-core.js';
+import { MS_PER_DAY } from './report-dates.js';
 
 function getWeekStartISO(timestamp) {
   const date = new Date(timestamp);

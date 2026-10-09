@@ -88,7 +88,19 @@ function createCosmosContainers() {
   };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths case-insensitively so symlinks and Windows drive-letter
+// casing can't make the CLI silently skip main() and exit 0.
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  const normalize = (p) => fs.realpathSync(p).toLowerCase();
+  try {
+    return normalize(process.argv[1]) === normalize(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   main().catch((error) => {
     console.error('Failed to generate executive report artifact:', error);
     process.exit(1);

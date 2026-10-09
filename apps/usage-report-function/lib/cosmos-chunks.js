@@ -9,11 +9,14 @@ export const ID_CHUNK_SIZE = 500;
 /**
  * Runs `buildQuery(chunk)` once per chunk of `ids` and concatenates the
  * results, so lookups keyed on an unbounded list of user IDs never send one
- * oversized query.
+ * oversized query. Chunks run one at a time so a large ID list doesn't
+ * burst cross-partition queries into RU throttling (429s).
  */
 export async function fetchAllForIds(container, ids, buildQuery, chunkSize = ID_CHUNK_SIZE) {
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += chunkSize) chunks.push(ids.slice(i, i + chunkSize));
-  const results = await Promise.all(chunks.map((chunk) => container.items.query(buildQuery(chunk)).fetchAll()));
-  return results.flatMap(({ resources }) => resources);
+  const resources = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const { resources: page } = await container.items.query(buildQuery(ids.slice(i, i + chunkSize))).fetchAll();
+    resources.push(...page);
+  }
+  return resources;
 }

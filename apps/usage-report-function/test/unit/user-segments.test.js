@@ -219,3 +219,33 @@ describe('requireUserDirectory', () => {
     await expect(requireUserDirectory(failingContainer(bug), ['a'], jest.fn())).rejects.toBe(bug);
   });
 });
+
+describe('directory failure classification', () => {
+  const timeoutError = Object.assign(new Error('Timed out'), { name: 'TimeoutError', code: 'TimeoutError' });
+  const networkError = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+  const credentialError = Object.assign(new Error('no managed identity'), { name: 'CredentialUnavailableError' });
+
+  it.each([
+    ['a Cosmos timeout (string code)', timeoutError, 'status TimeoutError'],
+    ['a network error (string code)', networkError, 'status ECONNRESET'],
+    ['a credential failure (no code)', credentialError, 'status CredentialUnavailableError'],
+    ['throttling (429)', cosmosError(429), 'status 429'],
+  ])('treats %s as unavailable: Slack falls back, the PDF fails', async (_label, error, detail) => {
+    const warn = jest.fn();
+    await expect(tryGetUserDirectory(failingContainer(error), ['U1'], warn)).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(detail));
+    await expect(requireUserDirectory(failingContainer(error), ['U1'], warn)).rejects.toThrow(detail);
+  });
+
+  it('rethrows a Cosmos 400 BadRequest, which means the query itself is broken', async () => {
+    const badRequest = cosmosError(400, 'Syntax error near value');
+    await expect(tryGetUserDirectory(failingContainer(badRequest), ['U1'], jest.fn())).rejects.toBe(badRequest);
+    await expect(requireUserDirectory(failingContainer(badRequest), ['U1'], jest.fn())).rejects.toBe(badRequest);
+  });
+
+  it('describes an error with no code or name as an unknown error', async () => {
+    const warn = jest.fn();
+    await expect(tryGetUserDirectory(failingContainer({}), ['U1'], warn)).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown error'));
+  });
+});

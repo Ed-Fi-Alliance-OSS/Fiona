@@ -344,3 +344,23 @@ describe('activityUserIds', () => {
     ).toEqual(['a', 'b']);
   });
 });
+
+describe('sliceActivity with userId-less records', () => {
+  it('records an earlier userId-less success as prior history under null, matching kpi-core', () => {
+    const activity = {
+      startISO: '2026-04-06T00:00:00.000Z',
+      endISO: '2026-04-20T00:00:00.000Z',
+      interactions: [
+        { threadTs: 'a', status: 'success', rateLimited: false, timestamp: '2026-04-07T10:00:00.000Z' },
+        { threadTs: 'b', status: 'success', rateLimited: false, timestamp: '2026-04-14T10:00:00.000Z' },
+      ],
+      feedback: [],
+      priorUserIds: new Set(),
+    };
+
+    const slice = sliceActivity(activity, '2026-04-13T00:00:00.000Z', '2026-04-20T00:00:00.000Z');
+
+    expect(slice.priorUserIds.has(null)).toBe(true);
+    expect(slice.priorUserIds.has(undefined)).toBe(false);
+  });
+});

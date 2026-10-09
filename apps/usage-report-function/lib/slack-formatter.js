@@ -16,6 +16,8 @@ import {
 
 /** Slack rejects or truncates messages near 4,000 characters; stay safely below. */
 const MAX_MESSAGE_LENGTH = 3900;
+const FEEDBACK_OMITTED =
+  "📋 *Representative Feedback*\nOmitted to fit Slack's message limit; see the full executive report.";
 const LABEL_WIDTH = 18;
 const COLUMN_WIDTH = 9;
 
@@ -158,7 +160,11 @@ export function formatWeeklyReport(kpis) {
     shownFeedback = shownFeedback.slice(0, -1);
     message = `${head}\n\n${formatFeedbackSection(shownFeedback)}`;
   }
-  return message;
+  if (representativeFeedback.length > 0 && shownFeedback.length === 0) {
+    message = `${head}\n\n${FEEDBACK_OMITTED}`;
+  }
+  // Last resort if the head alone is too long (e.g. an unusually long report URL).
+  return message.length > MAX_MESSAGE_LENGTH ? `${message.slice(0, MAX_MESSAGE_LENGTH - 1)}…` : message;
 }
 
 /**

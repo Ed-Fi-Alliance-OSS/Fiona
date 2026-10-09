@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { lastIncludedDate } from '../report-dates.js';
+
 const MONTH_ABBR = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' });
 
 /** Formats a Monday-Sunday week range as e.g. "Apr 13-19, 2026" or "Apr 27-May 3, 2026". */
@@ -24,8 +26,7 @@ export function formatWeekLabel(weekStartISO, weekEndISO) {
  * exclusive end date.
  */
 export function formatPeriodLabel(startISO, endISO) {
-  const lastDay = new Date(Date.parse(endISO) - 1).toISOString().split('T')[0];
-  return `${startISO.split('T')[0]} to ${lastDay}`;
+  return `${startISO.split('T')[0]} to ${lastIncludedDate(endISO)}`;
 }
 
 /** Formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC. */

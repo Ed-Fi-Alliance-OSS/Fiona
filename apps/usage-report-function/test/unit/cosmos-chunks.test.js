@@ -49,3 +49,24 @@ describe('fetchAllForIds', () => {
     expect(container.items.query.mock.calls.map(([spec]) => spec.parameters[0].value.length)).toEqual([500, 500, 1]);
   });
 });
+
+describe('fetchAllForIds concurrency', () => {
+  it('runs chunk queries one at a time to avoid bursting into RU throttling', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const query = jest.fn((spec) => ({
+      fetchAll: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setImmediate(resolve));
+        inFlight -= 1;
+        return { resources: spec.parameters[0].value };
+      },
+    }));
+    const ids = Array.from({ length: 5 }, (_, i) => `id-${i}`);
+
+    await expect(fetchAllForIds({ items: { query } }, ids, buildQuery, 2)).resolves.toEqual(ids);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(maxInFlight).toBe(1);
+  });
+});

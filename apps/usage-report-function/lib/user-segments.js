@@ -56,14 +56,27 @@ export async function getUserDirectory(usersContainer, userIds, warn = console.w
   return directory;
 }
 
-/** Cosmos SDK errors carry a numeric HTTP status `code`; anything else is a programming error. */
-function isCosmosError(error) {
-  return typeof error?.code === 'number' || typeof error?.statusCode === 'number';
+const PROGRAMMING_ERRORS = [TypeError, ReferenceError, SyntaxError, RangeError];
+
+/**
+ * True for a bug in our code rather than an unreachable directory: a
+ * JavaScript programming error, or Cosmos DB rejecting the query itself
+ * (400 BadRequest). Everything else (HTTP 403/404/429/5xx, Cosmos timeouts,
+ * network errors with string codes, credential failures) means the
+ * directory is unavailable.
+ */
+function isProgrammingError(error) {
+  return PROGRAMMING_ERRORS.some((type) => error instanceof type) || error?.code === 400 || error?.statusCode === 400;
+}
+
+function describeFailure(error) {
+  const status = error?.code ?? error?.statusCode ?? error?.name;
+  return status === undefined ? 'unknown error' : `status ${status}`;
 }
 
 /**
  * Segmentation is an enhancement for the Slack summary: when no users
- * container is configured or Cosmos DB refuses the lookup, return null so
+ * container is configured or the directory is unreachable, return null so
  * the caller reports unsegmented totals. Programming errors still throw.
  *
  * @returns {Promise<Map<string, string>|null>}
@@ -73,9 +86,9 @@ export async function tryGetUserDirectory(usersContainer, userIds, warn = consol
   try {
     return await getUserDirectory(usersContainer, userIds, warn);
   } catch (error) {
-    if (!isCosmosError(error)) throw error;
+    if (isProgrammingError(error)) throw error;
     warn(
-      `User directory ${describeContainer(usersContainer)} unavailable (status ${error.code ?? error.statusCode}); reporting without internal/external segments.`,
+      `User directory ${describeContainer(usersContainer)} unavailable (${describeFailure(error)}); reporting without internal/external segments.`,
     );
     return null;
   }
@@ -90,9 +103,9 @@ export async function requireUserDirectory(usersContainer, userIds, warn = conso
   try {
     return await getUserDirectory(usersContainer, userIds, warn);
   } catch (error) {
-    if (!isCosmosError(error)) throw error;
+    if (isProgrammingError(error)) throw error;
     throw new Error(
-      `User directory ${describeContainer(usersContainer)} unavailable (status ${error.code ?? error.statusCode}); not generating a report without internal/external segments.`,
+      `User directory ${describeContainer(usersContainer)} unavailable (${describeFailure(error)}); not generating a report without internal/external segments.`,
       { cause: error },
     );
   }

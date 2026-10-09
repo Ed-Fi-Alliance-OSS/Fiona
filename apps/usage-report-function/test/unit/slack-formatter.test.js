@@ -727,3 +727,64 @@ describe('formatWeeklyReport escapes stored feedback text', () => {
     expect(message).toContain('Reason: &lt;!here&gt; wrong &amp; unhelpful');
   });
 });
+
+describe('formatWeeklyReport length cap', () => {
+  const baseKpis = {
+    uniqueUsers: 1,
+    newUsers: 0,
+    newUserPct: 0,
+    returningUsers: 1,
+    repeatRate: 100,
+    sessions: 1,
+    totalInteractions: 1,
+    errors: 0,
+    errorRate: 0,
+    rateLimited: 0,
+    goodFeedback: 1,
+    badFeedback: 0,
+    feedbackRatio: 100,
+    avgInteractionsPerUser: 1,
+    feedbackResponseRate: 100,
+    environment: 'production',
+    startDate: '2026-10-02',
+    endDate: '2026-10-08',
+    segments: null,
+  };
+  const feedbackItem = {
+    value: 'good-feedback',
+    userMessage: 'question',
+    botResponse: 'answer',
+    reason: 'reason',
+    hasReason: true,
+  };
+
+  it('says feedback was omitted, not that none was recorded, when every item has to be dropped', () => {
+    const longItem = { ...feedbackItem, userMessage: 'q'.repeat(200), botResponse: 'a'.repeat(200) };
+    const withoutUrl = formatWeeklyReport({ ...baseKpis, reportUrl: null, representativeFeedback: [] });
+    // Size the URL so the head fits but the head plus even one item does not.
+    const reportUrl = `https://example.com/${'x'.repeat(3750 - withoutUrl.length)}`;
+
+    const message = formatWeeklyReport({ ...baseKpis, reportUrl, representativeFeedback: [longItem] });
+
+    expect(message.length).toBeLessThanOrEqual(3900);
+    expect(message).toContain(reportUrl);
+    expect(message).toContain("Omitted to fit Slack's message limit");
+    expect(message).not.toContain('No feedback recorded for this period.');
+  });
+
+  it('still reports no feedback when there genuinely was none', () => {
+    const message = formatWeeklyReport({ ...baseKpis, reportUrl: null, representativeFeedback: [] });
+    expect(message).toContain('No feedback recorded for this period.');
+  });
+
+  it('hard-caps the message when the head alone exceeds the limit', () => {
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      reportUrl: `https://example.com/${'x'.repeat(5000)}`,
+      representativeFeedback: [],
+    });
+
+    expect(message.length).toBe(3900);
+    expect(message.endsWith('…')).toBe(true);
+  });
+});
