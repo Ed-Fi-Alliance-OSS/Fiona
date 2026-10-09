@@ -1086,9 +1086,10 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toContain('the Ed-Fi Alliance');
     expect(system).toContain('"the Ed-Fi Data Standard specifically says"');
 
-    // A prompt that uses bare "Ed-Fi" teaches the habit it forbids. Quoted
-    // examples are exempt, because the rule has to show what not to write.
-    const unquoted = system.replace(/"[^"]*"/g, '""');
+    // A prompt that uses bare "Ed-Fi" teaches the habit it forbids. Only the rule's
+    // own quotes are exempt: the word itself, and the example of what not to write.
+    // Any other quoted text is scanned, so a quoted instruction can't slip through.
+    const unquoted = system.replaceAll('"Ed-Fi specifically says"', '""').replaceAll('"Ed-Fi"', '""');
     const bareUses = [
       ...unquoted.matchAll(
         /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|APIs?|technology|documentation|community|implementations?|code base|questions?|tools|specifications|licensing|AI)\b)/g,
