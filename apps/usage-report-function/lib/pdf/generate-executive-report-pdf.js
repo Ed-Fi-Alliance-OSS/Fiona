@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import puppeteer from 'puppeteer';
+import { formatPeriodLabel } from './format.js';
 import { buildReadoutBullets, buildReliabilityTakeaways, buildUsageObservations } from './narrative.js';
 import { renderExecutiveReportHtml } from './report-template.js';
 
@@ -35,7 +36,12 @@ export async function generateExecutiveReportPdf(reportData, outputPath) {
   const trendWeekly = reportData.trendWeekly ?? reportData.weeklyTrend;
 
   const narrative = {
-    readoutBullets: buildReadoutBullets(reportData.kpiSummary, reportData.weeklyTrend, reportData.period.startISO),
+    readoutBullets: buildReadoutBullets(
+      reportData.kpiSummary,
+      reportData.weeklyTrend,
+      reportData.period.startISO,
+      reportData.userSegments,
+    ),
     usageObservations: buildUsageObservations(trendWeekly),
     reliabilityTakeaways: buildReliabilityTakeaways(reportData.kpiSummary, trendWeekly),
   };
@@ -54,7 +60,7 @@ export async function generateExecutiveReportPdf(reportData, outputPath) {
     await page.setContent(html, { waitUntil: 'load' });
     await page.waitForFunction('window.__chartsReady === true', { timeout: 10000 });
 
-    const period = `${reportData.period.startISO.split('T')[0]} to ${reportData.period.endISO.split('T')[0]}`;
+    const period = `${formatPeriodLabel(reportData.period.startISO, reportData.period.endISO)} (UTC)`;
     const footerTemplate = `
       <div style="font-size:8px; width:100%; padding:0 40px; display:flex; justify-content:space-between; color:#666;">
         <span>Fiona Usage Analytics | ${reportData.period.deploymentType} | ${period}</span>

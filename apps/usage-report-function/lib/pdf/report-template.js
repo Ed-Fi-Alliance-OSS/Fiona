@@ -3,7 +3,34 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { formatCompactTimestamp, formatWeekLabel } from './format.js';
+import {
+  ADOPTION_METRICS,
+  formatDecimal,
+  formatPercent,
+  hasSegmentActivity,
+  METRIC_DEFINITIONS,
+  RELIABILITY_METRICS,
+  segmentColumns,
+  segmentFootnote,
+  segmentLabel,
+} from '../report-presentation.js';
+import { SEGMENT_KEYS } from '../user-segments.js';
+import { formatCompactTimestamp, formatPeriodLabel, formatTrendWeekLabel } from './format.js';
+
+// Okabe-Ito palette (color-blind safe) plus dash patterns and point shapes,
+// so each series stays distinguishable in grayscale.
+const SERIES_STYLES = {
+  internal: { color: '#0072B2', dash: [], point: 'circle' },
+  external: { color: '#E69F00', dash: [6, 4], point: 'triangle' },
+  unknown: { color: '#999999', dash: [2, 3], point: 'rect' },
+  total: { color: '#000000', dash: [], point: 'rectRot' },
+};
+const GOOD_COLOR = '#009E73';
+const BAD_COLOR = '#D55E00';
+
+function ratingLabel(value) {
+  return value === 'good-feedback' ? 'Good' : value === 'bad-feedback' ? 'Bad' : 'Other';
+}
 
 function escapeHtml(value) {
   return String(value).replace(
@@ -21,39 +48,66 @@ function kpiCard(value, label, subtitle) {
     </div>`;
 }
 
-export function renderCoverPage(kpiSummary, readoutBullets, period) {
-  const startDate = period.startISO.split('T')[0];
-  const endDate = period.endISO.split('T')[0];
+function segmentMatrix(segments, total, metrics) {
+  const columns = segmentColumns(segments, total);
+  return dataTable(['Metric', ...columns.map(([label]) => label)], metrics, [
+    ([label]) => label,
+    ...columns.map(
+      ([, kpi]) =>
+        ([, value]) =>
+          value(kpi),
+    ),
+  ]);
+}
 
+export function renderCoverPage(kpiSummary, readoutBullets, period, userSegments) {
   return `
   <section class="page">
     <h1>FIONA USAGE ANALYTICS</h1>
     <h2>Executive Report</h2>
     <p class="meta">
-      Period: ${escapeHtml(startDate)} to ${escapeHtml(endDate)}<br>
+      Period: ${escapeHtml(formatPeriodLabel(period.startISO, period.endISO))} (UTC)<br>
       Environment: ${escapeHtml(period.deploymentType)}<br>
       Generated: ${escapeHtml(new Date().toISOString())}
     </p>
 
     <h2>Executive Summary</h2>
     <p>
-      This summary covers the report period shown above. KPI cards below focus on unique users, sessions,
-      interactions, new-user acquisition, reliability, and feedback quality for that exact period.
+      This summary covers the report period shown above. KPI cards focus on users, sessions, interactions,
+      reliability, and feedback.${userSegments ? ' The internal vs external comparison follows on the next page.' : ''}
     </p>
 
     <div class="kpi-grid">
       ${kpiCard(kpiSummary.uniqueUsers.toLocaleString(), 'Unique Users', 'Distinct successful users in period')}
-      ${kpiCard(kpiSummary.totalSessions.toLocaleString(), 'Total Sessions', 'Distinct successful sessions in period')}
+      ${kpiCard(kpiSummary.sessions.toLocaleString(), 'Total Sessions', 'Distinct successful sessions in period')}
       ${kpiCard(kpiSummary.totalInteractions.toLocaleString(), 'Total Interactions', 'All captured user-bot interactions')}
       ${kpiCard(kpiSummary.newUsers.toLocaleString(), 'New Users', 'No successful interactions before this period')}
-      ${kpiCard(`${kpiSummary.errorCount.toLocaleString()} (${kpiSummary.errorRate.toFixed(1)}%)`, 'Errors', 'Count and rate across all interactions')}
-      ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${kpiSummary.positiveFeedbackPct.toFixed(1)}%)`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
+      ${kpiCard(`${kpiSummary.errors.toLocaleString()} (${formatPercent(kpiSummary.errorRate)})`, 'Errors', 'Count and rate across all interactions')}
+      ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${formatPercent(kpiSummary.feedbackRatio)})`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
     </div>
 
     <h2>Readout</h2>
     <ul class="readout">
       ${readoutBullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
     </ul>
+  </section>`;
+}
+
+export function renderUserSegmentsPage(segments, kpiSummary) {
+  return `
+  <section class="page">
+    <h2>Internal vs External Usage</h2>
+    <p>Users are classified by the email in the current Slack user directory, so past activity reflects
+    today's directory. ${escapeHtml(segmentFootnote(hasSegmentActivity(segments.unknown)))} Total includes every segment. Each rate and
+    average uses only its own segment as the denominator.</p>
+    <h3>Adoption and Engagement</h3>
+    ${segmentMatrix(segments, kpiSummary, ADOPTION_METRICS)}
+    <h3>Reliability and Feedback</h3>
+    ${segmentMatrix(segments, kpiSummary, RELIABILITY_METRICS)}
+    <h3>Definitions</h3>
+    <dl class="definitions">
+      ${METRIC_DEFINITIONS.map(([term, definition]) => `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(definition)}</dd>`).join('\n      ')}
+    </dl>
   </section>`;
 }
 
@@ -74,18 +128,19 @@ function observationTable(headerA, headerB, rows, keyA, keyB) {
 }
 
 export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
-  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
   const interactions = weeklyTrend.map((w) => w.totalInteractions);
   const users = weeklyTrend.map((w) => w.uniqueUsers);
   const sessions = weeklyTrend.map((w) => w.sessions);
   const newUsers = weeklyTrend.map((w) => w.newUsers);
 
   const trendRows = weeklyTrend.map((week, index) => {
-    if (index === 0) {
+    const previous = weeklyTrend[index - 1];
+    // No comparison across a partial week (see summarizeWeeklyTrend).
+    if (!previous || week.partial || previous.partial) {
       return { ...week, newUsersWowPct: null };
     }
 
-    const previous = weeklyTrend[index - 1];
     const newUsersWowPct =
       previous.newUsers > 0 ? ((week.newUsers - previous.newUsers) / previous.newUsers) * 100 : null;
     return { ...week, newUsersWowPct };
@@ -95,7 +150,7 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
     ['Week', 'Users', 'New Users', 'New User WoW %', 'Sessions', 'Interactions'],
     trendRows,
     [
-      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      formatTrendWeekLabel,
       (w) => w.uniqueUsers,
       (w) => w.newUsers,
       (w) => (w.newUsersWowPct === null ? 'N/A' : `${w.newUsersWowPct >= 0 ? '+' : ''}${w.newUsersWowPct.toFixed(1)}%`),
@@ -168,8 +223,8 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
   <section class="page">
     <h2>Usage Trends</h2>
     <p>
-      Timeline uses the rolling week-over-week trend window (starting from April until enough history exists
-      for a full 3-month rolling view), with explicit new-user growth tracking.
+      Weekly (Monday-Sunday, UTC) trends for all users over up to three months before the report end,
+      including new-user growth.
     </p>
     <canvas id="usage-trends-chart" width="900" height="380"></canvas>
     <script>
@@ -177,30 +232,97 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
       window.__chartConfigs['usage-trends-chart'] = ${JSON.stringify(chartConfig)};
     </script>
     ${observationTable('Metric', 'Observation', usageObservations, 'metric', 'observation')}
+  </section>
+  <section class="page">
+    <h2>Weekly Trend Detail</h2>
     ${trendTable}
   </section>`;
 }
 
+export function renderSegmentTrendsPage(weeklyTrend) {
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
+  const hasUnknown = weeklyTrend.some((week) => hasSegmentActivity(week.segments?.unknown));
+  const segmentKeys = SEGMENT_KEYS.filter((key) => key !== 'unknown' || hasUnknown);
+  const chartSeries = [
+    ...segmentKeys.map((key) => ({ key, label: segmentLabel(key), style: SERIES_STYLES[key] })),
+    { key: null, label: 'Total', style: SERIES_STYLES.total },
+  ];
+  const chart = (metric, title) => ({
+    type: 'line',
+    data: {
+      labels,
+      datasets: chartSeries.map(({ key, label, style }) => ({
+        label,
+        data: weeklyTrend.map((week) => (key ? week.segments[key][metric] : week[metric])),
+        borderColor: style.color,
+        backgroundColor: style.color,
+        borderDash: style.dash,
+        pointStyle: style.point,
+        pointRadius: 4,
+        borderWidth: key ? 2 : 3,
+        tension: 0.2,
+      })),
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: title } },
+      scales: {
+        x: { ticks: { autoSkip: true, maxTicksLimit: 12, maxRotation: 45, minRotation: 45 } },
+        y: { beginAtZero: true },
+      },
+    },
+  });
+  const columns = [
+    ['Week', formatTrendWeekLabel],
+    ...segmentKeys.map((key) => [`${segmentLabel(key)} users`, (week) => week.segments[key].uniqueUsers]),
+    ['Total users', (week) => week.uniqueUsers],
+    ...segmentKeys.map((key) => [`${segmentLabel(key)} interactions`, (week) => week.segments[key].totalInteractions]),
+    ['Total interactions', (week) => week.totalInteractions],
+  ];
+  return `
+  <section class="page">
+    <h2>Internal vs External Weekly Trends</h2>
+    <p>Monday-Sunday (UTC) buckets compare segment and Total users and interactions.
+    ${escapeHtml(segmentFootnote(hasUnknown))} Total includes every segment.</p>
+    <canvas id="segment-users-chart" width="900" height="290"></canvas>
+    <script>
+      window.__chartConfigs = window.__chartConfigs || {};
+      window.__chartConfigs['segment-users-chart'] = ${JSON.stringify(chart('uniqueUsers', 'Weekly Unique Users by Segment'))};
+    </script>
+    <canvas id="segment-interactions-chart" width="900" height="290"></canvas>
+    <script>
+      window.__chartConfigs['segment-interactions-chart'] = ${JSON.stringify(chart('totalInteractions', 'Weekly Interactions by Segment'))};
+    </script>
+  </section>
+  <section class="page">
+    <h2>Segment Trend Detail</h2>
+    ${dataTable(
+      columns.map(([label]) => label),
+      weeklyTrend,
+      columns.map(([, render]) => render),
+    )}
+  </section>`;
+}
+
 export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { period, trendWindow } = {}) {
-  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
   const errorRates = weeklyTrend.map((w) => w.errorRate);
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
 
-  const reportPeriodLabel = period
-    ? `${period.startISO.split('T')[0]} to ${period.endISO.split('T')[0]}`
-    : 'the current report period';
+  const reportPeriodLabel = period ? formatPeriodLabel(period.startISO, period.endISO) : 'the current report period';
   const trendWindowLabel = trendWindow
-    ? `${trendWindow.startISO.split('T')[0]} to ${trendWindow.endISO.split('T')[0]} (Mon-Sun buckets)`
-    : 'the rolling weekly trend window (Mon-Sun buckets)';
+    ? `${formatPeriodLabel(trendWindow.startISO, trendWindow.endISO)} (Mon-Sun UTC buckets)`
+    : 'the rolling weekly trend window (Mon-Sun UTC buckets)';
 
   const errorRateConfig = {
     type: 'bar',
-    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }] },
+    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: BAD_COLOR }] },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate' } },
+      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate (all users)' } },
       scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } } },
     },
   };
@@ -210,14 +332,17 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     data: {
       labels,
       datasets: [
-        { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
-        { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
+        { label: 'Good', data: goodFeedback, backgroundColor: GOOD_COLOR },
+        { label: 'Bad', data: badFeedback, backgroundColor: BAD_COLOR },
       ],
     },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Weekly Feedback Volume' } },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        title: { display: true, text: 'Weekly Feedback Volume (all users)' },
+      },
       scales: {
         x: { stacked: true, ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } },
         y: { stacked: true },
@@ -250,7 +375,7 @@ function truncateForCard(text, limit = 200) {
   return str.length > limit ? `${str.slice(0, limit - 1)}…` : str;
 }
 
-export function renderFeedbackPage(representativeFeedback) {
+export function renderFeedbackPage(representativeFeedback, feedbackDetails = [], { showSegments = false } = {}) {
   const feedbackWithConversation = representativeFeedback.filter((f) => {
     const hasQuestion = String(f.userMessage ?? '').trim().length > 0;
     const hasAnswer = String(f.botResponse ?? '').trim().length > 0;
@@ -262,12 +387,12 @@ export function renderFeedbackPage(representativeFeedback) {
       ? '<p class="empty">No feedback recorded for this period.</p>'
       : feedbackWithConversation
           .map((f) => {
-            const sentiment = f.value === 'good-feedback' ? 'good' : 'bad';
-            const sentimentLabel = f.value === 'good-feedback' ? 'Good' : 'Bad';
+            const sentiment = f.value === 'good-feedback' ? 'good' : f.value === 'bad-feedback' ? 'bad' : '';
             const date = f.timestamp.split('T')[0];
             return `
     <div class="feedback-card ${sentiment}">
-      <div class="feedback-card-header">${escapeHtml(sentimentLabel)} feedback - ${escapeHtml(date)}</div>
+      <div class="feedback-card-header">${escapeHtml(ratingLabel(f.value))} feedback - ${escapeHtml(date)}</div>
+      ${showSegments ? `<p class="feedback-author">${escapeHtml(segmentLabel(f.segment))} user</p>` : ''}
       <p class="feedback-q">Q: ${escapeHtml(truncateForCard(f.userMessage, 150))}</p>
       <p class="feedback-a">A: ${escapeHtml(truncateForCard(f.botResponse, 220))}</p>
     </div>`;
@@ -278,10 +403,20 @@ export function renderFeedbackPage(representativeFeedback) {
   <section class="page">
     <h2>Representative Feedback</h2>
     <p>
-      The source report rendered long user messages and bot responses in a dense table. This version presents
-      representative feedback as reviewable cards and keeps raw detail out of the main flow.
+      Representative feedback for the report period, prioritizing ratings that include a written reason.
     </p>
     ${body}
+    ${
+      feedbackDetails.length
+        ? `
+    <h3>Latest Feedback (${feedbackDetails.length})</h3>
+    ${dataTable(['Date', 'Rating', ...(showSegments ? ['User type'] : [])], feedbackDetails, [
+      (f) => formatCompactTimestamp(f.timestamp),
+      (f) => ratingLabel(f.value),
+      ...(showSegments ? [(f) => segmentLabel(f.segment)] : []),
+    ])}`
+        : ''
+    }
   </section>`;
 }
 
@@ -302,37 +437,49 @@ function dataTable(headers, rows, cellRenderers) {
     </table>`;
 }
 
-export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions) {
+export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions, { showSegments = false } = {}) {
   const feedbackRows = topUsersByFeedback.slice(0, 5);
   const interactionRows = topUsersByInteractions.slice(0, 6);
 
-  const feedbackTable = dataTable(['User', 'Feedback', 'Good', 'Bad', 'Last Feedback', 'Positive %'], feedbackRows, [
-    (r) => r.userId,
-    (r) => r.feedbackCount,
-    (r) => r.goodFeedback,
-    (r) => r.badFeedback,
-    (r) => formatCompactTimestamp(r.lastFeedback),
-    (r) => r.positiveRatioPct.toFixed(1),
-  ]);
+  const userType = showSegments ? [['User type', (r) => segmentLabel(r.segment)]] : [];
+  const table = (columns, rows) =>
+    dataTable(
+      columns.map(([header]) => header),
+      rows,
+      columns.map(([, render]) => render),
+    );
 
-  const interactionsTable = dataTable(
-    ['User', 'Interactions', 'Sessions', 'Errors', 'Error Rate', 'Avg / Session', 'Last Seen'],
-    interactionRows,
+  const feedbackTable = table(
     [
-      (r) => r.userId,
-      (r) => r.interactions,
-      (r) => r.sessions,
-      (r) => r.errors,
-      (r) => r.errorRate.toFixed(1),
-      (r) => r.avgPerSession.toFixed(1),
-      (r) => formatCompactTimestamp(r.lastSeen),
+      ['User', (r) => r.userId],
+      ...userType,
+      ['Feedback', (r) => r.feedbackCount],
+      ['Good', (r) => r.goodFeedback],
+      ['Bad', (r) => r.badFeedback],
+      ['Last Feedback', (r) => formatCompactTimestamp(r.lastFeedback)],
+      ['Positive %', (r) => r.positiveRatioPct.toFixed(1)],
     ],
+    feedbackRows,
+  );
+
+  const interactionsTable = table(
+    [
+      ['User', (r) => r.userId],
+      ...userType,
+      ['Interactions', (r) => r.interactions],
+      ['Sessions', (r) => r.sessions],
+      ['Errors', (r) => r.errors],
+      ['Error Rate', (r) => r.errorRate.toFixed(1)],
+      ['Avg / Session', (r) => r.avgPerSession.toFixed(1)],
+      ['Last Seen', (r) => formatCompactTimestamp(r.lastSeen)],
+    ],
+    interactionRows,
   );
 
   return `
   <section class="page">
     <h2>Top Users</h2>
-    <p>The top-user data is retained, but narrowed to the most decision-useful columns and limited to leading users.</p>
+    <p>Leading users for the report period by feedback given and by interaction count.</p>
     <h3>Top Users by Feedback</h3>
     ${feedbackTable}
     <h3>Top Users by Interaction Count</h3>
@@ -370,15 +517,15 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
     ],
     weeklyTrend,
     [
-      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      formatTrendWeekLabel,
       (w) => w.uniqueUsers,
       (w) => w.sessions,
       (w) => w.totalInteractions,
       (w) => w.errors,
       (w) => w.goodFeedback,
       (w) => w.badFeedback,
-      (w) => w.feedbackRatio.toFixed(1),
-      (w) => w.avgInteractionsPerUser.toFixed(1),
+      (w) => formatPercent(w.feedbackRatio),
+      (w) => formatDecimal(w.avgInteractionsPerUser),
       (w) => w.newUsers,
       (w) => w.returningUsers,
     ],
@@ -424,7 +571,7 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
       (d) => d.totalInteractions,
       (d) => d.errors,
       (d) => d.rateLimited,
-      (d) => d.errorRate.toFixed(1),
+      (d) => formatPercent(d.errorRate),
       (d) => d.newUsers,
       (d) => d.returningUsers,
     ],
@@ -434,8 +581,7 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
   <section class="page">
     <h2>Appendix: Weekly Snapshot</h2>
     <p>
-      Compact weekly table derived from the visible weekly snapshot in the source report. Full raw exports
-      should remain available separately when stakeholders need row-level analysis.
+      Weekly (Monday-Sunday, UTC) figures for the report period.
     </p>
     ${weeklyTable}
   </section>
@@ -456,15 +602,6 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
       window.__chartConfigs['daily-error-rate-chart'] = ${JSON.stringify(errorRateConfig)};
     </script>
     ${dailyTable}
-  </section>
-
-  <section class="page">
-    <h2>Executive Notes</h2>
-    <ol>
-      <li>Engagement remains steady with meaningful repeat usage patterns.</li>
-      <li>Weekly trend monitoring should remain focused on error-rate movement and interaction growth.</li>
-      <li>Feedback-heavy users and high-interaction users can guide targeted support and training.</li>
-    </ol>
   </section>`;
 }
 
@@ -486,13 +623,18 @@ const PAGE_STYLES = `
   .readout li { font-size: 13px; margin-bottom: 8px; }
   .data-table, .observation-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
   .data-table th, .observation-table th { background: #366092; color: #fff; padding: 6px 8px; text-align: left; }
-  .data-table td, .observation-table td { padding: 6px 8px; border-bottom: 1px solid #e8ecef; }
+  .data-table td, .observation-table td { padding: 6px 8px; border-bottom: 1px solid #e8ecef; overflow-wrap: anywhere; }
   .data-table tr:nth-child(even) td, .observation-table tr:nth-child(even) td { background: #f9fbfd; }
   .feedback-card { border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; border: 1px solid #d0d7de; }
   .feedback-card.good { background: #f0f7f2; }
   .feedback-card.bad { background: #fdf2f0; }
   .feedback-card-header { font-weight: bold; text-align: center; margin-bottom: 6px; }
   .feedback-q, .feedback-a { font-size: 12px; margin: 4px 0; }
+  .definitions { font-size: 11px; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+  .definitions dt { font-weight: bold; }
+  .definitions dd { margin: 0; }
+  .feedback-author { font-size: 11px; color: #444; text-align: center; overflow-wrap: anywhere; }
+  canvas { max-width: 100%; height: auto; }
   .empty { font-style: italic; color: #666; }
 `;
 
@@ -522,18 +664,25 @@ export function renderExecutiveReportHtml(reportData, narrative, chartJsSource) 
     trendWeekly = weeklyTrend,
     dailySummary,
     representativeFeedback,
+    feedbackDetails = [],
     topUsersByFeedback,
     topUsersByInteractions,
     period,
   } = reportData;
   const { readoutBullets, usageObservations, reliabilityTakeaways } = narrative;
 
+  const showSegments = Boolean(reportData.userSegments);
+  if (showSegments && trendWeekly.some((week) => !week.segments)) {
+    throw new Error('Executive report segment trend data is missing');
+  }
   const pages = [
-    renderCoverPage(kpiSummary, readoutBullets, period),
+    renderCoverPage(kpiSummary, readoutBullets, period, reportData.userSegments),
+    ...(showSegments ? [renderUserSegmentsPage(reportData.userSegments, kpiSummary)] : []),
     renderUsageTrendsPage(trendWeekly, usageObservations),
+    ...(showSegments ? [renderSegmentTrendsPage(trendWeekly)] : []),
     renderReliabilityPage(trendWeekly, reliabilityTakeaways, { period, trendWindow: reportData.trendWindow }),
-    renderFeedbackPage(representativeFeedback),
-    renderTopUsersPage(topUsersByFeedback, topUsersByInteractions),
+    renderFeedbackPage(representativeFeedback, feedbackDetails, { showSegments }),
+    renderTopUsersPage(topUsersByFeedback, topUsersByInteractions, { showSegments }),
     renderAppendixPage(weeklyTrend, dailySummary),
   ].join('\n');
 
