@@ -84,7 +84,7 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 
 1. The user types `/fiona ask <question>` in any channel or DM.
 2. Fiona sends an **ephemeral message** (visible only to the invoking user) with
-   a streamed LLM response.
+   the LLM response.
 3. The response follows the same LLM pipeline as a standard `app_mention` —
    including system prompt, citation handling, and domain filtering — but is
    delivered ephemerally rather than in-thread.
@@ -93,15 +93,58 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    use @-mentions in a thread instead.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
+6. The numbered Sources block (AI-230) sits between the answer and the feedback
+   buttons, exactly as on a standard `app_mention` answer, and the grounding rules
+   (AI-231) apply unchanged — a question with no usable sources gets the same
+   decline.
+
+**Ephemeral, therefore not streamed.** Slack has no ephemeral equivalent of
+`chat.startStream` — `recipient_user_id` on a stream is a routing field required
+outside a DM, not a privacy control, so streaming the answer would post it to the
+whole channel. The answer is buffered and delivered in one ephemeral message
+instead. Nothing is lost in the LLM pipeline by doing so: `callPerplexityChat`
+already buffers the full response and emits a single `append()`, because citation
+markers cannot be linkified until Perplexity sends the citations on the last chunk.
+
+**The `ask` keyword behaves identically.** `@fiona ask <question>` in a channel or
+thread answers ephemerally through the same pipeline, so the phrasing a user
+happens to reach for does not change who can see the answer. Only the assistant
+panel, which is already private, streams the answer, so it reads like any other
+reply there. Every other surface gets the ephemeral answer, so a new entry point
+fails closed rather than posting publicly.
+
+**Visible only to you, not unrecorded.** "Ephemeral" describes who can see the
+answer in Slack. It does not mean the exchange is not stored: when conversation
+capture is on, the question and answer are kept like any other conversation for
+quality review, and a feedback click stores the rated answer. User-facing copy
+therefore says "only you see…" and that conversations may be retained, never
+that they are private.
+
+**Progress and delivery failures.** The answer can take up to a minute, so the
+slash command acknowledges with an ephemeral "Thinking…" line that the answer
+replaces, and the @-mention path shows a thread "thinking" status while the LLM
+runs. If the answer cannot be delivered, the user gets a short notice instead of
+silence, the interaction is recorded as an error (`respond_failed` on the slash
+command, `post_failed` on the @-mention path), and the conversation is not
+captured, because nobody saw the answer.
 
 **Edge cases:**
 
 - If `<question>` is empty or blank, Fiona responds with the help output
-  (equivalent to `/fiona help`).
+  (equivalent to `/fiona help`). A bare `@fiona ask` does the same; it is not
+  sent to the LLM, which would answer it publicly.
+- A question over 3,000 characters is declined with a short message and is not
+  sent to the LLM (`errorType: question_too_long`).
+- An error reply carries no feedback buttons. A failed call and an empty
+  generation get different copy; the empty case suggests rephrasing or
+  `/fiona search`.
+- An answer over Slack's 12,000-character `markdown` block limit is cut at a line
+  break, any open code fence is closed, and a notice suggests a narrower question.
 
 **Acceptance criteria:**
 
-- [ ] Response is ephemeral and streamed.
+- [ ] Response is ephemeral (see "Ephemeral, therefore not streamed" above).
+- [ ] `@fiona ask <question>` is held in lock step with the slash command.
 - [ ] LLM pipeline (system prompt, citations, domain filtering) is reused.
 - [ ] Empty questions fall back to `/fiona help`.
 - [ ] Rate limiting applies (counts toward the user's rate-limit window).

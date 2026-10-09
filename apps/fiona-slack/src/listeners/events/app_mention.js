@@ -4,7 +4,11 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { captureConversation } from '../../agent/conversation-capture-store.js';
-import { handleInteractionWithTelemetry, waitForMetadataReady } from '../../agent/interaction-telemetry.js';
+import {
+  handleInteractionWithTelemetry,
+  logCitationTelemetry,
+  waitForMetadataReady,
+} from '../../agent/interaction-telemetry.js';
 import {
   CITATION_POLICY,
   callLLM,
@@ -36,6 +40,15 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
   const { channel, team, user } = event;
   const thread_ts = event.thread_ts || event.ts;
   const messageTs = event.ts;
+  // Bolt's say() posts to the channel root, so every reply in the mention flow
+  // (telemetry's error notice, the rate-limit notice, the greeting, keyword
+  // replies) goes through this wrapper instead of adding thread_ts per call.
+  //
+  // For a top-level mention, thread_ts is the mention's own ts, so these notices
+  // open a thread under it: the same place the streamed answer goes. Ephemeral
+  // keyword answers are the exception (see ephemeralTarget). Slack cannot start
+  // a thread with an ephemeral, so for a top-level mention those appear inline.
+  const threadedSay = (msg) => say(typeof msg === 'string' ? { text: msg, thread_ts } : { thread_ts, ...msg });
 
   await handleInteractionWithTelemetry(
     {
@@ -46,9 +59,9 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       messageTs,
       interactionType: 'app_mention',
       logger,
-      say,
+      say: threadedSay,
     },
-    async ({ claimResponseId, markRateLimited, markInteractionRecorded }) => {
+    async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       if (
         await handleRateLimitedInteraction({
           userId: user,
@@ -58,7 +71,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           messageTs,
           interactionType: 'app_mention',
           logger,
-          say,
+          say: threadedSay,
           markRateLimited,
           markInteractionRecorded,
         })
@@ -72,7 +85,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Respond with a helpful introduction when there is no message text (silently discard, don't record)
       if (!text) {
         markInteractionRecorded();
-        await say(
+        await threadedSay(
           "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
         );
         return;
@@ -84,9 +97,11 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (cmd) {
         await dispatchKeywordViaSay({
           cmd,
-          say,
+          say: threadedSay,
           logger,
           markInteractionRecorded,
+          markInteractionError,
+          claimResponseId,
           client,
           userId: user,
           teamId: team,
@@ -134,9 +149,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       await waitForMetadataReady(metadata, CITATION_POLICY.METADATA_WAIT_TIMEOUT_MS);
 
       // Telemetry: log finalize_state and source count for observability.
-      if (metadata) {
-        logger.info(`[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}`);
-      }
+      logCitationTelemetry(logger, metadata);
 
       await streamer.stop({
         blocks: [

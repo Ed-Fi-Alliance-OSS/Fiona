@@ -5,16 +5,44 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
+// Every mock function is created once, here, and the factories only hand it out.
+// Jest may evaluate a module-mock factory more than once in a worker that has
+// already run another file mocking the same module (fiona.test.js does). A
+// jest.fn() created inside the factory then exists twice: the code under test
+// holds one instance and the test asserts on the other, so a call it really
+// made reads as "0 calls". Hoisting keeps every importer on the same instance.
+const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
+const mockCallLLM = jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' });
+const mockFinalizeMetadataEnvelope = jest.fn();
+const mockHandleMetadataTimeout = jest.fn();
+const mockSearchForSources = jest.fn().mockResolvedValue([]);
+const mockCheckRateLimit = jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 });
+const mockRateLimitMessage = jest.fn((retryAfterMs) => {
+  const minutes = Math.ceil(retryAfterMs / 60000);
+  return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+});
+// Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
+const mockBuildThreadHistory = jest
+  .fn()
+  .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
+    Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
+  );
+const mockGenerateResponseId = jest.fn().mockReturnValue('C123:1234567890.000001');
+const mockShouldFinalize = jest.fn().mockReturnValue(true);
+const mockRollbackFinalization = jest.fn();
+const mockCaptureConversation = jest.fn().mockResolvedValue(undefined);
+const mockEscalateViaSay = jest.fn().mockResolvedValue(undefined);
+
 // Mock the LLM caller and rate limiter before importing the module under test
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
-  recordInteraction: jest.fn().mockResolvedValue(undefined),
+  recordInteraction: mockRecordInteraction,
 }));
 
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
-  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
-  finalizeMetadataEnvelope: jest.fn(),
-  handleMetadataTimeout: jest.fn(),
-  searchForSources: jest.fn().mockResolvedValue([]),
+  callLLM: mockCallLLM,
+  finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
+  handleMetadataTimeout: mockHandleMetadataTimeout,
+  searchForSources: mockSearchForSources,
   LLM_MODEL: 'sonar-pro',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: {
@@ -30,44 +58,38 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
-  checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
-  rateLimitMessage: jest.fn((retryAfterMs) => {
-    const minutes = Math.ceil(retryAfterMs / 60000);
-    return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
-  }),
+  checkRateLimit: mockCheckRateLimit,
+  rateLimitMessage: mockRateLimitMessage,
 }));
 
-// Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
 jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
-  buildThreadHistory: jest
-    .fn()
-    .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
-      Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
-    ),
+  buildThreadHistory: mockBuildThreadHistory,
 }));
 
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
-  generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000001'),
-  shouldFinalize: jest.fn().mockReturnValue(true),
-  rollbackFinalization: jest.fn(),
+  generateResponseId: mockGenerateResponseId,
+  shouldFinalize: mockShouldFinalize,
+  rollbackFinalization: mockRollbackFinalization,
 }));
 
 jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () => ({
-  captureConversation: jest.fn().mockResolvedValue(undefined),
+  captureConversation: mockCaptureConversation,
 }));
 
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
-  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+  escalateViaSay: mockEscalateViaSay,
 }));
 
 const { appMentionCallback } = await import('../../../src/listeners/events/app_mention.js');
-const { escalateViaSay } = await import('../../../src/agent/escalation.js');
-const { callLLM, finalizeMetadataEnvelope } = await import('../../../src/agent/llm-caller.js');
-const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-const { buildThreadHistory } = await import('../../../src/agent/thread-history.js');
-const { shouldFinalize, rollbackFinalization } = await import('../../../src/agent/utils/idempotent-finalize.js');
-const { recordInteraction } = await import('../../../src/agent/interaction-store.js');
-const { captureConversation } = await import('../../../src/agent/conversation-capture-store.js');
+const escalateViaSay = mockEscalateViaSay;
+const callLLM = mockCallLLM;
+const finalizeMetadataEnvelope = mockFinalizeMetadataEnvelope;
+const checkRateLimit = mockCheckRateLimit;
+const buildThreadHistory = mockBuildThreadHistory;
+const shouldFinalize = mockShouldFinalize;
+const rollbackFinalization = mockRollbackFinalization;
+const recordInteraction = mockRecordInteraction;
+const captureConversation = mockCaptureConversation;
 
 describe('appMentionCallback', () => {
   let mockSay;
@@ -117,8 +139,9 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    const [msg] = mockSay.mock.calls[0];
+    const [{ text: msg, thread_ts }] = mockSay.mock.calls[0];
     expect(msg).toContain('request limit');
+    expect(thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
 
     expect(recordInteraction).toHaveBeenCalledTimes(1);
@@ -169,7 +192,32 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockLogger.error).toHaveBeenCalled();
-    expect(mockSay).toHaveBeenCalledWith(expect.stringContaining(':warning:'));
+    expect(mockSay).toHaveBeenCalledWith({
+      text: expect.stringContaining(':warning:'),
+      thread_ts: '1234567890.000001',
+    });
+  });
+
+  // Without thread_ts Slack posts these to the parent channel, away from the
+  // thread the user asked in.
+  it('sends the rate limit message into the thread when the mention is inside one', async () => {
+    checkRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 90000 });
+    mockEvent.thread_ts = '1234567890.000000';
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '1234567890.000000' }));
+  });
+
+  it('sends the warning into the thread when the mention is inside one', async () => {
+    callLLM.mockRejectedValueOnce(new Error('LLM failure'));
+    mockEvent.thread_ts = '1234567890.000000';
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockSay).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(':warning:'), thread_ts: '1234567890.000000' }),
+    );
   });
 
   it('includes plural "minutes" for retryAfterMs >= 2 minutes', async () => {
@@ -177,7 +225,7 @@ describe('appMentionCallback', () => {
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-    const [msg] = mockSay.mock.calls[0];
+    const [{ text: msg }] = mockSay.mock.calls[0];
     expect(msg).toContain('minutes');
   });
 
@@ -186,7 +234,7 @@ describe('appMentionCallback', () => {
 
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-    const [msg] = mockSay.mock.calls[0];
+    const [{ text: msg }] = mockSay.mock.calls[0];
     expect(msg).toMatch(/\bminute\b/);
   });
 
@@ -232,8 +280,18 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it('sends the introduction into the thread when the mention is inside one', async () => {
+    mockEvent.text = '<@BOT123>';
+    mockEvent.thread_ts = '1234567890.000000';
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '1234567890.000000' }));
   });
 
   it('sends an introduction when the mention text is empty', async () => {
@@ -242,7 +300,8 @@ describe('appMentionCallback', () => {
     await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
     expect(mockSay).toHaveBeenCalledTimes(1);
-    expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
+    expect(mockSay.mock.calls[0][0].thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -328,6 +387,23 @@ describe('appMentionCallback', () => {
 
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('[citations]'));
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('state=ready_to_finalize'));
+  });
+
+  it('logs when the answer was declined for having no sources', async () => {
+    callLLM.mockResolvedValueOnce({
+      metadata: {
+        finalize_state: 'ready_to_finalize',
+        sources: [],
+        source_index_map: {},
+        grounding: 'declined_no_results',
+      },
+      botText: 'declined',
+      systemPromptVersion: 'v3',
+    });
+
+    await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('grounding=declined_no_results'));
   });
 
   it('calls finalizeMetadataEnvelope after streamer.stop', async () => {
@@ -420,14 +496,31 @@ describe('appMentionCallback', () => {
       delete process.env.ESCALATION_ENABLED;
     });
 
-    it('responds with help text when mention text is exactly "help"', async () => {
+    it('answers "help" ephemerally, not in the channel', async () => {
       mockEvent.text = '<@UFIONA> help';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      const payload = mockClient.chat.postEphemeral.mock.calls[0][0];
+      expect(payload).toMatchObject({ channel: 'C123', user: 'U456' });
+      expect(payload.text).toContain('Available commands');
+      // A top-level mention has no thread yet; an ephemeral aimed at one is never shown.
+      expect(payload).not.toHaveProperty('thread_ts');
+      expect(mockSay).not.toHaveBeenCalled();
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    it('keeps the help reply in-thread when the mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> help';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C123', user: 'U456', thread_ts: '1234567890.000000' }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     it('does not call setStatus (thinking) when routing to help command', async () => {
@@ -446,14 +539,114 @@ describe('appMentionCallback', () => {
       expect(callLLM).toHaveBeenCalled();
     });
 
-    it('responds with coming-soon text when mention text starts with "ask "', async () => {
+    it('answers "ask <question>" ephemerally, not in the channel', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C123', user: 'U456' }),
+      );
+      expect(mockSay).not.toHaveBeenCalled();
+    });
+
+    it('skips a duplicate ask retry before calling the LLM', async () => {
+      shouldFinalize.mockReturnValueOnce(false);
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
       expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+    });
+
+    it('strips the "ask" keyword before prompting the LLM', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
+    });
+
+    it('keeps the ask answer in-thread when the mention occurs inside a thread', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ thread_ts: '1234567890.000000' }),
+      );
+    });
+
+    describe('when the ephemeral ask answer cannot be posted', () => {
+      beforeEach(() => {
+        mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+        callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+        mockClient.chat.postEphemeral.mockRejectedValueOnce(
+          Object.assign(new Error('invalid_blocks'), { name: 'SlackAPIError' }),
+        );
+      });
+
+      it('records post_failed for the turn', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(recordInteraction).toHaveBeenCalledTimes(1);
+        expect(recordInteraction).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionType: 'app_mention', status: 'error', errorType: 'post_failed' }),
+        );
+      });
+
+      it('posts no public warning, only a private delivery-failure notice', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(mockSay).not.toHaveBeenCalled();
+        expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(2);
+        expect(mockClient.chat.postEphemeral.mock.calls[1][0]).toEqual(
+          expect.objectContaining({ user: 'U456', text: expect.stringContaining("couldn't deliver") }),
+        );
+      });
+
+      it('does not capture the undelivered answer', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(captureConversation).not.toHaveBeenCalled();
+      });
+
+      it('releases the response slot so a retry runs the pipeline again', async () => {
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+        await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+        expect(rollbackFinalization).toHaveBeenCalledWith('C123:1234567890.000001');
+        expect(callLLM).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('captures a delivered ask answer', async () => {
+      mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
+      callLLM.mockResolvedValueOnce({ metadata: null, botText: 'answer', systemPromptVersion: 'v1' });
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(captureConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ entryPoint: 'app_mention', botResponse: 'answer' }),
+      );
+    });
+
+    // A bare `ask` used to reach the LLM as the question "ask", answered in the
+    // channel for everyone, on the keyword that promises a private answer.
+    it.each(['ask', 'ASK', 'ask   ', 'fiona ask'])('answers a bare "@fiona %s" with help, not the LLM', async (text) => {
+      mockEvent.text = `<@UFIONA> ${text}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toContain('Available commands');
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     it('responds with search results when mention text starts with "search "', async () => {
@@ -495,8 +688,8 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toContain('Available commands');
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral.mock.calls[0][0].text).toContain('Available commands');
       expect(callLLM).not.toHaveBeenCalled();
     });
 
@@ -505,20 +698,20 @@ describe('appMentionCallback', () => {
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
       expect(callLLM).not.toHaveBeenCalled();
       // Telemetry recording via the handleInteractionWithTelemetry finally block
       // is covered in tests/agent/interaction-telemetry.test.js.
     });
 
-    it('responds with coming-soon text for "@fiona fiona ask <question>"', async () => {
+    it('answers "@fiona fiona ask <question>" ephemerally too', async () => {
       mockEvent.text = '<@UFIONA> fiona ask how do I set up ODS?';
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
 
-      expect(mockSay).toHaveBeenCalledTimes(1);
-      expect(mockSay.mock.calls[0][0]).toMatch(/not yet available/i);
-      expect(callLLM).not.toHaveBeenCalled();
+      expect(callLLM).toHaveBeenCalledTimes(1);
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledTimes(1);
+      expect(mockSay).not.toHaveBeenCalled();
     });
 
     // AI-217: with escalation off the keyword is no longer a command, so the
@@ -546,10 +739,25 @@ describe('appMentionCallback', () => {
           userId: 'U456',
           threadTs: '1234567890.000001',
           messageTs: '1234567890.000001',
-          say: mockSay,
+          say: expect.any(Function),
         }),
       );
       expect(callLLM).not.toHaveBeenCalled();
+    });
+
+    // say is bound to the thread once, at the top of the callback (AI-198), so
+    // every keyword path receives the wrapper rather than Bolt's raw say().
+    it('hands keyword handlers a say() that posts into the thread', async () => {
+      mockEvent.text = '<@UFIONA> escalate';
+      mockEvent.thread_ts = '1234567890.000000';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const { say } = escalateViaSay.mock.calls[0][0];
+      await say('plain');
+      await say({ text: 'object', blocks: [] });
+      expect(mockSay).toHaveBeenNthCalledWith(1, { text: 'plain', thread_ts: '1234567890.000000' });
+      expect(mockSay).toHaveBeenNthCalledWith(2, { text: 'object', blocks: [], thread_ts: '1234567890.000000' });
     });
 
     it('does not escalate a rate-limited user mentioning "escalate"', async () => {

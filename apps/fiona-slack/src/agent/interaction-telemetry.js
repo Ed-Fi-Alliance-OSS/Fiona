@@ -42,16 +42,32 @@ export async function waitForMetadataReady(metadata, timeoutMs = 2000) {
 }
 
 /**
+ * Log the `[citations]` telemetry line for a finalized answer.
+ *
+ * @param {Object} logger - Bolt logger
+ * @param {Object} [metadata] - Metadata envelope; nothing is logged without one
+ */
+export function logCitationTelemetry(logger, metadata) {
+  if (!metadata) return;
+  logger.info(
+    `[citations] state=${metadata.finalize_state} sources=${metadata.sources?.length ?? 0}` +
+      (metadata.grounding ? ` grounding=${metadata.grounding}` : ''),
+  );
+}
+
+/**
  * Wraps a Slack interaction handler callback with error classification,
  * interaction recording, and finalization rollback.
  *
- * The `fn` callback receives a context object with three helpers:
+ * The `fn` callback receives a context object with four helpers:
  * - `claimResponseId(id)` — call when a finalization slot is claimed so the catch
  *   block can roll it back on failure.
  * - `markRateLimited()` — call before recording a rate-limit interaction so the
  *   finally block records `rateLimited: true`.
  * - `markInteractionRecorded()` — call after recording early (e.g. rate-limit path)
  *   so the finally block does not double-record.
+ * - `markInteractionError(errorType)` — classify a handled failure without
+ *   throwing or sending the catch block's public warning.
  *
  * @param {Object} params
  * @param {string} params.userId
@@ -84,6 +100,10 @@ export async function handleInteractionWithTelemetry(
       },
       markRateLimited: () => {
         isRateLimited = true;
+      },
+      markInteractionError: (handledErrorType) => {
+        status = 'error';
+        errorType = handledErrorType;
       },
     });
   } catch (e) {
