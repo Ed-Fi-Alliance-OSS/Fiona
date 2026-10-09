@@ -69,6 +69,7 @@ may still be kept to review answer quality.
 | **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons. It does not count toward your hourly limit |
 | **T11a** | `/fiona ask Is *this* bold, and is https://docs.ed-fi.org a link?` | The *You asked:* line shows exactly what you typed, as plain text: the asterisks stay visible, with no bold. Note whether Slack makes the URL clickable, and report it either way |
 | **T11b** | In a channel: `@fiona ask Is A & B the same as <Descriptor>? See https://docs.ed-fi.org` | The *You asked:* line reads exactly as typed: no `&amp;` or `&lt;`, and no angle brackets added around the URL. Rate the answer 👎 and confirm the stored feedback question reads the same way |
+| **T11c** | `/fiona ask Is <Descriptor> ok? a < b and c > d & e` | The *You asked:* line reads exactly as typed, angle brackets and `&` included: not `Is Descriptor ok?`, and no `&lt;` or `&amp;`. This checks how Slack sends slash-command text with `should_escape: false`, so report what you see either way |
 
 ## C. Answer content and rendering
 

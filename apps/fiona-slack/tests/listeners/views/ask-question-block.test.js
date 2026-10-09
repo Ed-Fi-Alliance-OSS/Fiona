@@ -95,6 +95,26 @@ describe('ask question block', () => {
     expect(extractAskQuestion([createAskQuestionBlock(question)])).toBe(question);
   });
 
+  it('shortens a question one character over the limit', () => {
+    const question = 'y'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS + 1);
+
+    expect(extractAskQuestion([createAskQuestionBlock(question)])).toBe(
+      `${'y'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 1)}…`,
+    );
+  });
+
+  it('counts the limit in graphemes, so 300 emoji fit and 301 do not', () => {
+    // Two code units each, so 300 stay inside the code-unit budget.
+    const emoji = '😀';
+
+    expect(extractAskQuestion([createAskQuestionBlock(emoji.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS))])).toBe(
+      emoji.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS),
+    );
+    expect(extractAskQuestion([createAskQuestionBlock(emoji.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS + 1))])).toBe(
+      `${emoji.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 1)}…`,
+    );
+  });
+
   it.each([
     ['no blocks', undefined],
     ['no question block', [{ type: 'markdown', text: 'answer' }]],

@@ -522,19 +522,22 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     );
   });
 
-  it('keeps the stored answer when the thread lookup fails', async () => {
+  it('keeps the stored question and answer when the thread lookup fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await feedbackReasonViewCallback({
       ack: mockAck,
-      view: askView({ interactionType: 'assistant_message' }),
+      view: askView({ interactionType: 'assistant_message', question: 'What is Ed-Fi?' }),
       client: mockClient,
       logger: mockLogger,
     });
 
     expect(mockLogger.error).toHaveBeenCalled();
     expect(mockRecordFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+      expect.objectContaining({
+        userMessage: 'What is Ed-Fi?',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
     );
   });
 
@@ -775,6 +778,20 @@ describe('feedbackReasonClosedCallback — ask response type', () => {
         reason: null,
       }),
     );
+  });
+
+  it('keeps the stored question when a dismissed modal’s thread lookup fails', async () => {
+    mockView.private_metadata = JSON.stringify({
+      ...JSON.parse(mockView.private_metadata),
+      interactionType: 'assistant_message',
+      question: 'What is Ed-Fi?',
+    });
+    mockClient.conversations.replies.mockRejectedValueOnce(new Error('channel_not_found'));
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: 'What is Ed-Fi?' }));
   });
 
   it('still ignores a dismissed thumbs-down', async () => {

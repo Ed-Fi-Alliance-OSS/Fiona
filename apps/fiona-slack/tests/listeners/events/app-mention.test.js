@@ -579,6 +579,9 @@ describe('appMentionCallback', () => {
       ['a user group', '<@UFIONA> ask Is <!subteam^S123|@ods-team> the right group?', 'Is @someone the right group?'],
       ['a channel', '<@UFIONA> ask Should I post in <#C999|ods-help>?', 'Should I post in #a-channel?'],
       ['@here', '<@UFIONA> ask Does <!here> need to know?', 'Does @here need to know?'],
+      ['@channel', '<@UFIONA> ask Does <!channel> need to know?', 'Does @channel need to know?'],
+      ['@everyone with a label', '<@UFIONA> ask Does <!everyone|@everyone> know?', 'Does @everyone know?'],
+      ['a date', '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?', 'Is the release?'],
     ])('keeps the place of %s mentioned inside an ask question', async (_label, text, question) => {
       mockEvent.text = text;
 

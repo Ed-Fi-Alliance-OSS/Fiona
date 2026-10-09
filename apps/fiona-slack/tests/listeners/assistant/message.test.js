@@ -750,6 +750,28 @@ describe('message (assistant thread handler)', () => {
       expect(mockClient.chatStream).not.toHaveBeenCalled();
     });
 
+    // AI-250. Checked before the rate limit, as on the @-mention path.
+    it('declines an over-long ask privately without touching the rate limit', async () => {
+      mockMessage.text = `ask ${'x'.repeat(3001)}`;
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(checkRateLimit).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
+      expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('too long') }));
+      expect(recordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'assistant_message', status: 'error', errorType: 'question_too_long' }),
+      );
+    });
+
     it('strips the "ask" keyword before prompting the LLM', async () => {
       mockMessage.text = 'ask how do I set up ODS?';
 
