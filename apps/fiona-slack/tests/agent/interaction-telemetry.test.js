@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../src/agent/interaction-store.js', () => ({
   recordInteraction: jest.fn().mockResolvedValue(undefined),
@@ -586,21 +586,39 @@ describe('logCitationTelemetry', () => {
   });
 });
 
+// Fake timers keep these deterministic: wall-clock timing flaked on CI
+// because a 50ms setTimeout can measure as 49ms against Date.now().
 describe('sleep', () => {
-  it('resolves after specified milliseconds', async () => {
-    const startTime = Date.now();
-    await sleep(50);
-    const elapsedTime = Date.now() - startTime;
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
 
-    expect(elapsedTime).toBeGreaterThanOrEqual(50);
-    expect(elapsedTime).toBeLessThan(150); // Allow some variance
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('resolves after specified milliseconds', async () => {
+    let resolved = false;
+    const pending = sleep(50).then(() => {
+      resolved = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(49);
+    expect(resolved).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(resolved).toBe(true);
   });
 
   it('resolves immediately for zero milliseconds', async () => {
-    const startTime = Date.now();
-    await sleep(0);
-    const elapsedTime = Date.now() - startTime;
+    let resolved = false;
+    const pending = sleep(0).then(() => {
+      resolved = true;
+    });
 
-    expect(elapsedTime).toBeLessThan(50);
+    await jest.advanceTimersByTimeAsync(0);
+    await pending;
+    expect(resolved).toBe(true);
   });
 });
