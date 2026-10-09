@@ -5,14 +5,31 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-// Mock the LLM caller and rate limiter before importing the module under test
+// Mock the LLM caller and rate limiter before importing the module under test.
+// Every mock is created out here, not inside its factory: a worker that already
+// ran another file mocking the same module re-evaluates the factory, and an
+// inline jest.fn() would then exist twice, so the test would see 0 calls (CI only).
+const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
+const mockCallLLM = jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' });
+const mockFinalizeMetadataEnvelope = jest.fn();
+const mockCaptureConversation = jest.fn().mockResolvedValue(undefined);
+const mockCheckRateLimit = jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 });
+const mockBuildThreadHistory = jest
+  .fn()
+  .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
+    Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
+  );
+const mockShouldFinalize = jest.fn().mockReturnValue(true);
+const mockRollbackFinalization = jest.fn();
+const mockEscalateViaSay = jest.fn().mockResolvedValue(undefined);
+
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
-  recordInteraction: jest.fn().mockResolvedValue(undefined),
+  recordInteraction: mockRecordInteraction,
 }));
 
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
-  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
-  finalizeMetadataEnvelope: jest.fn(),
+  callLLM: mockCallLLM,
+  finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   handleMetadataTimeout: jest.fn(),
   searchForSources: jest.fn().mockResolvedValue([]),
   LLM_MODEL: 'sonar-pro',
@@ -30,11 +47,11 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 }));
 
 jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () => ({
-  captureConversation: jest.fn().mockResolvedValue(undefined),
+  captureConversation: mockCaptureConversation,
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
-  checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  checkRateLimit: mockCheckRateLimit,
   rateLimitMessage: jest.fn((retryAfterMs) => {
     const minutes = Math.ceil(retryAfterMs / 60000);
     return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
@@ -43,21 +60,17 @@ jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
 jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
-  buildThreadHistory: jest
-    .fn()
-    .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
-      Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
-    ),
+  buildThreadHistory: mockBuildThreadHistory,
 }));
 
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
   generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000000'),
-  shouldFinalize: jest.fn().mockReturnValue(true),
-  rollbackFinalization: jest.fn(),
+  shouldFinalize: mockShouldFinalize,
+  rollbackFinalization: mockRollbackFinalization,
 }));
 
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
-  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+  escalateViaSay: mockEscalateViaSay,
 }));
 
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
