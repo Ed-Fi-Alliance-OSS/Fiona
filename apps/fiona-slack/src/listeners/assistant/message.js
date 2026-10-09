@@ -60,7 +60,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
   const text = stripMentions('text' in message ? message.text : '');
   if (!text) {
     await say(
-      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about the Ed-Fi Data Standard, Ed-Fi documentation, or Ed-Fi implementations.",
     );
     return;
   }
