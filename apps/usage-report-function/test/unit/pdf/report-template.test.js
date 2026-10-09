@@ -15,6 +15,7 @@ import {
   renderUsageTrendsPage,
   renderUserSegmentsPage,
 } from '../../../lib/pdf/report-template.js';
+import { METRIC_DEFINITIONS, segmentFootnote } from '../../../lib/report-presentation.js';
 
 const kpiSummary = {
   totalInteractions: 437,
@@ -62,13 +63,47 @@ describe('renderUserSegmentsPage', () => {
       feedbackResponseRate: 40,
     };
     const html = renderUserSegmentsPage({ internal: segment, external: segment, unknown: segment }, kpiSummary);
-    expect(html).toContain('Internal means an @ed-fi.org');
-    expect(html).toMatch(/<th>Metric<\/th><th>Internal<\/th><th>External<\/th><th>Unknown<\/th><th>Total<\/th>/);
-    expect(html).toMatch(/<td>Interactions<\/td><td>6<\/td><td>6<\/td><td>6<\/td><td>437<\/td>/);
-    expect(html).toMatch(/<td>Sessions<\/td><td>3<\/td><td>3<\/td><td>3<\/td><td>110<\/td>/);
+    expect(html).toContain(segmentFootnote(true));
+    expect(html).toMatch(/<th>Metric<\/th><th>Total<\/th><th>Internal<\/th><th>External<\/th><th>Unknown<\/th>/);
+    expect(html).toMatch(/<td>Interactions<\/td><td>437<\/td><td>6<\/td><td>6<\/td><td>6<\/td>/);
+    expect(html).toMatch(/<td>Sessions<\/td><td>110<\/td><td>3<\/td><td>3<\/td><td>3<\/td>/);
     expect(html).toContain('<td>16.7%</td>');
     expect(html).toContain('<td>50.0%</td>');
     expect(html).toContain('<td>40.0%</td>');
+  });
+
+  it('renders a definitions list covering every metric definition', () => {
+    const segment = { ...kpiSummary };
+    const html = renderUserSegmentsPage({ internal: segment, external: segment, unknown: segment }, kpiSummary);
+    expect(html).toContain('<h3>Definitions</h3>');
+    expect(html).toContain('<dl class="definitions">');
+    for (const [term] of METRIC_DEFINITIONS) {
+      expect(html).toContain(`<dt>${term}</dt>`);
+    }
+  });
+
+  it('renders null rates as an em dash', () => {
+    const empty = {
+      ...kpiSummary,
+      uniqueUsers: 0,
+      newUsers: 0,
+      returningUsers: 0,
+      totalInteractions: 0,
+      errors: 0,
+      goodFeedback: 0,
+      badFeedback: 0,
+      feedbackTotal: 0,
+      newUserPct: null,
+      repeatRate: null,
+      avgInteractionsPerUser: null,
+      errorRate: null,
+      feedbackRatio: null,
+      feedbackResponseRate: null,
+    };
+    const html = renderUserSegmentsPage({ internal: kpiSummary, external: empty, unknown: empty }, kpiSummary);
+    expect(html).toMatch(/<td>Positive feedback<\/td><td>82\.2%<\/td><td>82\.2%<\/td><td>—<\/td>/);
+    expect(html).toMatch(/<td>Avg per user<\/td><td>13\.3<\/td><td>13\.3<\/td><td>—<\/td>/);
+    expect(html).not.toContain('null');
   });
 
   it('omits the Unknown column when unknown users have no activity', () => {
@@ -91,8 +126,10 @@ describe('renderUserSegmentsPage', () => {
     };
     const inactive = { ...active, uniqueUsers: 0, returningUsers: 0, sessions: 0, totalInteractions: 0 };
     const html = renderUserSegmentsPage({ internal: active, external: active, unknown: inactive }, kpiSummary);
-    expect(html).toMatch(/<th>Metric<\/th><th>Internal<\/th><th>External<\/th><th>Total<\/th>/);
+    expect(html).toMatch(/<th>Metric<\/th><th>Total<\/th><th>Internal<\/th><th>External<\/th><\/tr>/);
     expect(html).not.toContain('<th>Unknown</th>');
+    expect(html).toContain(segmentFootnote(false));
+    expect(html).not.toContain(segmentFootnote(true));
   });
 });
 
@@ -114,11 +151,26 @@ describe('renderCoverPage', () => {
     }
   });
 
-  it('renders the period and environment', () => {
-    const html = renderCoverPage(kpiSummary, readoutBullets, period);
-    expect(html).toContain('2026-06-24');
-    expect(html).toContain('2026-07-09');
+  it('renders the period with its last included day, not the exclusive end', () => {
+    const html = renderCoverPage(kpiSummary, readoutBullets, {
+      deploymentType: 'production',
+      startISO: '2026-10-05T00:00:00.000Z',
+      endISO: '2026-10-12T00:00:00.000Z',
+    });
+    expect(html).toContain('Period: 2026-10-05 to 2026-10-11 (UTC)');
+    expect(html).not.toContain('2026-10-12');
     expect(html).toContain('production');
+  });
+
+  it('renders null rates in the KPI cards as an em dash', () => {
+    const html = renderCoverPage(
+      { ...kpiSummary, errors: 0, errorRate: null, goodFeedback: 0, badFeedback: 0, feedbackRatio: null },
+      readoutBullets,
+      period,
+    );
+    expect(html).toContain('0 (—)');
+    expect(html).toContain('0/0 (—)');
+    expect(html).not.toContain('null');
   });
 
   it('keeps KPI cards and readout bullets on the cover and leaves segment tables to the next page', () => {
@@ -196,6 +248,45 @@ describe('renderUsageTrendsPage', () => {
       expect(html).toContain('Segment Trend Detail');
       expect(html).toContain('"data":[3,5]'); // total users (including unknown)
       expect(html).toContain('"data":[7,10]'); // total interactions (including unknown)
+      expect(html).toContain(segmentFootnote(true));
+    });
+
+    it('gives each series a color-blind-safe color, dash pattern and point shape', () => {
+      const segment = { uniqueUsers: 1, totalInteractions: 1 };
+      const html = renderSegmentTrendsPage([
+        {
+          weekStart: '2026-04-13',
+          weekEnd: '2026-04-19',
+          uniqueUsers: 3,
+          totalInteractions: 3,
+          segments: { internal: segment, external: segment, unknown: segment },
+        },
+      ]);
+      const config = JSON.parse(html.match(/__chartConfigs\['segment-users-chart'\] = (\{.*\});/)[1]);
+      const styles = Object.fromEntries(
+        config.data.datasets.map((d) => [d.label, [d.borderColor, JSON.stringify(d.borderDash), d.pointStyle]]),
+      );
+      expect(styles).toEqual({
+        Internal: ['#0072B2', '[]', 'circle'],
+        External: ['#E69F00', '[6,4]', 'triangle'],
+        Unknown: ['#999999', '[2,3]', 'rect'],
+        Total: ['#000000', '[]', 'rectRot'],
+      });
+    });
+
+    it('tolerates weeks whose segments have no unknown entry', () => {
+      const segment = { uniqueUsers: 1, totalInteractions: 2 };
+      const html = renderSegmentTrendsPage([
+        {
+          weekStart: '2026-04-13',
+          weekEnd: '2026-04-19',
+          uniqueUsers: 2,
+          totalInteractions: 4,
+          segments: { internal: segment, external: segment },
+        },
+      ]);
+      expect(html).not.toContain('"label":"Unknown"');
+      expect(html).toContain('<th>External users</th>');
     });
 
     it('leaves Unknown out of charts and tables when no week has unknown activity', () => {
@@ -234,6 +325,12 @@ describe('renderUsageTrendsPage', () => {
     expect(html).toContain('<h2>Weekly Trend Detail</h2>');
     expect(html).toContain('New User WoW %');
     expect(html).toContain('+200.0%');
+  });
+
+  it('describes the trend window without the old development-history wording', () => {
+    const html = renderUsageTrendsPage(weeklyTrend, usageObservations);
+    expect(html).toContain('Monday-Sunday, UTC');
+    expect(html).not.toContain('starting from April');
   });
 
   it('renders every observation row', () => {
@@ -280,6 +377,15 @@ describe('renderReliabilityPage', () => {
     expect(html).not.toContain('"label":"External bad"');
   });
 
+  it('titles the charts as all-user views and uses color-blind-safe colors', () => {
+    const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
+    expect(html).toContain('Weekly Error Rate (all users)');
+    expect(html).toContain('Weekly Feedback Volume (all users)');
+    expect(html).toContain('"label":"Good","data":[2,0],"backgroundColor":"#009E73"');
+    expect(html).toContain('"label":"Bad","data":[0,1],"backgroundColor":"#D55E00"');
+    expect(html).toContain('"label":"%","data":[0,1.1],"backgroundColor":"#D55E00"');
+  });
+
   it('renders every takeaway row', () => {
     const html = renderReliabilityPage(weeklyTrendWithFeedback, reliabilityTakeaways);
     expect(html).toContain('System error rate');
@@ -293,8 +399,10 @@ describe('renderReliabilityPage', () => {
     });
 
     expect(html).toContain('report-period KPI takeaways summarize');
-    expect(html).toContain('2026-06-24 to 2026-07-09');
-    expect(html).toContain('2026-04-06 to 2026-07-13 (Mon-Sun buckets)');
+    expect(html).toContain('2026-06-24 to 2026-07-08');
+    expect(html).toContain('2026-04-06 to 2026-07-12 (Mon-Sun UTC buckets)');
+    expect(html).not.toContain('2026-07-09');
+    expect(html).not.toContain('2026-07-13');
   });
 });
 
@@ -480,6 +588,16 @@ describe('renderAppendixPage', () => {
     expect(html).toContain('Returning Users');
   });
 
+  it('renders null weekly rates as an em dash', () => {
+    const html = renderAppendixPage(
+      [{ ...weeklyTrendForAppendix[0], feedbackRatio: null, avgInteractionsPerUser: null }],
+      [{ ...dailySummaryForAppendix[0], errorRate: null }],
+    );
+    expect(html).toMatch(/<td>—<\/td><td>—<\/td>/);
+    // Chart data may carry null (a gap); table cells never do.
+    expect(html).not.toMatch(/<td>(null|NaN)<\/td>/);
+  });
+
   it('renders the daily summary table including new/returning-user columns', () => {
     const html = renderAppendixPage(weeklyTrendForAppendix, dailySummaryForAppendix);
     expect(html).toContain('2026-06-24');
@@ -518,6 +636,13 @@ describe('renderExecutiveReportHtml', () => {
     expect(html).toContain('Representative Feedback');
     expect(html).toContain('Top Users');
     expect(html).toContain('Appendix: Weekly Snapshot');
+  });
+
+  it('drops stale development-history text and the static Executive Notes', () => {
+    const html = renderExecutiveReportHtml(reportData, narrative, fakeChartJsSource);
+    expect(html).not.toContain('source report');
+    expect(html).not.toContain('Executive Notes');
+    expect(html).not.toContain('decision-useful');
   });
 
   it('inlines the given Chart.js source verbatim', () => {

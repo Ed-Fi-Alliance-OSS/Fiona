@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it } from '@jest/globals';
-import { formatCompactTimestamp, formatWeekLabel } from '../../../lib/pdf/format.js';
+import { formatCompactTimestamp, formatPeriodLabel, formatWeekLabel } from '../../../lib/pdf/format.js';
 
 describe('formatWeekLabel', () => {
   it('formats a week within the same month as "Mon D-D, YYYY"', () => {
@@ -19,5 +19,23 @@ describe('formatWeekLabel', () => {
 describe('formatCompactTimestamp', () => {
   it('formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC', () => {
     expect(formatCompactTimestamp('2026-06-11T13:47:32.000Z')).toBe('2026-06-11 13:47');
+  });
+});
+
+describe('formatPeriodLabel', () => {
+  it('shows the last included day of a half-open window, not the exclusive end', () => {
+    expect(formatPeriodLabel('2026-10-05T00:00:00.000Z', '2026-10-12T00:00:00.000Z')).toBe('2026-10-05 to 2026-10-11');
+  });
+
+  it('rolls back across a month boundary', () => {
+    expect(formatPeriodLabel('2026-09-24T00:00:00.000Z', '2026-10-01T00:00:00.000Z')).toBe('2026-09-24 to 2026-09-30');
+  });
+
+  it('rolls back across a year boundary', () => {
+    expect(formatPeriodLabel('2026-12-25T00:00:00.000Z', '2027-01-01T00:00:00.000Z')).toBe('2026-12-25 to 2026-12-31');
+  });
+
+  it('keeps the end date when the window ends mid-day', () => {
+    expect(formatPeriodLabel('2026-10-05T00:00:00.000Z', '2026-10-12T09:30:00.000Z')).toBe('2026-10-05 to 2026-10-12');
   });
 });

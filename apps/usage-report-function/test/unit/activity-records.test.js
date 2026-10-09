@@ -9,6 +9,10 @@ import {
   assertReportWindow,
   coveringWindow,
   fetchActivity,
+  lastIncludedDate,
+  loadActivity,
+  MS_PER_DAY,
+  REPORT_WINDOW_DAYS,
   resolveWeeklyReportWindow,
   sliceActivity,
 } from '../../lib/activity-records.js';
@@ -58,6 +62,41 @@ describe('resolveWeeklyReportWindow', () => {
     expect(resolveWeeklyReportWindow(new Date('2026-10-09T00:00:00.000Z'))).toEqual(
       resolveWeeklyReportWindow(new Date('2026-10-09T23:59:59.999Z')),
     );
+  });
+
+  it('rolls back across a month boundary', () => {
+    expect(resolveWeeklyReportWindow(new Date('2026-03-03T09:00:00.000Z'))).toEqual({
+      startISO: '2026-02-24T00:00:00.000Z',
+      endISO: '2026-03-03T00:00:00.000Z',
+      startDate: '2026-02-24',
+      endDate: '2026-03-02',
+    });
+  });
+
+  it('rolls back across a year boundary', () => {
+    expect(resolveWeeklyReportWindow(new Date('2027-01-02T09:00:00.000Z'))).toEqual({
+      startISO: '2026-12-26T00:00:00.000Z',
+      endISO: '2027-01-02T00:00:00.000Z',
+      startDate: '2026-12-26',
+      endDate: '2027-01-01',
+    });
+  });
+
+  it('spans REPORT_WINDOW_DAYS whole days', () => {
+    const { startISO, endISO } = resolveWeeklyReportWindow(new Date('2026-10-09T12:00:00.000Z'));
+    expect(REPORT_WINDOW_DAYS).toBe(7);
+    expect(Date.parse(endISO) - Date.parse(startISO)).toBe(REPORT_WINDOW_DAYS * MS_PER_DAY);
+  });
+});
+
+describe('lastIncludedDate', () => {
+  it.each([
+    ['2026-10-09T00:00:00.000Z', '2026-10-08'],
+    ['2026-03-01T00:00:00.000Z', '2026-02-28'],
+    ['2027-01-01T00:00:00.000Z', '2026-12-31'],
+    ['2026-10-09T12:00:00.000Z', '2026-10-09'],
+  ])('the last day inside a window ending at %s is %s', (endISO, date) => {
+    expect(lastIncludedDate(endISO)).toBe(date);
   });
 });
 
@@ -128,6 +167,43 @@ describe('fetchActivity', () => {
     expect(activity.priorUserIds).toEqual(new Set());
   });
 
+  it('skips the feedback query when no feedback container is given', async () => {
+    const interactionsContainer = makeQueryable([[success('u1', '2026-04-13T10:00:00.000Z')], []]);
+
+    const activity = await fetchActivity(interactionsContainer, null, deploymentType, startISO, endISO);
+
+    expect(activity.feedback).toEqual([]);
+    expect(activity.interactions).toHaveLength(1);
+  });
+
+  it('excludes records with no userId from the prior-history lookup', async () => {
+    const interactionsContainer = makeQueryable([
+      [success(null, '2026-04-13T10:00:00.000Z'), success(undefined, '2026-04-13T11:00:00.000Z')],
+    ]);
+
+    const activity = await fetchActivity(interactionsContainer, null, deploymentType, startISO, endISO);
+
+    expect(interactionsContainer.items.query).toHaveBeenCalledTimes(1);
+    expect(activity.priorUserIds).toEqual(new Set());
+  });
+
+  it('chunks the prior-history lookup at 500 user IDs per query', async () => {
+    const users = Array.from({ length: 501 }, (_, i) => `u${i}`);
+    const query = jest.fn((spec) => {
+      const ids = spec.parameters.find((p) => p.name === '@successUserIds')?.value;
+      const resources = ids ? ids.filter((id) => id === 'u0' || id === 'u500') : users.map((u) => success(u, startISO));
+      return { fetchAll: async () => ({ resources }) };
+    });
+
+    const activity = await fetchActivity({ items: { query } }, null, deploymentType, startISO, endISO);
+
+    const chunkSizes = query.mock.calls
+      .map(([spec]) => spec.parameters.find((p) => p.name === '@successUserIds')?.value.length)
+      .filter(Boolean);
+    expect(chunkSizes).toEqual([500, 1]);
+    expect(activity.priorUserIds).toEqual(new Set(['u0', 'u500']));
+  });
+
   it('rejects an invalid window before querying', async () => {
     const interactionsContainer = makeQueryable([]);
     await expect(
@@ -178,11 +254,83 @@ describe('sliceActivity', () => {
     expect(activity.priorUserIds).toEqual(new Set(['ancient'])); // source activity is untouched
   });
 
+  it('returns an empty slice when the window holds no records', () => {
+    const slice = sliceActivity(activity, '2026-04-18T00:00:00.000Z', '2026-04-20T00:00:00.000Z');
+    expect(slice.interactions).toEqual([]);
+    expect(slice.feedback).toEqual([]);
+    expect(slice.priorUserIds).toEqual(new Set(['ancient', 'early', 'late', 'limited']));
+  });
+
   it.each([
     ['2026-04-05T00:00:00.000Z', '2026-04-13T00:00:00.000Z'],
     ['2026-04-13T00:00:00.000Z', '2026-04-21T00:00:00.000Z'],
   ])('throws for [%s, %s) outside the fetched range', (startISO, endISO) => {
     expect(() => sliceActivity(activity, startISO, endISO)).toThrow('outside fetched activity');
+  });
+});
+
+describe('loadActivity', () => {
+  const startISO = '2026-04-13T00:00:00.000Z';
+  const endISO = '2026-04-20T00:00:00.000Z';
+  const interactions = [success('a', '2026-04-14T10:00:00.000Z'), success('b', '2026-04-15T10:00:00.000Z')];
+  const interactionsContainer = () => makeQueryable([interactions, []]);
+  const feedbackContainer = () => makeQueryable([[]]);
+  const usersContainer = (users) => ({
+    id: 'slack-users',
+    items: { query: jest.fn(() => ({ fetchAll: async () => ({ resources: users }) })) },
+  });
+  const failingUsers = (error) => ({
+    id: 'slack-users',
+    items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(error) })) },
+  });
+  const cosmos403 = Object.assign(new Error('Forbidden'), { code: 403 });
+
+  it('returns a null directory, without segments being unavailable, when no users container is given', async () => {
+    const result = await loadActivity(interactionsContainer(), feedbackContainer(), 'production', startISO, endISO);
+    expect(result.directory).toBeNull();
+    expect(result.segmentsUnavailable).toBe(false);
+    expect(result.activity.interactions).toEqual(interactions);
+  });
+
+  it('looks up every user in the activity when a users container is given', async () => {
+    const users = usersContainer([
+      { id: 'a', email: 'a@ed-fi.org' },
+      { id: 'b', email: 'b@outside.org' },
+    ]);
+    const warn = jest.fn();
+    const result = await loadActivity(interactionsContainer(), feedbackContainer(), 'production', startISO, endISO, {
+      usersContainer: users,
+      warn,
+    });
+    expect([...result.directory]).toEqual([
+      ['a', 'internal'],
+      ['b', 'external'],
+    ]);
+    expect(result.segmentsUnavailable).toBe(false);
+    expect(users.items.query.mock.calls[0][0].parameters[0].value).toEqual(['a', 'b']);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('falls back with segmentsUnavailable and a warning when the directory fails (Slack mode)', async () => {
+    const warn = jest.fn();
+    const result = await loadActivity(interactionsContainer(), feedbackContainer(), 'production', startISO, endISO, {
+      usersContainer: failingUsers(cosmos403),
+      warn,
+    });
+    expect(result.directory).toBeNull();
+    expect(result.segmentsUnavailable).toBe(true);
+    expect(result.activity.interactions).toEqual(interactions);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('status 403'));
+  });
+
+  it('throws when the directory fails and requireDirectory is set (PDF mode)', async () => {
+    await expect(
+      loadActivity(interactionsContainer(), feedbackContainer(), 'production', startISO, endISO, {
+        usersContainer: failingUsers(cosmos403),
+        warn: jest.fn(),
+        requireDirectory: true,
+      }),
+    ).rejects.toThrow(/'slack-users' unavailable \(status 403\)/);
   });
 });
 

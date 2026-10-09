@@ -11,18 +11,20 @@ Every week it computes these KPIs from the `interactions` and `feedback` Cosmos 
 - Good/bad feedback counts and response rate
 - Average interactions per user
 - Side-by-side internal (`@ed-fi.org`) and external KPIs for users, new/returning users,
-  sessions, interactions, errors, rate limits, feedback and engagement. Users with
-  missing/invalid directory emails appear under **Unknown email** rather than external.
+  sessions, interactions, errors, rate limits, feedback and engagement. Users with no
+  usable email in the Slack user directory appear as **Unknown**, never as external.
 
-The Slack summary presents metrics as rows and Internal, External, and Total as
-columns. If any activity cannot be classified, an Unknown column appears before
-Total; Total always includes that activity.
+The Slack summary presents metrics as rows with Total, Internal, and External columns
+(Total first, so it stays visible on narrow screens). An Unknown column is added only
+when some activity can't be classified; Total always includes it. Rates with no
+denominator show as `—` rather than `0.0%`.
 
 Segmentation uses the current email recorded in the `slack-users` Cosmos DB container
 (`COSMOS_USERS_CONTAINER`, default `slack-users`), populated by Fiona's Slack user
 loader. Emails are only used to classify users; neither report shows them. If the
-user directory can't be read, both reports fall back to unsegmented totals and log
-a warning rather than failing.
+user directory can't be read, the Slack summary posts unsegmented totals with a visible
+"segments unavailable" note, while the executive PDF job fails so the problem is fixed
+rather than published.
 
 All figures come from one fetch of the report window's activity and share the KPI
 definitions in `lib/kpi-core.js`, so segments always sum to Total. A session is one
@@ -32,7 +34,30 @@ run date, and the PDF uses the same window.
 The executive PDF keeps the overall KPI cards and readout on its cover, then compares
 Internal, External, (Unknown when present), and Total on a dedicated segment page and
 in weekly segment trend charts. Feedback cards and top-user tables are labeled
-Internal/External/Unknown user.
+Internal/External/Unknown user. The segment page includes the metric definitions below.
+
+### Metric definitions
+
+| Metric | Definition |
+| --- | --- |
+| Unique users | Users with at least one successful, non-rate-limited interaction |
+| New users | Unique users with no successful interaction before the period |
+| Repeat rate | Share of unique users who are returning (not new) |
+| Sessions | One user's conversation thread; a thread with several users counts once per user |
+| Avg per user | Successful interactions per unique user |
+| Error rate | Errored interactions as a share of all interactions |
+| Positive feedback | Good ratings as a share of good + bad ratings |
+| Feedback response | Good + bad ratings per successful interaction; can exceed 100% when several people rate one answer or ratings arrive for earlier answers |
+
+### Metric changes (October 2026)
+
+Reports from the week of 2026-10-02 onward are not directly comparable with earlier ones:
+
+- **Sessions** count one per user per thread, so threads with several participants now
+  count more than once. Totals can only stay the same or rise.
+- **Report window** is the 7 whole UTC days before the run date. The run day's partial
+  hours are no longer included, and labels say "(UTC)".
+- **Feedback response rate** counts only good and bad ratings (not escalations).
 
 When a matching executive PDF report is available (generated separately by
 the `generate-usage-report-pdf` GitHub Actions workflow — see
@@ -81,6 +106,7 @@ cp local.settings.json.example local.settings.json
 | Setting           | Description                                                              |
 | ----------------- | ------------------------------------------------------------------------ |
 | `COSMOS_ENDPOINT` | Emulator or your Azure Cosmos endpoint                                   |
+| `COSMOS_USERS_CONTAINER` | Slack user directory used for internal/external segments (default `slack-users`) |
 | `SLACK_DRY_RUN`   | Set to `true` to print the report to the log instead of posting to Slack |
 | `REPORT_SCHEDULE` | Use `* * * * * *` locally so the function fires immediately on start     |
 | `USAGE_REPORTS_STORAGE_ACCOUNT_URL` | Optional. Storage account hosting the `usage-reports` container (see [DEPLOYMENT.md](DEPLOYMENT.md#usage-report-pdf-pipeline)). If unset, the Slack message is posted without a report link. |

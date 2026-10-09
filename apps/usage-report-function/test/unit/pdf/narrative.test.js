@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from '@jest/globals';
 import { buildReadoutBullets, buildReliabilityTakeaways, buildUsageObservations } from '../../../lib/pdf/narrative.js';
+import { INTERNAL_EMAIL_DOMAIN } from '../../../lib/user-segments.js';
 
 const kpiSummary = {
   totalInteractions: 437,
@@ -101,6 +102,40 @@ describe('buildReadoutBullets', () => {
       'Internal (@ed-fi.org): 22 users and 310 interactions; external: 10 users and 127 interactions.',
     );
   });
+
+  it('labels the internal segment with the configured internal email domain', () => {
+    const bullets = buildReadoutBullets(kpiSummary, weeklyTrend, '2026-06-24T00:00:00.000Z', {
+      internal: segment(1, 1),
+      external: segment(1, 1),
+      unknown: segment(0, 0),
+    });
+    expect(INTERNAL_EMAIL_DOMAIN).toBe('ed-fi.org');
+    expect(bullets[4].startsWith(`Internal (@${INTERNAL_EMAIL_DOMAIN}):`)).toBe(true);
+  });
+
+  it('renders null rates as an em dash', () => {
+    const bullets = buildReadoutBullets(
+      {
+        ...kpiSummary,
+        uniqueUsers: 0,
+        newUsers: 0,
+        newUserPct: null,
+        totalInteractions: 0,
+        errors: 0,
+        errorRate: null,
+        goodFeedback: 0,
+        badFeedback: 0,
+        feedbackTotal: 0,
+        feedbackRatio: null,
+      },
+      weeklyTrend,
+      '2026-06-24T00:00:00.000Z',
+    );
+    expect(bullets[1]).toBe('0 of those users were new (—), with no successful interactions before 2026-06-24.');
+    expect(bullets[2]).toBe('Reliability recorded 0 errors (—) and no rate-limited events.');
+    expect(bullets[3]).toBe('Feedback included 0 ratings (0 good / 0 bad), with — positive.');
+    expect(bullets.join(' ')).not.toContain('null');
+  });
 });
 
 describe('buildUsageObservations', () => {
@@ -126,6 +161,12 @@ describe('buildUsageObservations', () => {
     expect(engagementDepth.observation).toBe('Average interactions per user peaked at 11.1 during Apr 20-26.');
   });
 
+  it('renders an em dash when no week has an average interactions per user', () => {
+    const observations = buildUsageObservations(weeklyTrend.map((w) => ({ ...w, avgInteractionsPerUser: null })));
+    const engagementDepth = observations.find((o) => o.metric === 'Engagement depth');
+    expect(engagementDepth.observation).toBe('Average interactions per user peaked at — during Apr 13-19.');
+  });
+
   it('returns an empty array when there is no weekly data', () => {
     expect(buildUsageObservations([])).toEqual([]);
   });
@@ -144,6 +185,17 @@ describe('buildReliabilityTakeaways', () => {
 
     const nonzeroTakeaways = buildReliabilityTakeaways({ ...kpiSummary, rateLimited: 3 }, weeklyTrend);
     expect(nonzeroTakeaways.find((t) => t.signal === 'Rate limiting').takeaway).toBe('3 rate-limited events.');
+  });
+
+  it('renders null error and feedback rates as an em dash', () => {
+    const takeaways = buildReliabilityTakeaways(
+      { ...kpiSummary, errors: 0, errorRate: null, goodFeedback: 0, badFeedback: 0, feedbackRatio: null },
+      weeklyTrend,
+    );
+    expect(takeaways.find((t) => t.signal === 'System error rate').takeaway).toBe('— overall (0 errors).');
+    expect(takeaways.find((t) => t.signal === 'Feedback quality').takeaway).toBe(
+      '— positive feedback overall (0 good / 0 bad).',
+    );
   });
 
   it('reports overall positive feedback percentage with good/bad counts', () => {

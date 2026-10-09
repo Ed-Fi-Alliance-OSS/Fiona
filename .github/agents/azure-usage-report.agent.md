@@ -51,7 +51,9 @@ Your primary goal is to answer natural-language analytics requests by running th
    instead of looping the single-window helpers across weeks — the
    longitudinal query fetches raw records for the whole range once, so
    looping single-window helpers would multiply query cost unnecessarily.
-8. `getWeeklyTrendSeries` buckets by Monday–Sunday calendar week. If the
+8. `getWeeklyTrendSeries` buckets by Monday–Sunday (UTC) calendar week and
+   does not snap the range itself (nor does the executive report's trend
+   window, which ends at the requested end). For ad hoc trend requests, if the
    requested start/end date isn't already week-aligned, snap it outward to
    the nearest Monday/Sunday before calling it — otherwise the first and/or
    last week in the series is a partial week, and its WoW % change can look

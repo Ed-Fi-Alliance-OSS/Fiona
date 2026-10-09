@@ -3,9 +3,14 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { fetchAllForIds } from './cosmos-chunks.js';
 import { isSuccessful } from './kpi-core.js';
+import { requireUserDirectory, tryGetUserDirectory } from './user-segments.js';
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** The scheduled report covers this many whole UTC days. */
+export const REPORT_WINDOW_DAYS = 7;
 
 /** Every report slice uses a half-open [startISO, endISO) window; reject anything else up front. */
 export function assertReportWindow(startISO, endISO) {
@@ -16,19 +21,24 @@ export function assertReportWindow(startISO, endISO) {
   }
 }
 
+/** The last calendar day (YYYY-MM-DD, UTC) inside a half-open window ending at `endISO`. */
+export function lastIncludedDate(endISO) {
+  return new Date(Date.parse(endISO) - 1).toISOString().split('T')[0];
+}
+
 /**
- * The scheduled Slack report covers the 7 whole UTC days before `now`, so
- * the queried window matches the dates in the report label exactly.
+ * The scheduled Slack report and executive PDF cover the whole UTC days
+ * before `now`, so the queried window matches the dates in the report
+ * label exactly.
  */
 export function resolveWeeklyReportWindow(now = new Date()) {
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(end.getTime() - 7 * MS_PER_DAY);
-  const lastDay = new Date(end.getTime() - MS_PER_DAY);
+  const start = new Date(end.getTime() - REPORT_WINDOW_DAYS * MS_PER_DAY);
   return {
     startISO: start.toISOString(),
     endISO: end.toISOString(),
     startDate: start.toISOString().split('T')[0],
-    endDate: lastDay.toISOString().split('T')[0],
+    endDate: lastIncludedDate(end.toISOString()),
   };
 }
 
@@ -41,11 +51,11 @@ export function coveringWindow(...windows) {
 }
 
 /**
- * Fetches the raw interaction and feedback records for [startISO, endISO)
- * once, plus which of the window's successful users had succeeded before
- * it (for new/returning classification). Every KPI, trend and segment
- * slice is computed from this one fetch, so they always describe the same
- * records.
+ * Fetches the raw interaction (and, when `feedbackContainer` is given,
+ * feedback) records for [startISO, endISO) once, plus which of the window's
+ * successful users had succeeded before it (for new/returning
+ * classification). Every KPI, trend and segment slice is computed from
+ * this one fetch, so they always describe the same records.
  */
 export async function fetchActivity(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO) {
   assertReportWindow(startISO, endISO);
@@ -66,35 +76,32 @@ export async function fetchActivity(interactionsContainer, feedbackContainer, de
         parameters,
       })
       .fetchAll(),
-    feedbackContainer.items
-      .query({
-        // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
-        query: `SELECT f.userId, f["value"] AS feedbackValue, f.timestamp
+    feedbackContainer
+      ? feedbackContainer.items
+          .query({
+            // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
+            query: `SELECT f.userId, f["value"] AS feedbackValue, f.timestamp
          FROM feedback f
          WHERE f.deploymentType = @deploymentType
            AND f.timestamp >= @startISO
            AND f.timestamp < @endISO`,
-        parameters,
-      })
-      .fetchAll(),
+            parameters,
+          })
+          .fetchAll()
+      : { resources: [] },
   ]);
 
-  const successUserIds = [...new Set(interactions.filter(isSuccessful).map((record) => record.userId))];
-  let priorUserIds = [];
-  if (successUserIds.length > 0) {
-    ({ resources: priorUserIds } = await interactionsContainer.items
-      .query({
-        query: `SELECT DISTINCT VALUE i.userId
+  const successUserIds = [...new Set(interactions.filter(isSuccessful).map((record) => record.userId))].filter(Boolean);
+  const priorUserIds = await fetchAllForIds(interactionsContainer, successUserIds, (chunk) => ({
+    query: `SELECT DISTINCT VALUE i.userId
          FROM interactions i
          WHERE i.deploymentType = @deploymentType
            AND i.timestamp < @startISO
            AND i.status = 'success'
            AND i.rateLimited = false
            AND ARRAY_CONTAINS(@successUserIds, i.userId)`,
-        parameters: [...parameters, { name: '@successUserIds', value: successUserIds }],
-      })
-      .fetchAll());
-  }
+    parameters: [...parameters, { name: '@successUserIds', value: chunk }],
+  }));
 
   return { startISO, endISO, interactions, feedback, priorUserIds: new Set(priorUserIds) };
 }
@@ -133,4 +140,28 @@ export function sliceActivity(activity, startISO, endISO) {
 
 export function activityUserIds(activity) {
   return [...new Set([...activity.interactions, ...activity.feedback].map((record) => record.userId))];
+}
+
+/**
+ * Fetches activity and, when `usersContainer` is given, the user directory
+ * for everyone in it.
+ *
+ * - `requireDirectory: true` (executive PDF) throws if the directory can't be read.
+ * - Otherwise (Slack summary) a Cosmos failure warns and returns
+ *   `segmentsUnavailable: true` with a null directory, so totals still publish.
+ */
+export async function loadActivity(
+  interactionsContainer,
+  feedbackContainer,
+  deploymentType,
+  startISO,
+  endISO,
+  { usersContainer, warn = console.warn, requireDirectory = false } = {},
+) {
+  const activity = await fetchActivity(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO);
+  if (!usersContainer) return { activity, directory: null, segmentsUnavailable: false };
+
+  const lookup = requireDirectory ? requireUserDirectory : tryGetUserDirectory;
+  const directory = await lookup(usersContainer, activityUserIds(activity), warn);
+  return { activity, directory, segmentsUnavailable: directory === null };
 }

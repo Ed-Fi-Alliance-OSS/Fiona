@@ -3,11 +3,30 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { ADOPTION_METRICS, RELIABILITY_METRICS } from '../kpi-core.js';
-import { hasSegmentActivity, SEGMENT_KEYS, segmentColumns, segmentLabel } from '../user-segments.js';
-import { formatCompactTimestamp, formatWeekLabel } from './format.js';
+import {
+  ADOPTION_METRICS,
+  formatDecimal,
+  formatPercent,
+  hasSegmentActivity,
+  METRIC_DEFINITIONS,
+  RELIABILITY_METRICS,
+  segmentColumns,
+  segmentFootnote,
+  segmentLabel,
+} from '../report-presentation.js';
+import { SEGMENT_KEYS } from '../user-segments.js';
+import { formatCompactTimestamp, formatPeriodLabel, formatWeekLabel } from './format.js';
 
-const SEGMENT_COLORS = { internal: '#1a5490', external: '#2e8b57', unknown: '#a0522d' };
+// Okabe-Ito palette (color-blind safe) plus dash patterns and point shapes,
+// so each series stays distinguishable in grayscale.
+const SERIES_STYLES = {
+  internal: { color: '#0072B2', dash: [], point: 'circle' },
+  external: { color: '#E69F00', dash: [6, 4], point: 'triangle' },
+  unknown: { color: '#999999', dash: [2, 3], point: 'rect' },
+  total: { color: '#000000', dash: [], point: 'rectRot' },
+};
+const GOOD_COLOR = '#009E73';
+const BAD_COLOR = '#D55E00';
 
 function ratingLabel(value) {
   return value === 'good-feedback' ? 'Good' : value === 'bad-feedback' ? 'Bad' : 'Other';
@@ -42,15 +61,12 @@ function segmentMatrix(segments, total, metrics) {
 }
 
 export function renderCoverPage(kpiSummary, readoutBullets, period, userSegments) {
-  const startDate = period.startISO.split('T')[0];
-  const endDate = period.endISO.split('T')[0];
-
   return `
   <section class="page">
     <h1>FIONA USAGE ANALYTICS</h1>
     <h2>Executive Report</h2>
     <p class="meta">
-      Period: ${escapeHtml(startDate)} to ${escapeHtml(endDate)}<br>
+      Period: ${escapeHtml(formatPeriodLabel(period.startISO, period.endISO))} (UTC)<br>
       Environment: ${escapeHtml(period.deploymentType)}<br>
       Generated: ${escapeHtml(new Date().toISOString())}
     </p>
@@ -66,8 +82,8 @@ export function renderCoverPage(kpiSummary, readoutBullets, period, userSegments
       ${kpiCard(kpiSummary.sessions.toLocaleString(), 'Total Sessions', 'Distinct successful sessions in period')}
       ${kpiCard(kpiSummary.totalInteractions.toLocaleString(), 'Total Interactions', 'All captured user-bot interactions')}
       ${kpiCard(kpiSummary.newUsers.toLocaleString(), 'New Users', 'No successful interactions before this period')}
-      ${kpiCard(`${kpiSummary.errors.toLocaleString()} (${kpiSummary.errorRate.toFixed(1)}%)`, 'Errors', 'Count and rate across all interactions')}
-      ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${kpiSummary.feedbackRatio.toFixed(1)}%)`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
+      ${kpiCard(`${kpiSummary.errors.toLocaleString()} (${formatPercent(kpiSummary.errorRate)})`, 'Errors', 'Count and rate across all interactions')}
+      ${kpiCard(`${kpiSummary.goodFeedback}/${kpiSummary.badFeedback} (${formatPercent(kpiSummary.feedbackRatio)})`, 'Feedback (Good/Bad)', 'Rated responses and positive share')}
     </div>
 
     <h2>Readout</h2>
@@ -81,13 +97,17 @@ export function renderUserSegmentsPage(segments, kpiSummary) {
   return `
   <section class="page">
     <h2>Internal vs External Usage</h2>
-    <p>Users are classified by their current Slack directory email domain: Internal means an @ed-fi.org
-    email. Missing or invalid emails are reported separately as Unknown when present; historical activity is classified using the current directory snapshot.
-    Each rate and average uses only its own segment as the denominator.</p>
+    <p>Users are classified by the email in the current Slack user directory, so past activity reflects
+    today's directory. ${escapeHtml(segmentFootnote(hasSegmentActivity(segments.unknown)))} Total includes every segment. Each rate and
+    average uses only its own segment as the denominator.</p>
     <h3>Adoption and Engagement</h3>
     ${segmentMatrix(segments, kpiSummary, ADOPTION_METRICS)}
     <h3>Reliability and Feedback</h3>
     ${segmentMatrix(segments, kpiSummary, RELIABILITY_METRICS)}
+    <h3>Definitions</h3>
+    <dl class="definitions">
+      ${METRIC_DEFINITIONS.map(([term, definition]) => `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(definition)}</dd>`).join('\n      ')}
+    </dl>
   </section>`;
 }
 
@@ -202,8 +222,8 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
   <section class="page">
     <h2>Usage Trends</h2>
     <p>
-      Timeline uses the rolling week-over-week trend window (starting from April until enough history exists
-      for a full 3-month rolling view), with explicit new-user growth tracking.
+      Weekly (Monday-Sunday, UTC) trends for all users over up to three months before the report end,
+      including new-user growth.
     </p>
     <canvas id="usage-trends-chart" width="900" height="380"></canvas>
     <script>
@@ -220,21 +240,24 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
 
 export function renderSegmentTrendsPage(weeklyTrend) {
   const labels = weeklyTrend.map((week) => formatWeekLabel(week.weekStart, week.weekEnd));
-  const hasUnknown = weeklyTrend.some((week) => hasSegmentActivity(week.segments.unknown));
+  const hasUnknown = weeklyTrend.some((week) => hasSegmentActivity(week.segments?.unknown));
   const segmentKeys = SEGMENT_KEYS.filter((key) => key !== 'unknown' || hasUnknown);
   const chartSeries = [
-    ...segmentKeys.map((key) => ({ key, label: segmentLabel(key), color: SEGMENT_COLORS[key] })),
-    { key: null, label: 'Total', color: '#6a329f' },
+    ...segmentKeys.map((key) => ({ key, label: segmentLabel(key), style: SERIES_STYLES[key] })),
+    { key: null, label: 'Total', style: SERIES_STYLES.total },
   ];
   const chart = (metric, title) => ({
     type: 'line',
     data: {
       labels,
-      datasets: chartSeries.map(({ key, label, color }) => ({
+      datasets: chartSeries.map(({ key, label, style }) => ({
         label,
         data: weeklyTrend.map((week) => (key ? week.segments[key][metric] : week[metric])),
-        borderColor: color,
-        backgroundColor: color,
+        borderColor: style.color,
+        backgroundColor: style.color,
+        borderDash: style.dash,
+        pointStyle: style.point,
+        pointRadius: 4,
         borderWidth: key ? 2 : 3,
         tension: 0.2,
       })),
@@ -259,8 +282,8 @@ export function renderSegmentTrendsPage(weeklyTrend) {
   return `
   <section class="page">
     <h2>Internal vs External Weekly Trends</h2>
-    <p>Monday-Sunday buckets compare Internal (@ed-fi.org), External, and Total users and interactions.
-    Unknown users are shown separately when present and are included in Total. Classification reflects current emails.</p>
+    <p>Monday-Sunday (UTC) buckets compare segment and Total users and interactions.
+    ${escapeHtml(segmentFootnote(hasUnknown))} Total includes every segment.</p>
     <canvas id="segment-users-chart" width="900" height="290"></canvas>
     <script>
       window.__chartConfigs = window.__chartConfigs || {};
@@ -287,20 +310,18 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
 
-  const reportPeriodLabel = period
-    ? `${period.startISO.split('T')[0]} to ${period.endISO.split('T')[0]}`
-    : 'the current report period';
+  const reportPeriodLabel = period ? formatPeriodLabel(period.startISO, period.endISO) : 'the current report period';
   const trendWindowLabel = trendWindow
-    ? `${trendWindow.startISO.split('T')[0]} to ${trendWindow.endISO.split('T')[0]} (Mon-Sun buckets)`
-    : 'the rolling weekly trend window (Mon-Sun buckets)';
+    ? `${formatPeriodLabel(trendWindow.startISO, trendWindow.endISO)} (Mon-Sun UTC buckets)`
+    : 'the rolling weekly trend window (Mon-Sun UTC buckets)';
 
   const errorRateConfig = {
     type: 'bar',
-    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: '#ff6347' }] },
+    data: { labels, datasets: [{ label: '%', data: errorRates, backgroundColor: BAD_COLOR }] },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate' } },
+      plugins: { legend: { display: false }, title: { display: true, text: 'Weekly Error Rate (all users)' } },
       scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } } },
     },
   };
@@ -310,14 +331,17 @@ export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { perio
     data: {
       labels,
       datasets: [
-        { label: 'Good', data: goodFeedback, backgroundColor: '#2e8b57' },
-        { label: 'Bad', data: badFeedback, backgroundColor: '#ff6347' },
+        { label: 'Good', data: goodFeedback, backgroundColor: GOOD_COLOR },
+        { label: 'Bad', data: badFeedback, backgroundColor: BAD_COLOR },
       ],
     },
     options: {
       responsive: false,
       animation: false,
-      plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Weekly Feedback Volume' } },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        title: { display: true, text: 'Weekly Feedback Volume (all users)' },
+      },
       scales: {
         x: { stacked: true, ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 } },
         y: { stacked: true },
@@ -378,8 +402,7 @@ export function renderFeedbackPage(representativeFeedback, feedbackDetails = [],
   <section class="page">
     <h2>Representative Feedback</h2>
     <p>
-      The source report rendered long user messages and bot responses in a dense table. This version presents
-      representative feedback as reviewable cards and keeps raw detail out of the main flow.
+      Representative feedback for the report period, prioritizing ratings that include a written reason.
     </p>
     ${body}
     ${
@@ -455,7 +478,7 @@ export function renderTopUsersPage(topUsersByFeedback, topUsersByInteractions, {
   return `
   <section class="page">
     <h2>Top Users</h2>
-    <p>The top-user data is retained, but narrowed to the most decision-useful columns and limited to leading users.</p>
+    <p>Leading users for the report period by feedback given and by interaction count.</p>
     <h3>Top Users by Feedback</h3>
     ${feedbackTable}
     <h3>Top Users by Interaction Count</h3>
@@ -500,8 +523,8 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
       (w) => w.errors,
       (w) => w.goodFeedback,
       (w) => w.badFeedback,
-      (w) => w.feedbackRatio.toFixed(1),
-      (w) => w.avgInteractionsPerUser.toFixed(1),
+      (w) => formatPercent(w.feedbackRatio),
+      (w) => formatDecimal(w.avgInteractionsPerUser),
       (w) => w.newUsers,
       (w) => w.returningUsers,
     ],
@@ -547,7 +570,7 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
       (d) => d.totalInteractions,
       (d) => d.errors,
       (d) => d.rateLimited,
-      (d) => d.errorRate.toFixed(1),
+      (d) => formatPercent(d.errorRate),
       (d) => d.newUsers,
       (d) => d.returningUsers,
     ],
@@ -557,8 +580,7 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
   <section class="page">
     <h2>Appendix: Weekly Snapshot</h2>
     <p>
-      Compact weekly table derived from the visible weekly snapshot in the source report. Full raw exports
-      should remain available separately when stakeholders need row-level analysis.
+      Weekly (Monday-Sunday, UTC) figures for the report period.
     </p>
     ${weeklyTable}
   </section>
@@ -579,15 +601,6 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
       window.__chartConfigs['daily-error-rate-chart'] = ${JSON.stringify(errorRateConfig)};
     </script>
     ${dailyTable}
-  </section>
-
-  <section class="page">
-    <h2>Executive Notes</h2>
-    <ol>
-      <li>Engagement remains steady with meaningful repeat usage patterns.</li>
-      <li>Weekly trend monitoring should remain focused on error-rate movement and interaction growth.</li>
-      <li>Feedback-heavy users and high-interaction users can guide targeted support and training.</li>
-    </ol>
   </section>`;
 }
 
@@ -616,6 +629,9 @@ const PAGE_STYLES = `
   .feedback-card.bad { background: #fdf2f0; }
   .feedback-card-header { font-weight: bold; text-align: center; margin-bottom: 6px; }
   .feedback-q, .feedback-a { font-size: 12px; margin: 4px 0; }
+  .definitions { font-size: 11px; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+  .definitions dt { font-weight: bold; }
+  .definitions dd { margin: 0; }
   .feedback-author { font-size: 11px; color: #444; text-align: center; overflow-wrap: anywhere; }
   canvas { max-width: 100%; height: auto; }
   .empty { font-style: italic; color: #666; }

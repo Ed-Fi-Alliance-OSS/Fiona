@@ -224,7 +224,11 @@ describe('getWeeklyTrendSeries', () => {
   it('falls back to unsegmented weeks and warns when the user directory cannot be read', async () => {
     mockInteractionsContainer = makeQueryable([allInteractions, ['u4']]);
     const warn = jest.fn();
-    const users = { items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(new Error('denied')) })) } };
+    const denied = Object.assign(new Error('denied'), { code: 403 });
+    const users = {
+      id: 'slack-users',
+      items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(denied) })) },
+    };
 
     const weeks = await getWeeklyTrendSeries(
       mockInteractionsContainer,
@@ -237,6 +241,131 @@ describe('getWeeklyTrendSeries', () => {
 
     expect(weeks).toHaveLength(2);
     expect(weeks.every((week) => week.segments === null)).toBe(true);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('denied'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('status 403'));
+  });
+
+  it('keeps each week segments summing to the week total, with a shared thread and a feedback-only user', async () => {
+    const interactions = makeQueryable([
+      [
+        // int and ext share thread 'shared': one session each.
+        {
+          userId: 'int',
+          threadTs: 'shared',
+          status: 'success',
+          rateLimited: false,
+          timestamp: '2026-04-14T10:00:00.000Z',
+        },
+        {
+          userId: 'ext',
+          threadTs: 'shared',
+          status: 'success',
+          rateLimited: false,
+          timestamp: '2026-04-14T10:05:00.000Z',
+        },
+        { userId: 'ext', threadTs: 'e2', status: 'error', rateLimited: false, timestamp: '2026-04-15T10:00:00.000Z' },
+        { userId: 'int', threadTs: 'i2', status: 'success', rateLimited: false, timestamp: '2026-04-21T10:00:00.000Z' },
+        { userId: 'anon', threadTs: 'a1', status: 'success', rateLimited: true, timestamp: '2026-04-22T10:00:00.000Z' },
+      ],
+      [],
+    ]);
+    const feedback = makeQueryable([
+      [
+        { userId: 'int', feedbackValue: 'good-feedback', timestamp: '2026-04-14T11:00:00.000Z' },
+        // 'rater' only gave feedback; it has no interactions in range.
+        { userId: 'rater', feedbackValue: 'bad-feedback', timestamp: '2026-04-15T11:00:00.000Z' },
+        { userId: 'rater', feedbackValue: 'escalation', timestamp: '2026-04-22T11:00:00.000Z' },
+      ],
+    ]);
+    const users = {
+      id: 'slack-users',
+      items: {
+        query: jest.fn(() => ({
+          fetchAll: async () => ({
+            resources: [
+              { id: 'int', email: 'staff@ed-fi.org' },
+              { id: 'ext', email: 'someone@district.org' },
+              { id: 'rater', email: 'rater@district.org' },
+            ],
+          }),
+        })),
+      },
+    };
+
+    const weeks = await getWeeklyTrendSeries(interactions, feedback, deploymentType, startISO, endISO, {
+      usersContainer: users,
+      warn: jest.fn(),
+    });
+
+    expect(weeks).toHaveLength(2);
+    for (const week of weeks) {
+      const { internal, external, unknown } = week.segments;
+      for (const field of [
+        'uniqueUsers',
+        'newUsers',
+        'returningUsers',
+        'sessions',
+        'totalInteractions',
+        'errors',
+        'rateLimited',
+        'goodFeedback',
+        'badFeedback',
+        'feedbackTotal',
+      ]) {
+        expect(internal[field] + external[field] + unknown[field]).toBe(week[field]);
+      }
+    }
+    expect(weeks[0].sessions).toBe(2);
+    expect(weeks[0].segments.external).toMatchObject({ sessions: 1, badFeedback: 1, uniqueUsers: 1 });
+    expect(weeks[1].segments.external).toMatchObject({ totalInteractions: 0, feedbackTotal: 0, errorRate: null });
+    expect(weeks[1].segments.unknown).toMatchObject({ rateLimited: 1, uniqueUsers: 0 });
+  });
+
+  it('puts Sunday 23:59:59.999Z and the following Monday 00:00Z in different weeks', async () => {
+    mockInteractionsContainer = makeQueryable([
+      [
+        { userId: 'u1', threadTs: 't1', status: 'success', rateLimited: false, timestamp: '2026-04-19T23:59:59.999Z' },
+        { userId: 'u2', threadTs: 't2', status: 'success', rateLimited: false, timestamp: '2026-04-20T00:00:00.000Z' },
+      ],
+      [],
+    ]);
+    mockFeedbackContainer = makeQueryable([[]]);
+
+    const weeks = await getWeeklyTrendSeries(
+      mockInteractionsContainer,
+      mockFeedbackContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    );
+
+    expect(weeks.map((week) => [week.weekStart, week.weekEnd, week.uniqueUsers])).toEqual([
+      ['2026-04-13', '2026-04-19', 1],
+      ['2026-04-20', '2026-04-26', 1],
+    ]);
+  });
+
+  it('returns a null errorRateWowPp when either week has no interactions to rate', async () => {
+    mockInteractionsContainer = makeQueryable([
+      [{ userId: 'u1', threadTs: 't1', status: 'success', rateLimited: false, timestamp: '2026-04-21T10:00:00.000Z' }],
+      [],
+    ]);
+    // Week A has only feedback, so its errorRate is null.
+    mockFeedbackContainer = makeQueryable([
+      [{ userId: 'u1', feedbackValue: 'good-feedback', timestamp: '2026-04-14T10:00:00.000Z' }],
+    ]);
+
+    const [weekA, weekB] = await getWeeklyTrendSeries(
+      mockInteractionsContainer,
+      mockFeedbackContainer,
+      deploymentType,
+      startISO,
+      endISO,
+    );
+
+    expect(weekA.errorRate).toBeNull();
+    expect(weekA.feedbackResponseRate).toBeNull();
+    expect(weekB.errorRate).toBe(0);
+    expect(weekB.errorRateWowPp).toBeNull();
+    expect(weekB.usersWowPct).toBeNull(); // previous week had 0 users
   });
 });

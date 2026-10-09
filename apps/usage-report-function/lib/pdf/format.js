@@ -18,6 +18,16 @@ export function formatWeekLabel(weekStartISO, weekEndISO) {
     : `${startMonth} ${start.getUTCDate()}-${endMonth} ${end.getUTCDate()}, ${year}`;
 }
 
+/**
+ * Formats a half-open [startISO, endISO) report window with its last
+ * included day, e.g. "2026-10-02 to 2026-10-08", so readers never see the
+ * exclusive end date.
+ */
+export function formatPeriodLabel(startISO, endISO) {
+  const lastDay = new Date(Date.parse(endISO) - 1).toISOString().split('T')[0];
+  return `${startISO.split('T')[0]} to ${lastDay}`;
+}
+
 /** Formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC. */
 export function formatCompactTimestamp(iso) {
   const d = new Date(iso);

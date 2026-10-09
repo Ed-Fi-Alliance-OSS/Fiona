@@ -38,11 +38,12 @@ PRINCIPAL_ID=$(az functionapp identity show \
   --resource-group fiona-rg \
   --query principalId -o tsv)
 
-# Grant Cosmos DB Data Reader role (scoped to the fiona database)
+# Grant Cosmos DB Data Reader role (scoped to the chatbot database, which
+# includes the interactions, feedback and slack-users containers)
 az role assignment create \
   --assignee-object-id "$PRINCIPAL_ID" \
   --role "Cosmos DB Data Reader" \
-  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.DocumentDB/databaseAccounts/fiona/sqlDatabases/fiona
+  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.DocumentDB/databaseAccounts/fiona/sqlDatabases/chatbot
 
 # Grant Key Vault Secrets User role
 az role assignment create \
@@ -125,7 +126,8 @@ design, including this pipeline.
 2. Create a dedicated service principal for the workflow, scoped to:
    - `Cosmos DB Data Reader` (data-plane role, via
      `az cosmosdb sql role assignment create`) on the `chatbot` database
-     (including read access to `slack-users`)
+     (this must include `slack-users`: the PDF job fails if it can't read the
+     user directory)
    - `Storage Blob Data Contributor` **and** `Storage Blob Delegator` (the
      latter is required for `az storage blob generate-sas --as-user`) on the
      `usage-reports` container
@@ -193,10 +195,13 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 
 ## Troubleshooting
 
-- **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `fiona` database
-- **Missing user segments:** Reports fall back to unsegmented totals (with a warning logged) when
-  `slack-users` can't be read. Verify both report identities can read the `slack-users` container
-  in `chatbot`, and the Slack user loader has populated email addresses.
+- **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `chatbot` database
+- **Missing user segments:** If `slack-users` can't be read, the Slack summary posts unsegmented
+  totals with a visible "segments unavailable" note and logs a warning naming the container and
+  status code, while the executive PDF job **fails** so the problem gets fixed. Verify both report
+  identities have `Cosmos DB Data Reader` on the `chatbot` database (which covers `slack-users`).
+- **Most users show as Unknown:** A warning is logged when the directory resolves no users or leaves
+  more than 25% Unknown. Check that the Slack user loader has populated email addresses.
 - **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret
 - **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`
 - **Function timeout:** Check Cosmos DB query performance; ensure composite indexes are created by Bicep template

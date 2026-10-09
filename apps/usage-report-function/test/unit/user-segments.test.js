@@ -6,57 +6,60 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   getUserDirectory,
-  hasSegmentActivity,
-  segmentColumns,
+  INTERNAL_EMAIL_DOMAIN,
+  requireUserDirectory,
+  SEGMENT_KEYS,
   segmentForEmail,
-  segmentLabel,
   segmentOf,
   tryGetUserDirectory,
 } from '../../lib/user-segments.js';
 
-function container(resources) {
-  return { items: { query: jest.fn(() => ({ fetchAll: async () => ({ resources }) })) } };
+/** Fake users container that honors the @userIds parameter like Cosmos does. */
+function usersContainer(users, id = 'slack-users') {
+  const query = jest.fn((spec) => {
+    const ids = spec.parameters.find((p) => p.name === '@userIds').value;
+    return { fetchAll: async () => ({ resources: users.filter((user) => ids.includes(user.id)) }) };
+  });
+  return { id, items: { query } };
 }
 
-const kpi = (overrides = {}) => ({
-  uniqueUsers: 0,
-  totalInteractions: 0,
-  goodFeedback: 0,
-  badFeedback: 0,
-  ...overrides,
+function failingContainer(error, id = 'slack-users') {
+  return { id, items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(error) })) } };
+}
+
+const cosmosError = (code, message = 'Forbidden: secret request details') =>
+  Object.assign(new Error(message), { code });
+
+describe('constants', () => {
+  it('defines the internal domain and segment order', () => {
+    expect(INTERNAL_EMAIL_DOMAIN).toBe('ed-fi.org');
+    expect(SEGMENT_KEYS).toEqual(['internal', 'external', 'unknown']);
+  });
 });
 
 describe('segmentForEmail', () => {
-  it('classifies by exact, case-insensitive domain and treats unusable emails as unknown', () => {
-    expect(segmentForEmail('  Person@ED-FI.ORG  ')).toBe('internal');
-    expect(segmentForEmail('member@sub.ed-fi.org')).toBe('external');
-    expect(segmentForEmail('person@outside.org')).toBe('external');
-    expect(segmentForEmail('not-an-email')).toBe('unknown');
-    expect(segmentForEmail('')).toBe('unknown');
-    expect(segmentForEmail(null)).toBe('unknown');
-  });
-});
-
-describe('getUserDirectory', () => {
-  it('maps user IDs to segments only, never emails', async () => {
-    const users = container([
-      { id: 'a', email: '  Person@ED-FI.ORG  ' },
-      { id: 'b', email: 'member@sub.ed-fi.org' },
-      { id: 'c', email: '' },
-    ]);
-    const directory = await getUserDirectory(users, ['a', 'b', 'c', 'missing', 'a', null]);
-    expect([...directory.entries()]).toEqual([
-      ['a', 'internal'],
-      ['b', 'external'],
-      ['c', 'unknown'],
-    ]);
-    expect(users.items.query.mock.calls[0][0].parameters[0].value).toEqual(['a', 'b', 'c', 'missing']);
-  });
-
-  it('skips the query when there are no user IDs', async () => {
-    const users = container([]);
-    expect((await getUserDirectory(users, [])).size).toBe(0);
-    expect(users.items.query).not.toHaveBeenCalled();
+  it.each([
+    ['person@ed-fi.org', 'internal'],
+    ['  Person@ED-FI.ORG  ', 'internal'],
+    [' A@ED-FI.ORG ', 'internal'],
+    ['member@sub.ed-fi.org', 'external'],
+    ['person@outside.org', 'external'],
+    ['x@ed-fi.org.evil.com', 'external'],
+    ['a@evil-ed-fi.org', 'external'],
+    ['a@ed-fi.org.', 'external'], // trailing dot is a different domain string, never internal
+    ['evil-ed-fi.org', 'unknown'],
+    ['a@ed-fi.org@evil.com', 'unknown'],
+    ['a b@ed-fi.org', 'unknown'],
+    ['not-an-email', 'unknown'],
+    ['@ed-fi.org', 'unknown'],
+    ['', 'unknown'],
+    ['   ', 'unknown'],
+    [null, 'unknown'],
+    [undefined, 'unknown'],
+    [123, 'unknown'],
+    [{}, 'unknown'],
+  ])('classifies %p as %s', (email, segment) => {
+    expect(segmentForEmail(email)).toBe(segment);
   });
 });
 
@@ -65,7 +68,96 @@ describe('segmentOf', () => {
     const directory = new Map([['a', 'internal']]);
     expect(segmentOf(directory, 'a')).toBe('internal');
     expect(segmentOf(directory, 'missing')).toBe('unknown');
+    expect(segmentOf(directory, undefined)).toBe('unknown');
     expect(segmentOf(null, 'a')).toBe('unknown');
+  });
+});
+
+describe('getUserDirectory', () => {
+  it('maps user IDs to segments only, never emails', async () => {
+    const warn = jest.fn();
+    const users = usersContainer([
+      { id: 'a', email: '  Person@ED-FI.ORG  ' },
+      { id: 'b', email: 'member@sub.ed-fi.org' },
+      { id: 'c', email: 'c@outside.org' },
+      { id: 'd', email: 'd@outside.org' },
+    ]);
+    const directory = await getUserDirectory(users, ['a', 'b', 'c', 'd', 'a', null], warn);
+    expect([...directory.entries()]).toEqual([
+      ['a', 'internal'],
+      ['b', 'external'],
+      ['c', 'external'],
+      ['d', 'external'],
+    ]);
+    expect(users.items.query.mock.calls[0][0].parameters[0].value).toEqual(['a', 'b', 'c', 'd']);
+    expect(JSON.stringify([...directory])).not.toContain('@');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('classifies directory records with a missing or null email as unknown', async () => {
+    const users = usersContainer([
+      { id: 'a', email: 'a@ed-fi.org' },
+      { id: 'b', email: 'b@outside.org' },
+      { id: 'c', email: 'c@outside.org' },
+      { id: 'd', email: 'd@outside.org' },
+      { id: 'noEmail' },
+    ]);
+    const directory = await getUserDirectory(users, ['a', 'b', 'c', 'd', 'noEmail'], jest.fn());
+    expect(directory.get('noEmail')).toBe('unknown');
+    const nullEmail = await getUserDirectory(usersContainer([{ id: 'n', email: null }]), ['n'], jest.fn());
+    expect(nullEmail.get('n')).toBe('unknown');
+  });
+
+  it('skips the query when there are no user IDs', async () => {
+    const users = usersContainer([]);
+    expect((await getUserDirectory(users, [null, undefined], jest.fn())).size).toBe(0);
+    expect(users.items.query).not.toHaveBeenCalled();
+  });
+
+  it('queries in chunks of at most 500 IDs and merges the results', async () => {
+    const ids = Array.from({ length: 1201 }, (_, i) => `u${i}`);
+    const users = usersContainer(ids.map((id) => ({ id, email: `${id}@outside.org` })));
+    const directory = await getUserDirectory(users, ids, jest.fn());
+    const chunkSizes = users.items.query.mock.calls.map(([spec]) => spec.parameters[0].value.length);
+    expect(chunkSizes).toEqual([500, 500, 201]);
+    expect(Math.max(...chunkSizes)).toBeLessThanOrEqual(500);
+    expect(directory.size).toBe(1201);
+    expect(directory.get('u1200')).toBe('external');
+  });
+
+  it('warns when the directory resolves none of the users', async () => {
+    const warn = jest.fn();
+    const directory = await getUserDirectory(usersContainer([]), ['a', 'b'], warn);
+    expect(directory.size).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("'slack-users' resolved 0 of 2 users"));
+  });
+
+  it('warns when more than 25% of users stay Unknown', async () => {
+    const warn = jest.fn();
+    await getUserDirectory(
+      usersContainer([
+        { id: 'a', email: 'a@ed-fi.org' },
+        { id: 'b', email: '' },
+      ]),
+      ['a', 'b', 'missing'],
+      warn,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('left 2 of 3 users Unknown'));
+  });
+
+  it('does not warn at exactly 25% Unknown', async () => {
+    const warn = jest.fn();
+    await getUserDirectory(
+      usersContainer([
+        { id: 'a', email: 'a@ed-fi.org' },
+        { id: 'b', email: 'b@outside.org' },
+        { id: 'c', email: 'c@outside.org' },
+      ]),
+      ['a', 'b', 'c', 'missing'],
+      warn,
+    );
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
@@ -76,56 +168,54 @@ describe('tryGetUserDirectory', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('returns null and warns when the directory query fails', async () => {
+  it('returns null and warns with the container and status, not the raw error message, on a Cosmos error', async () => {
     const warn = jest.fn();
-    const users = { items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(new Error('403')) })) } };
-    expect(await tryGetUserDirectory(users, ['a'], warn)).toBeNull();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('403'));
+    expect(await tryGetUserDirectory(failingContainer(cosmosError(403)), ['a'], warn)).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0];
+    expect(message).toContain("'slack-users'");
+    expect(message).toContain('status 403');
+    expect(message).not.toContain('secret request details');
+  });
+
+  it('treats an error with a numeric statusCode as a Cosmos error', async () => {
+    const warn = jest.fn();
+    const error = Object.assign(new Error('not found'), { statusCode: 404 });
+    expect(await tryGetUserDirectory(failingContainer(error, 'users-x'), ['a'], warn)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/'users-x'.*status 404/));
+  });
+
+  it('rethrows non-Cosmos (programming) errors', async () => {
+    const warn = jest.fn();
+    const bug = new TypeError('x is not a function');
+    await expect(tryGetUserDirectory(failingContainer(bug), ['a'], warn)).rejects.toBe(bug);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('returns the directory when the query succeeds', async () => {
-    const directory = await tryGetUserDirectory(container([{ id: 'a', email: 'x@ed-fi.org' }]), ['a']);
+    const directory = await tryGetUserDirectory(usersContainer([{ id: 'a', email: 'x@ed-fi.org' }]), ['a'], jest.fn());
     expect(directory.get('a')).toBe('internal');
   });
 });
 
-describe('segmentLabel', () => {
-  it('labels known segments and defaults anything else to Unknown', () => {
-    expect(segmentLabel('internal')).toBe('Internal');
-    expect(segmentLabel('external')).toBe('External');
-    expect(segmentLabel('unknown')).toBe('Unknown');
-    expect(segmentLabel(undefined)).toBe('Unknown');
-  });
-});
-
-describe('hasSegmentActivity', () => {
-  it('is true when a segment has users, interactions or ratings', () => {
-    expect(hasSegmentActivity(kpi())).toBe(false);
-    expect(hasSegmentActivity(kpi({ uniqueUsers: 1 }))).toBe(true);
-    expect(hasSegmentActivity(kpi({ totalInteractions: 1 }))).toBe(true);
-    expect(hasSegmentActivity(kpi({ badFeedback: 1 }))).toBe(true);
-  });
-});
-
-describe('segmentColumns', () => {
-  const total = kpi({ uniqueUsers: 3 });
-
-  it('omits the Unknown column when Unknown has no activity', () => {
-    const segments = { internal: kpi({ uniqueUsers: 1 }), external: kpi({ uniqueUsers: 2 }), unknown: kpi() };
-    expect(segmentColumns(segments, total)).toEqual([
-      ['Internal', segments.internal],
-      ['External', segments.external],
-      ['Total', total],
-    ]);
+describe('requireUserDirectory', () => {
+  it('returns the directory when the query succeeds', async () => {
+    const directory = await requireUserDirectory(usersContainer([{ id: 'a', email: 'a@ed-fi.org' }]), ['a'], jest.fn());
+    expect(directory.get('a')).toBe('internal');
   });
 
-  it('includes the Unknown column when Unknown has activity', () => {
-    const segments = { internal: kpi(), external: kpi(), unknown: kpi({ goodFeedback: 1 }) };
-    expect(segmentColumns(segments, total).map(([label]) => label)).toEqual([
-      'Internal',
-      'External',
-      'Unknown',
-      'Total',
-    ]);
+  it('throws a clear error naming the container and status, keeping the Cosmos error as cause', async () => {
+    const original = cosmosError(403);
+    const error = await requireUserDirectory(failingContainer(original), ['a'], jest.fn()).catch((e) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("'slack-users'");
+    expect(error.message).toContain('status 403');
+    expect(error.message).toContain('not generating a report');
+    expect(error.cause).toBe(original);
+  });
+
+  it('rethrows non-Cosmos errors as-is', async () => {
+    const bug = new TypeError('boom');
+    await expect(requireUserDirectory(failingContainer(bug), ['a'], jest.fn())).rejects.toBe(bug);
   });
 });

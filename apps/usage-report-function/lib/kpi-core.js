@@ -9,12 +9,14 @@ import { SEGMENT_KEYS, segmentOf } from './user-segments.js';
  * The single definition of every usage KPI. The period summary, weekly
  * trend, daily summary and per-segment breakdowns all count through these
  * helpers so totals and segments can never disagree on what a session,
- * user or rate means.
+ * user or rate means. Presentation lives in report-presentation.js.
  *
  * - Users, sessions and avg interactions/user count only successful,
  *   non-rate-limited records; interactions and error rate count all records.
  * - A session is one user's conversation thread ([userId, threadTs]), so
  *   per-segment sessions always sum to the total.
+ * - Rates are null, not 0, when their denominator is 0.
+ * - Records with no userId are counted as one Unknown user.
  */
 
 export function isSuccessful(record) {
@@ -22,7 +24,7 @@ export function isSuccessful(record) {
 }
 
 function sessionKey(record) {
-  return JSON.stringify([record.userId, record.threadTs]);
+  return JSON.stringify([record.userId ?? null, record.threadTs ?? null]);
 }
 
 export function createKpiBucket() {
@@ -44,17 +46,18 @@ export function countInteraction(bucket, record) {
   if (record.rateLimited === true) bucket.rateLimited += 1;
   if (isSuccessful(record)) {
     bucket.successRecords += 1;
-    bucket.successUserIds.add(record.userId);
+    bucket.successUserIds.add(record.userId ?? null);
     bucket.sessionKeys.add(sessionKey(record));
   }
 }
 
+/** Only good/bad ratings count; other feedback values (e.g. 'escalation') are ignored. */
 export function countFeedback(bucket, record) {
   if (record.feedbackValue === 'good-feedback') bucket.goodFeedback += 1;
   if (record.feedbackValue === 'bad-feedback') bucket.badFeedback += 1;
 }
 
-const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0);
+const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : null);
 
 /**
  * @param {Object} bucket  from createKpiBucket
@@ -73,7 +76,7 @@ export function summarizeKpiBucket(bucket, isNewUser) {
     repeatRate: pct(returningUsers, uniqueUsers),
     sessions: bucket.sessionKeys.size,
     totalInteractions: bucket.totalInteractions,
-    avgInteractionsPerUser: uniqueUsers > 0 ? bucket.successRecords / uniqueUsers : 0,
+    avgInteractionsPerUser: uniqueUsers > 0 ? bucket.successRecords / uniqueUsers : null,
     errors: bucket.errors,
     errorRate: pct(bucket.errors, bucket.totalInteractions),
     rateLimited: bucket.rateLimited,
@@ -117,27 +120,46 @@ export function summarizeKpiBuckets(buckets, isNewUser) {
   };
 }
 
-const fixed = (value) => value.toFixed(1);
-const percent = (value) => `${value.toFixed(1)}%`;
+/** Whole-window KPIs for fetched activity, with per-segment KPIs when a directory is given. */
+export function summarizeActivity(activity, directory) {
+  const buckets = createKpiBuckets(directory);
+  for (const record of activity.interactions) addInteraction(buckets, record, directory);
+  for (const record of activity.feedback) addFeedback(buckets, record, directory);
+  return summarizeKpiBuckets(buckets, (userId) => !activity.priorUserIds.has(userId));
+}
 
-/** Shared metric rows for the Slack and PDF segment matrices: [label, (kpi) => display value]. */
-export const ADOPTION_METRICS = [
-  ['Unique users', (k) => k.uniqueUsers],
-  ['New users', (k) => k.newUsers],
-  ['New user %', (k) => percent(k.newUserPct)],
-  ['Returning users', (k) => k.returningUsers],
-  ['Repeat rate', (k) => percent(k.repeatRate)],
-  ['Sessions', (k) => k.sessions],
-  ['Interactions', (k) => k.totalInteractions],
-  ['Avg interactions/user', (k) => fixed(k.avgInteractionsPerUser)],
-];
+/**
+ * Buckets fetched activity into periods keyed by `periodKey(timestamp)`
+ * and summarizes each. A user is "new" in the first period they succeed
+ * in, provided they have no prior history.
+ *
+ * @returns {Array<[string, Object]>} [periodKey, kpis] ordered oldest to newest
+ */
+export function summarizeActivityByPeriod(activity, directory, periodKey) {
+  const buckets = new Map();
+  const bucketFor = (key) => {
+    if (!buckets.has(key)) buckets.set(key, createKpiBuckets(directory));
+    return buckets.get(key);
+  };
+  for (const record of activity.interactions) addInteraction(bucketFor(periodKey(record.timestamp)), record, directory);
+  for (const record of activity.feedback) addFeedback(bucketFor(periodKey(record.timestamp)), record, directory);
 
-export const RELIABILITY_METRICS = [
-  ['Errors', (k) => k.errors],
-  ['Error rate', (k) => percent(k.errorRate)],
-  ['Rate-limited', (k) => k.rateLimited],
-  ['Good feedback', (k) => k.goodFeedback],
-  ['Bad feedback', (k) => k.badFeedback],
-  ['Positive feedback', (k) => percent(k.feedbackRatio)],
-  ['Feedback response', (k) => percent(k.feedbackResponseRate)],
-];
+  const firstPeriodByUser = new Map();
+  for (const record of activity.interactions) {
+    if (!isSuccessful(record)) continue;
+    const userId = record.userId ?? null;
+    const key = periodKey(record.timestamp);
+    const seen = firstPeriodByUser.get(userId);
+    if (seen === undefined || key < seen) firstPeriodByUser.set(userId, key);
+  }
+
+  return [...buckets.keys()]
+    .sort()
+    .map((key) => [
+      key,
+      summarizeKpiBuckets(
+        buckets.get(key),
+        (userId) => firstPeriodByUser.get(userId) === key && !activity.priorUserIds.has(userId),
+      ),
+    ]);
+}

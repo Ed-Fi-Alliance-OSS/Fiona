@@ -55,10 +55,11 @@ describe('getKpiSummary', () => {
     expect(kpi.newUserPct).toBe(50);
     expect(kpi.repeatRate).toBe(50);
     expect(kpi.segments).toBeNull();
+    expect(kpi.segmentsUnavailable).toBe(false);
     expect(kpi.feedbackResponseRate).toBeCloseTo(66.6667, 3);
   });
 
-  it('returns all-zero KPIs when there is no data in range', async () => {
+  it('returns zero counts and null (no-data) rates when there is no data in range', async () => {
     const interactionsContainer = makeQueryable([[]]);
     const feedbackContainer = makeQueryable([[]]);
 
@@ -68,20 +69,21 @@ describe('getKpiSummary', () => {
       uniqueUsers: 0,
       newUsers: 0,
       returningUsers: 0,
-      newUserPct: 0,
-      repeatRate: 0,
+      newUserPct: null,
+      repeatRate: null,
       sessions: 0,
       totalInteractions: 0,
-      avgInteractionsPerUser: 0,
+      avgInteractionsPerUser: null,
       errors: 0,
-      errorRate: 0,
+      errorRate: null,
       rateLimited: 0,
       goodFeedback: 0,
       badFeedback: 0,
       feedbackTotal: 0,
-      feedbackRatio: 0,
-      feedbackResponseRate: 0,
+      feedbackRatio: null,
+      feedbackResponseRate: null,
       segments: null,
+      segmentsUnavailable: false,
     });
     // No successful users, so the prior-history query is skipped.
     expect(interactionsContainer.items.query).toHaveBeenCalledTimes(1);
@@ -160,17 +162,19 @@ describe('getKpiSummary', () => {
       }
       expect(internal).toMatchObject({ uniqueUsers: 1, newUsers: 0, returningUsers: 1, goodFeedback: 1 });
       expect(external).toMatchObject({ uniqueUsers: 1, newUsers: 1, errors: 1, errorRate: 50, badFeedback: 1 });
-      expect(unknown).toMatchObject({ uniqueUsers: 0, totalInteractions: 1, rateLimited: 1 });
-      expect(warn).not.toHaveBeenCalled();
+      expect(unknown).toMatchObject({ uniqueUsers: 0, totalInteractions: 1, rateLimited: 1, errorRate: 0 });
+      expect(kpi.segmentsUnavailable).toBe(false);
+      // 'nobody' is missing from the directory: 1 of 3 users (> 25%) stays Unknown.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('left 1 of 3 users Unknown'));
     });
 
-    it('still returns totals with null segments when the user directory cannot be read', async () => {
+    const failingUsers = (error) => ({
+      id: 'slack-users',
+      items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(error) })) },
+    });
+
+    it('still returns totals, with segments null and segmentsUnavailable true, when Cosmos refuses the directory', async () => {
       const warn = jest.fn();
-      const failingUsers = {
-        items: {
-          query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(new Error('Forbidden')) })),
-        },
-      };
 
       const kpi = await getKpiSummary(
         makeQueryable([interactionRows, ['int']]),
@@ -178,13 +182,28 @@ describe('getKpiSummary', () => {
         deploymentType,
         startISO,
         endISO,
-        { usersContainer: failingUsers, warn },
+        { usersContainer: failingUsers(Object.assign(new Error('Forbidden'), { code: 403 })), warn },
       );
 
       expect(kpi.segments).toBeNull();
+      expect(kpi.segmentsUnavailable).toBe(true);
       expect(kpi.totalInteractions).toBe(4);
       expect(kpi.uniqueUsers).toBe(2);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Forbidden'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("'slack-users' unavailable (status 403)"));
+    });
+
+    it('propagates non-Cosmos errors from the directory lookup', async () => {
+      const bug = new TypeError('bug');
+      await expect(
+        getKpiSummary(
+          makeQueryable([interactionRows, ['int']]),
+          makeQueryable([feedbackRows]),
+          deploymentType,
+          startISO,
+          endISO,
+          { usersContainer: failingUsers(bug), warn: jest.fn() },
+        ),
+      ).rejects.toBe(bug);
     });
   });
 });

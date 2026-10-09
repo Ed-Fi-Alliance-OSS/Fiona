@@ -4,24 +4,30 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { fetchActivity } from './activity-records.js';
-import { summarizeActivityByPeriod } from './longitudinal-queries.js';
+import { summarizeActivityByPeriod } from './kpi-core.js';
 
 function getDayKey(timestamp) {
   return new Date(timestamp).toISOString().split('T')[0];
 }
 
 /**
- * Per-day (UTC calendar day) usage summary for fetched activity, using the
- * shared KPI definitions. Days with no interactions are omitted rather than
- * zero-filled.
+ * Per-day (UTC calendar day) interaction summary for fetched activity,
+ * using the shared KPI definitions. Feedback is not part of the daily
+ * view. Days with no interactions are omitted rather than zero-filled.
  */
 export function summarizeDailyActivity(activity) {
-  return summarizeActivityByPeriod({ ...activity, feedback: [] }, null, getDayKey).map(
-    ([date, { segments: _segments, ...kpis }]) => ({
-      date,
-      ...kpis,
-    }),
-  );
+  return summarizeActivityByPeriod({ ...activity, feedback: [] }, null, getDayKey).map(([date, kpis]) => ({
+    date,
+    uniqueUsers: kpis.uniqueUsers,
+    sessions: kpis.sessions,
+    totalInteractions: kpis.totalInteractions,
+    errors: kpis.errors,
+    errorRate: kpis.errorRate,
+    rateLimited: kpis.rateLimited,
+    newUsers: kpis.newUsers,
+    returningUsers: kpis.returningUsers,
+    repeatRate: kpis.repeatRate,
+  }));
 }
 
 /**
@@ -29,8 +35,6 @@ export function summarizeDailyActivity(activity) {
  *
  * @returns {Promise<Array<Object>>} days ordered oldest to newest
  */
-export async function getDailySummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO) {
-  return summarizeDailyActivity(
-    await fetchActivity(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
-  );
+export async function getDailySummary(interactionsContainer, deploymentType, startISO, endISO) {
+  return summarizeDailyActivity(await fetchActivity(interactionsContainer, null, deploymentType, startISO, endISO));
 }

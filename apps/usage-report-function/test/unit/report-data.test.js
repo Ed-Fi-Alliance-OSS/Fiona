@@ -217,31 +217,62 @@ describe('buildExecutiveReportData', () => {
     ]);
   });
 
-  it('never exposes user emails', async () => {
+  it('never exposes user emails, even though the directory records carry them', async () => {
+    expect(USERS.every((u) => u.email.includes('@'))).toBe(true);
     const result = await build();
     expect(JSON.stringify(result)).not.toMatch(/@/);
   });
 
-  it('builds the report without segments when the user directory cannot be read', async () => {
+  it('fails loudly when the user directory cannot be read, rather than dropping segments', async () => {
     usersContainer = fakeContainer(() => {
-      throw new Error('403 Forbidden');
+      throw Object.assign(new Error('Forbidden'), { code: 403 });
     });
+    usersContainer.id = 'slack-users';
 
-    const result = await build();
+    await expect(build()).rejects.toThrow(
+      "User directory 'slack-users' unavailable (status 403); not generating a report without internal/external segments.",
+    );
+  });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('403 Forbidden'));
+  it('rethrows non-Cosmos directory errors unchanged', async () => {
+    usersContainer = fakeContainer(() => {
+      throw new TypeError('bug in directory code');
+    });
+    await expect(build()).rejects.toThrow(new TypeError('bug in directory code'));
+  });
+
+  it('builds the report without segments when no users container is given', async () => {
+    const result = await build({ usersContainer: undefined });
     expect(result.userSegments).toBeUndefined();
     expect(result.kpiSummary.totalInteractions).toBe(4);
     expect(result.weeklyTrend.every((w) => w.segments === null)).toBe(true);
     for (const key of ['feedbackDetails', 'representativeFeedback', 'topUsersByFeedback', 'topUsersByInteractions']) {
       expect(result[key].every((entry) => !('segment' in entry))).toBe(true);
     }
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it('builds the report without segments when no users container is given', async () => {
-    const result = await build({ usersContainer: undefined });
-    expect(result.userSegments).toBeUndefined();
-    expect(warn).not.toHaveBeenCalled();
+  it('reports rates with no denominator as null rather than 0', async () => {
+    const { userSegments } = await build();
+    expect(userSegments.unknown.feedbackRatio).toBeNull(); // no ratings from unknown users
+
+    const empty = await build({ startISO: '2026-07-02T00:00:00.000Z' }); // only the excluded endISO record remains
+    expect(empty.kpiSummary).toMatchObject({
+      uniqueUsers: 0,
+      totalInteractions: 0,
+      newUserPct: null,
+      repeatRate: null,
+      errorRate: null,
+      avgInteractionsPerUser: null,
+      feedbackRatio: null,
+      feedbackResponseRate: null,
+    });
+  });
+
+  it('falls back to a trend window starting at the period Monday when the baseline is after the period', async () => {
+    const result = await build({ historicalBaselineStartISO: '2026-08-01T00:00:00.000Z' });
+    expect(result.trendWindow).toEqual({ startISO: '2026-06-22T00:00:00.000Z', endISO });
+    expect(result.trendWeekly.map((w) => w.weekStart)).toEqual(['2026-06-22', '2026-06-29']);
   });
 
   it('supports a custom historical baseline start for the trend window', async () => {

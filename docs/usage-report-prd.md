@@ -39,23 +39,26 @@ an automated link between the two.
 ### 2.1 Weekly KPI Slack Report
 
 `WeeklyReportTrigger` (Azure Functions TimerTrigger, cron via
-`REPORT_SCHEDULE`, default `0 9 * * 1` — every Monday 9 AM UTC) queries the
-past 7 days (configurable via the schedule) and posts a KPI summary to
-Slack via incoming webhook.
+`REPORT_SCHEDULE`, default `0 9 * * 1` — every Monday 9 AM UTC) reports on
+the 7 whole UTC days before the run date (the same window as the executive
+PDF) and posts a KPI summary to Slack via incoming webhook. Every metric is
+computed from one fetch using the shared definitions in `lib/kpi-core.js`;
+when the Slack user directory is readable, the metrics are also broken out by
+Internal / External / Unknown user.
 
 | Metric                         | Description                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Distinct users                  | Count of unique users with successful interactions                                                                 |
 | New users (count & %)            | Distinct users with no prior successful interaction, and their share of distinct users                             |
-| Returning users & repeat rate    | Derived: `distinctUsers - newUsersCount` and `100 - newUserPercentage`                                              |
-| Sessions                        | Count of distinct session identifiers (`threadTs`) across successful, non-rate-limited interactions                |
+| Returning users & repeat rate    | Unique users minus new users, and their share of unique users                                                      |
+| Sessions                        | Distinct user conversation threads (`[userId, threadTs]`) across successful, non-rate-limited interactions        |
 | Total interactions               | All interactions (success + error) in the window                                                                   |
 | Error count & rate                | Absolute count and percentage of errored interactions                                                              |
 | Rate-limited hits                 | Count of rate-limiter blocks                                                                                        |
 | Good / bad feedback                | Feedback button click counts                                                                                       |
 | Feedback ratio                   | `good / (good + bad) * 100`                                                                                        |
 | Avg interactions / user           | Mean interactions per active user                                                                                  |
-| Feedback response rate           | Percentage of successful interactions that were rated                                                              |
+| Feedback response rate           | Good + bad ratings per successful interaction (rates with no denominator show as `—`)                              |
 | Representative feedback          | Up to 5 examples (question, response, thumb-derived sentiment, restated reason), prioritizing entries with a reason |
 | Full executive report link (2.5) | Link to the matching week's executive PDF, when available (§2.5)                                                    |
 
@@ -92,9 +95,8 @@ per week), bucketed into Monday–Sunday weeks. Used by the agent skill for
 
 ### 2.4 Representative Feedback Selection
 
-`getRepresentativeFeedback` (open-ended-to-now, used by §2.1) and
-`getRepresentativeFeedbackInRange` (bound to an arbitrary past range, used
-by §2.2/§2.3) select up to 5 feedback examples per report, prioritizing
+`getRepresentativeFeedbackInRange` (bound to the report's `[startISO, endISO)`
+window, used by §2.1–§2.3) selects up to 5 feedback examples per report, prioritizing
 entries with a user-provided reason. Sentiment is always the raw thumbs
 rating restated (`good-feedback` → Positive, `bad-feedback` → Negative),
 never LLM-classified or reinterpreted. See
@@ -196,9 +198,14 @@ apps/usage-report-function/
 ├── scripts/
 │   └── generate-executive-report-artifact.js # GitHub Actions entry point (§2.5)
 ├── lib/
-│   ├── cosmos-queries.js                    # Single-window KPI query functions
+│   ├── activity-records.js                  # Fetch-once activity, window slicing, weekly report window
+│   ├── cosmos-chunks.js                     # Chunked ARRAY_CONTAINS lookups
+│   ├── cosmos-queries.js                    # Feedback listings (details, representative)
 │   ├── daily-queries.js                     # Per-day summary for the executive PDF appendix
-│   ├── kpi-summary.js                       # KPI aggregation for the executive PDF cover page
+│   ├── kpi-core.js                          # The single definition of every KPI
+│   ├── kpi-summary.js                       # getKpiSummary — period KPIs (+ segments)
+│   ├── report-presentation.js               # Shared labels, formatting, metric rows, definitions
+│   ├── user-segments.js                     # Internal/external classification + user directory
 │   ├── longitudinal-queries.js              # getWeeklyTrendSeries (§2.3)
 │   ├── user-queries.js                      # Top-users-by-feedback / by-interactions
 │   ├── report-data.js                       # buildExecutiveReportData — assembles all PDF data slices
@@ -210,7 +217,7 @@ apps/usage-report-function/
 │       ├── report-template.js               # HTML/CSS page templates
 │       ├── narrative.js                     # Deterministic, template-based narrative text
 │       └── format.js                        # Shared chart/table formatting helpers
-└── test/unit/                               # Jest suite (168 tests as of 2026-07-20)
+└── test/unit/                               # Jest suite
 
 .github/
 ├── agents/azure-usage-report.agent.md       # Natural-language ad hoc analysis agent (§2.6)

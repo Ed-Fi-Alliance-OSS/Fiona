@@ -106,6 +106,7 @@ const KPI_SUMMARY = {
   feedbackRatio: 80.6,
   feedbackResponseRate: 9.8,
   segments: null,
+  segmentsUnavailable: false,
 };
 
 const REPRESENTATIVE_FEEDBACK = [
@@ -238,6 +239,16 @@ describe('WeeklyReportTrigger', () => {
       expect(kpis.segments).toBe(segments);
     });
 
+    it('passes segmentsUnavailable through to formatWeeklyReport so the message can say so', async () => {
+      mockGetKpiSummary.mockResolvedValue({ ...KPI_SUMMARY, segmentsUnavailable: true });
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.segmentsUnavailable).toBe(true);
+      expect(kpis.segments).toBeNull();
+    });
+
     it('passes representativeFeedback through to formatWeeklyReport', async () => {
       await handler({}, context);
 
@@ -280,6 +291,26 @@ describe('WeeklyReportTrigger', () => {
       await handler({}, context);
       expect(mockAxiosPost).toHaveBeenCalledWith('https://hooks.slack.com/test', {
         text: 'Fiona Usage Report text',
+      });
+    });
+
+    describe('when SLACK_DRY_RUN is true', () => {
+      beforeEach(() => {
+        process.env.SLACK_DRY_RUN = 'true';
+      });
+
+      afterEach(() => {
+        delete process.env.SLACK_DRY_RUN;
+      });
+
+      it('logs the full report without reading Key Vault or posting to Slack', async () => {
+        await handler({}, context);
+
+        expect(mockFormatWeeklyReport).toHaveBeenCalledTimes(1);
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Dry-run mode'));
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Fiona Usage Report text'));
+        expect(mockGetSlackWebhookUrl).not.toHaveBeenCalled();
+        expect(mockAxiosPost).not.toHaveBeenCalled();
       });
     });
 

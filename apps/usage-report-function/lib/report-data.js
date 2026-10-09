@@ -3,19 +3,13 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import {
-  activityUserIds,
-  assertReportWindow,
-  coveringWindow,
-  fetchActivity,
-  sliceActivity,
-} from './activity-records.js';
+import { assertReportWindow, coveringWindow, loadActivity, sliceActivity } from './activity-records.js';
 import { getFeedbackDetails, getRepresentativeFeedbackInRange } from './cosmos-queries.js';
 import { summarizeDailyActivity } from './daily-queries.js';
-import { summarizePeriodKpis } from './kpi-summary.js';
+import { summarizeActivity } from './kpi-core.js';
 import { summarizeWeeklyTrend } from './longitudinal-queries.js';
 import { summarizeTopUsersByFeedback, summarizeTopUsersByInteractions } from './user-queries.js';
-import { segmentOf, tryGetUserDirectory } from './user-segments.js';
+import { segmentOf } from './user-segments.js';
 
 const HISTORICAL_BASELINE_START_ISO = '2026-04-01T00:00:00.000Z';
 
@@ -70,8 +64,10 @@ function resolveTrendWindow(startISO, endISO, historicalBaselineStartISO) {
  * both the report period and the trend window, then sliced in memory, so
  * the KPI summary, weekly trend, daily summary, top users and segments all
  * describe exactly the same records for the requested [startISO, endISO).
- * The user directory is looked up once; if it can't be read the report is
- * built without internal/external segments.
+ * The user directory is looked up once. When `usersContainer` is given and
+ * the directory can't be read, this throws rather than publishing a report
+ * that silently lacks internal/external segments; omit `usersContainer`
+ * to build an unsegmented report deliberately.
  */
 export async function buildExecutiveReportData({
   interactionsContainer,
@@ -87,15 +83,18 @@ export async function buildExecutiveReportData({
   const trendWindow = resolveTrendWindow(startISO, endISO, historicalBaselineStartISO);
   const fetchWindow = coveringWindow({ startISO, endISO }, trendWindow);
 
-  const [activity, feedbackDetails, representativeFeedback] = await Promise.all([
-    fetchActivity(interactionsContainer, feedbackContainer, deploymentType, fetchWindow.startISO, fetchWindow.endISO),
+  const [{ activity, directory }, feedbackDetails, representativeFeedback] = await Promise.all([
+    loadActivity(interactionsContainer, feedbackContainer, deploymentType, fetchWindow.startISO, fetchWindow.endISO, {
+      usersContainer,
+      warn,
+      requireDirectory: true,
+    }),
     getFeedbackDetails(feedbackContainer, deploymentType, startISO, endISO),
     getRepresentativeFeedbackInRange(feedbackContainer, deploymentType, startISO, endISO),
   ]);
-  const directory = await tryGetUserDirectory(usersContainer, activityUserIds(activity), warn);
 
   const periodActivity = sliceActivity(activity, startISO, endISO);
-  const { segments, ...kpiSummary } = summarizePeriodKpis(periodActivity, directory);
+  const { segments, ...kpiSummary } = summarizeActivity(periodActivity, directory);
   const withSegment = (entry) => (directory ? { ...entry, segment: segmentOf(directory, entry.userId) } : entry);
 
   return {
