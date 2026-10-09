@@ -5,14 +5,31 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-// Mock the LLM caller and rate limiter before importing the module under test
+// Mock the LLM caller and rate limiter before importing the module under test.
+// Every mock is created out here, not inside its factory: a worker that already
+// ran another file mocking the same module re-evaluates the factory, and an
+// inline jest.fn() would then exist twice, so the test would see 0 calls (CI only).
+const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
+const mockCallLLM = jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' });
+const mockFinalizeMetadataEnvelope = jest.fn();
+const mockCaptureConversation = jest.fn().mockResolvedValue(undefined);
+const mockCheckRateLimit = jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 });
+const mockBuildThreadHistory = jest
+  .fn()
+  .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
+    Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
+  );
+const mockShouldFinalize = jest.fn().mockReturnValue(true);
+const mockRollbackFinalization = jest.fn();
+const mockEscalateViaSay = jest.fn().mockResolvedValue(undefined);
+
 jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
-  recordInteraction: jest.fn().mockResolvedValue(undefined),
+  recordInteraction: mockRecordInteraction,
 }));
 
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
-  callLLM: jest.fn().mockResolvedValue({ metadata: null, botText: '', systemPromptVersion: 'v1' }),
-  finalizeMetadataEnvelope: jest.fn(),
+  callLLM: mockCallLLM,
+  finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   handleMetadataTimeout: jest.fn(),
   searchForSources: jest.fn().mockResolvedValue([]),
   LLM_MODEL: 'sonar-pro',
@@ -30,11 +47,11 @@ jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
 }));
 
 jest.unstable_mockModule('../../../src/agent/conversation-capture-store.js', () => ({
-  captureConversation: jest.fn().mockResolvedValue(undefined),
+  captureConversation: mockCaptureConversation,
 }));
 
 jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
-  checkRateLimit: jest.fn().mockReturnValue({ allowed: true, retryAfterMs: 0 }),
+  checkRateLimit: mockCheckRateLimit,
   rateLimitMessage: jest.fn((retryAfterMs) => {
     const minutes = Math.ceil(retryAfterMs / 60000);
     return `:no_entry: You've reached the request limit. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
@@ -43,21 +60,17 @@ jest.unstable_mockModule('../../../src/agent/rate-limiter.js', () => ({
 
 // Simulate the real fallback behaviour: when history is empty, return [currentText as user message].
 jest.unstable_mockModule('../../../src/agent/thread-history.js', () => ({
-  buildThreadHistory: jest
-    .fn()
-    .mockImplementation((_client, _channel, _ts, { currentText = null } = {}) =>
-      Promise.resolve(currentText ? [{ role: 'user', content: currentText }] : []),
-    ),
+  buildThreadHistory: mockBuildThreadHistory,
 }));
 
 jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () => ({
   generateResponseId: jest.fn().mockReturnValue('C123:1234567890.000000'),
-  shouldFinalize: jest.fn().mockReturnValue(true),
-  rollbackFinalization: jest.fn(),
+  shouldFinalize: mockShouldFinalize,
+  rollbackFinalization: mockRollbackFinalization,
 }));
 
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({
-  escalateViaSay: jest.fn().mockResolvedValue(undefined),
+  escalateViaSay: mockEscalateViaSay,
 }));
 
 const { message: messageHandler } = await import('../../../src/listeners/assistant/message.js');
@@ -750,6 +763,28 @@ describe('message (assistant thread handler)', () => {
       expect(mockClient.chatStream).not.toHaveBeenCalled();
     });
 
+    // AI-250. Checked before the rate limit, as on the @-mention path.
+    it('declines an over-long ask privately without touching the rate limit', async () => {
+      mockMessage.text = `ask ${'x'.repeat(3001)}`;
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      expect(checkRateLimit).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chatStream).not.toHaveBeenCalled();
+      expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('too long') }));
+      expect(recordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'assistant_message', status: 'error', errorType: 'question_too_long' }),
+      );
+    });
+
     it('strips the "ask" keyword before prompting the LLM', async () => {
       mockMessage.text = 'ask how do I set up ODS?';
 
@@ -764,6 +799,24 @@ describe('message (assistant thread handler)', () => {
 
       const [, prompts] = callLLM.mock.calls[0];
       expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
+    });
+
+    // Same markers as @fiona ask, so the question is captured the same way on
+    // every surface.
+    it('keeps the place of a mention inside an ask question', async () => {
+      mockMessage.text = 'ask Can <@UALICE> help with <#C999|ods-help>?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'Can @someone help with #a-channel?' }]);
     });
 
     it('responds with search results when message starts with "search "', async () => {

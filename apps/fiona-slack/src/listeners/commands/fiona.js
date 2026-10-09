@@ -10,13 +10,21 @@ import { checkRateLimit, rateLimitMessage } from '../../agent/rate-limiter.js';
 import { SEARCH_ERROR_TEXT } from '../../agent/search-caller.js';
 import { isTicketingEnabled } from '../../agent/ticket-service.js';
 import { buildTicketModal } from '../views/ticket_modal.js';
-import { ASK_DELIVERY_FAILED_TEXT, ASK_ERROR_TEXT, buildAskResponse, describeError } from './ask-handler.js';
+import {
+  ASK_DELIVERY_FAILED_TEXT,
+  ASK_ERROR_TEXT,
+  ASK_TOO_LONG_TEXT,
+  buildAskResponse,
+  describeError,
+  isQuestionTooLong,
+} from './ask-handler.js';
 import {
   buildHelpText,
   buildSearchResponse,
   ESCALATE_CONFIRM_TEXT,
   ESCALATE_DM_TEXT,
   ESCALATE_ERROR_TEXT,
+  postEphemeralSafely,
   TICKET_ERROR_TEXT,
   TICKET_NOT_CONFIGURED_TEXT,
 } from './command-handler.js';
@@ -61,7 +69,7 @@ export const fionaCommandCallback = async ({ command, ack, respond, client, logg
       await handleHelp({ command, ack, logger });
       break;
     case 'ask':
-      await handleAsk({ command, ack, respond, logger });
+      await handleAsk({ command, ack, respond, client, logger });
       break;
     case 'search':
       await handleSearch({ command, ack, respond, logger });
@@ -112,7 +120,7 @@ function hasRequiredFields(command) {
   return Boolean(command.user_id && command.channel_id && command.trigger_id);
 }
 
-function fireAndForgetRecord({ command, logger, interactionType, errorType = null }) {
+function fireAndForgetRecord({ command, logger, interactionType, errorType = null, rateLimited = false }) {
   if (!hasRequiredFields(command)) {
     logger?.warn?.('Missing required slash command fields; skipping interaction record');
     return;
@@ -120,8 +128,79 @@ function fireAndForgetRecord({ command, logger, interactionType, errorType = nul
   recordInteraction({
     ...slashInteractionRecord(command, interactionType),
     ...(errorType ? { status: 'error', errorType } : {}),
+    rateLimited,
     logger,
   }).catch((err) => logger?.warn?.(`Failed to record ${interactionType} interaction: ${err.name}`));
+}
+
+/**
+ * The steps every private slash sub-command shares before its own work:
+ * acknowledge, check the required fields, apply the rate limit. Each failure
+ * answers the user ephemerally and, where it is a real interaction, records it.
+ *
+ * Returns a `reply` function that sends an ephemeral message and logs rather
+ * than throws, resolving to whether it was delivered, or null when the
+ * sub-command should stop. A handler that needs the error itself from its main
+ * response calls `respond` directly.
+ *
+ * @param {Object} params
+ * @param {string} params.name - The sub-command, for the missing-fields log line.
+ * @param {string} [params.invokedAs] - The word the user typed, for the ack and
+ *   respond log lines. Defaults to `name`; differs for ticket aliases.
+ * @param {string} params.interactionType - Telemetry name for the rate-limit record.
+ * @param {Object} [params.ackMessage] - Sent with the ack instead of an empty ack.
+ * @param {boolean} [params.replaceOriginal] - Replies replace the ack message.
+ * @param {string} params.missingFieldsText - Copy sent when required fields are missing.
+ * @param {(reply: Function) => Promise<boolean>} [params.checkAvailable] - Runs
+ *   before the rate limit; returning false stops the sub-command (it has already
+ *   replied).
+ * @returns {Promise<((message: Object) => Promise<boolean>) | null>}
+ */
+async function startPrivateSlashCommand({
+  command,
+  ack,
+  respond,
+  logger,
+  name,
+  invokedAs = name,
+  interactionType,
+  ackMessage,
+  replaceOriginal = false,
+  missingFieldsText,
+  checkAvailable,
+}) {
+  try {
+    await (ackMessage ? ack(ackMessage) : ack());
+  } catch (err) {
+    logger?.error?.(`Failed to acknowledge /fiona ${invokedAs}: ${err.name}`);
+    return null;
+  }
+
+  const reply = (message) =>
+    respond({ response_type: 'ephemeral', ...(replaceOriginal ? { replace_original: true } : {}), ...message }).then(
+      () => true,
+      (err) => {
+        logger?.error?.(`Failed to respond to /fiona ${invokedAs}: ${describeError(err)}`);
+        return false;
+      },
+    );
+
+  if (!hasRequiredFields(command)) {
+    logger?.warn?.(`Missing required slash command fields; skipping ${name}`);
+    await reply({ text: missingFieldsText });
+    return null;
+  }
+
+  if (checkAvailable && !(await checkAvailable(reply))) return null;
+
+  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
+  if (!allowed) {
+    await reply({ text: rateLimitMessage(retryAfterMs) });
+    fireAndForgetRecord({ command, logger, interactionType, errorType: 'rate_limited', rateLimited: true });
+    return null;
+  }
+
+  return reply;
 }
 
 async function handleHelp({ command, ack, logger }) {
@@ -151,7 +230,7 @@ const ASK_THINKING_TEXT = ':hourglass_flowing_sand: Thinking…';
  *
  * Falls back to the help response when no question is provided.
  */
-async function handleAsk({ command, ack, respond, logger }) {
+async function handleAsk({ command, ack, respond, client, logger }) {
   const question = (command.text ?? '').trim().slice('ask'.length).trim();
 
   // Empty question: fall back to help (same as /fiona with no sub-command)
@@ -160,42 +239,33 @@ async function handleAsk({ command, ack, respond, logger }) {
     return;
   }
 
+  const reply = await startPrivateSlashCommand({
+    command,
+    ack,
+    respond,
+    logger,
+    name: 'ask',
+    interactionType: 'slash_ask',
+    ackMessage: { response_type: 'ephemeral', text: ASK_THINKING_TEXT },
+    replaceOriginal: true,
+    missingFieldsText: ASK_ERROR_TEXT,
+    // Before the rate limit, so a question that will be declined anyway does not
+    // spend the user's budget.
+    checkAvailable: async (sendReply) => {
+      if (!isQuestionTooLong(question, logger)) return true;
+      await sendReply({ text: ASK_TOO_LONG_TEXT });
+      fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'question_too_long' });
+      return false;
+    },
+  });
+  if (!reply) return;
+
+  // buildAskResponse absorbs LLM failures and reports them through errorType.
+  // Anything else it throws is a bug in building the answer, recorded as
+  // ask_failed and kept apart from a failure to deliver a built answer.
+  let built;
   try {
-    await ack({ response_type: 'ephemeral', text: ASK_THINKING_TEXT });
-  } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona ask: ${err.name}`);
-    return;
-  }
-
-  const reply = (message) =>
-    respond({ response_type: 'ephemeral', replace_original: true, ...message }).catch((err) =>
-      logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`),
-    );
-
-  if (!hasRequiredFields(command)) {
-    logger?.warn?.('Missing required slash command fields; skipping ask');
-    await reply({ text: ASK_ERROR_TEXT });
-    return;
-  }
-
-  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
-  if (!allowed) {
-    await reply({ text: rateLimitMessage(retryAfterMs) });
-    recordInteraction({
-      ...slashInteractionRecord(command, 'slash_ask'),
-      status: 'error',
-      errorType: 'rate_limited',
-      rateLimited: true,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_ask interaction: ${err.name}`));
-    return;
-  }
-
-  // buildAskResponse never throws on LLM failure — it substitutes an error
-  // message and reports the failure via errorType, so carry that into telemetry.
-  // The conversation is captured only once the answer has been delivered.
-  try {
-    const { response, errorType, capture } = await buildAskResponse({
+    built = await buildAskResponse({
       question,
       logger,
       interactionType: 'slash_ask',
@@ -206,15 +276,36 @@ async function handleAsk({ command, ack, respond, logger }) {
       // per invocation and stands in for both, as in slashInteractionRecord.
       threadTs: command.trigger_id,
       messageTs: command.trigger_id,
+      // should_escape is false, so slash text has no <url> markup to unwrap.
+      linkMarkup: false,
     });
+  } catch (err) {
+    logger?.error?.(`Failed to build /fiona ask answer: ${describeError(err)}`);
+    await reply({ text: ASK_ERROR_TEXT });
+    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'ask_failed' });
+    return;
+  }
+
+  // The conversation is captured only once the answer has been delivered.
+  const { response, errorType, capture } = built;
+  try {
     await respond({ response_type: 'ephemeral', replace_original: true, ...response });
-    fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
-    await capture();
   } catch (err) {
     logger?.error?.(`Failed to respond to /fiona ask: ${describeError(err)}`);
-    await reply({ text: ASK_DELIVERY_FAILED_TEXT });
+    // A small reply through respond() can still replace the "Thinking…" line
+    // (the answer may have failed for its size). If respond() is down too, the
+    // notice goes through the Web API instead, so the user is not left waiting.
+    // That only reaches a channel Fiona is in; elsewhere (a DM between two
+    // people, a channel it has not joined) it fails and is logged.
+    if (!(await reply({ text: ASK_DELIVERY_FAILED_TEXT }))) {
+      const target = { channel: command.channel_id, user: command.user_id };
+      await postEphemeralSafely(client, logger, target, { text: ASK_DELIVERY_FAILED_TEXT }, 'ask delivery-failure');
+    }
     fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType: 'respond_failed' });
+    return;
   }
+  fireAndForgetRecord({ command, logger, interactionType: 'slash_ask', errorType });
+  await capture();
 }
 
 async function handleSearch({ command, ack, respond, logger }) {
@@ -228,31 +319,16 @@ async function handleSearch({ command, ack, respond, logger }) {
     return;
   }
 
-  try {
-    await ack();
-  } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona search: ${err.name}`);
-    return;
-  }
-
-  if (!hasRequiredFields(command)) {
-    logger?.warn?.('Missing required slash command fields; skipping search');
-    await respond({ response_type: 'ephemeral', text: SEARCH_ERROR_TEXT });
-    return;
-  }
-
-  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
-  if (!allowed) {
-    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
-    recordInteraction({
-      ...slashInteractionRecord(command, 'slash_search'),
-      status: 'error',
-      errorType: 'rate_limited',
-      rateLimited: true,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_search interaction: ${err.name}`));
-    return;
-  }
+  const reply = await startPrivateSlashCommand({
+    command,
+    ack,
+    respond,
+    logger,
+    name: 'search',
+    interactionType: 'slash_search',
+    missingFieldsText: SEARCH_ERROR_TEXT,
+  });
+  if (!reply) return;
 
   logger?.info?.(`/fiona search: querying for "${query}"`);
   // buildSearchResponse never throws on search failure — it substitutes an error
@@ -287,31 +363,16 @@ function isDmChannel(command) {
 }
 
 async function handleEscalate({ command, ack, respond, client, logger }) {
-  try {
-    await ack();
-  } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona escalate: ${err.name}`);
-    return;
-  }
-
-  if (!hasRequiredFields(command)) {
-    logger?.warn?.('Missing required slash command fields; skipping escalate');
-    await respond({ response_type: 'ephemeral', text: ESCALATE_ERROR_TEXT });
-    return;
-  }
-
-  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
-  if (!allowed) {
-    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
-    recordInteraction({
-      ...slashInteractionRecord(command, 'slash_escalate'),
-      status: 'error',
-      errorType: 'rate_limited',
-      rateLimited: true,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_escalate interaction: ${err.name}`));
-    return;
-  }
+  const reply = await startPrivateSlashCommand({
+    command,
+    ack,
+    respond,
+    logger,
+    name: 'escalate',
+    interactionType: 'slash_escalate',
+    missingFieldsText: ESCALATE_ERROR_TEXT,
+  });
+  if (!reply) return;
 
   const dm = isDmChannel(command);
   const result = await postEscalation({
@@ -328,10 +389,7 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
 
   // postEscalation records the interaction on both success and failure; this
   // path only renders the ephemeral confirmation or error to the invoking user.
-  await respond({
-    response_type: 'ephemeral',
-    text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
-  });
+  await reply({ text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT });
 }
 
 /**
@@ -341,52 +399,35 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
  * the user can switch to a feature before submitting.
  */
 async function handleTicket({ command, ack, respond, client, logger, ticketType, invokedAs }) {
-  try {
-    await ack();
-  } catch (err) {
-    logger?.error?.(`Failed to acknowledge /fiona ${invokedAs}: ${err.name}`);
-    return;
-  }
-
-  if (!hasRequiredFields(command)) {
-    logger?.warn?.('Missing required slash command fields; skipping ticket');
-    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
-    return;
-  }
-
-  if (!isTicketingEnabled()) {
-    await respond({ response_type: 'ephemeral', text: TICKET_NOT_CONFIGURED_TEXT });
-    recordInteraction({
-      ...slashInteractionRecord(command, `slash_${invokedAs}`),
-      status: 'error',
-      errorType: 'not_configured',
-      rateLimited: false,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_${invokedAs} interaction: ${err.name}`));
-    return;
-  }
-
-  const { allowed, retryAfterMs } = checkRateLimit(command.user_id);
-  if (!allowed) {
-    await respond({ response_type: 'ephemeral', text: rateLimitMessage(retryAfterMs) });
-    recordInteraction({
-      ...slashInteractionRecord(command, `slash_${invokedAs}`),
-      status: 'error',
-      errorType: 'rate_limited',
-      rateLimited: true,
-      logger,
-    }).catch((err) => logger?.warn?.(`Failed to record slash_${invokedAs} interaction: ${err.name}`));
-    return;
-  }
+  const interactionType = `slash_${invokedAs}`;
+  const reply = await startPrivateSlashCommand({
+    command,
+    ack,
+    respond,
+    logger,
+    name: 'ticket',
+    invokedAs,
+    interactionType,
+    missingFieldsText: TICKET_NOT_CONFIGURED_TEXT,
+    // Checked before the rate limit, so an unconfigured deployment does not
+    // spend the user's budget on a form it cannot open.
+    checkAvailable: async (sendReply) => {
+      if (isTicketingEnabled()) return true;
+      await sendReply({ text: TICKET_NOT_CONFIGURED_TEXT });
+      fireAndForgetRecord({ command, logger, interactionType, errorType: 'not_configured' });
+      return false;
+    },
+  });
+  if (!reply) return;
 
   try {
     await client.views.open({
       trigger_id: command.trigger_id,
       view: buildTicketModal({ ticketType, channelId: command.channel_id }),
     });
-    fireAndForgetRecord({ command, logger, interactionType: `slash_${invokedAs}` });
+    fireAndForgetRecord({ command, logger, interactionType });
   } catch (err) {
     logger?.error?.(`Failed to open ${invokedAs} modal: ${err.message}`);
-    await respond({ response_type: 'ephemeral', text: TICKET_ERROR_TEXT });
+    await reply({ text: TICKET_ERROR_TEXT });
   }
 }
