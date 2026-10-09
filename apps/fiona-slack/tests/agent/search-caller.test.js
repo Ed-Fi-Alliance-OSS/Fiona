@@ -89,11 +89,12 @@ describe('searchForSources', () => {
     );
   });
 
+  // max_results is the clamped count plus 3 extras, to fill in for dropped results.
   it.each([
-    ['zero', 0, 1],
-    ['negative', -2, 1],
-    ['NaN', Number.NaN, 5],
-    ['non-integer', 2.9, 2],
+    ['zero', 0, 4],
+    ['negative', -2, 4],
+    ['NaN', Number.NaN, 8],
+    ['non-integer', 2.9, 5],
   ])('clamps %s maxSources to a valid max_results value', async (_label, maxSources, expectedMaxResults) => {
     mockSearchOk([]);
     await searchForSources('query', { maxSources });
@@ -102,7 +103,7 @@ describe('searchForSources', () => {
     );
   });
 
-  it('passes max_results to the SDK and caps results via normalizeSources', async () => {
+  it('passes max_results to the SDK and caps results to maxSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
       title: `Page ${i}`,
@@ -112,8 +113,14 @@ describe('searchForSources', () => {
     const sources = await searchForSources('query', { maxSources: 3 });
     expect(sources).toHaveLength(3);
     expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ max_results: 3 }),
+      expect.objectContaining({ max_results: 6 }),
     );
+  });
+
+  it('drops denylisted results even with link checking off', async () => {
+    mockSearchOk([{ url: 'https://www.ed-fi.org/what-is-ed-fi-old/mission/' }, { url: 'https://docs.ed-fi.org/p1/' }]);
+    const sources = await searchForSources('query', { maxSources: 5 });
+    expect(sources.map((s) => s.url)).toEqual(['https://docs.ed-fi.org/p1/']);
   });
 
   it('passes search_domain_filter to the SDK', async () => {
@@ -501,6 +508,25 @@ describe('searchForSources link checking (AI-227)', () => {
 
     expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 6 }));
     expect(sources.map((s) => s.url)).toEqual([page(1).url, page(3).url, page(4).url]);
+  });
+
+  it('checks only the requested count when nothing is removed', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+
+    const sources = await searchForSources('q', { maxSources: 3 });
+
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(2).url, page(3).url]);
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).toEqual([page(1).url, page(2).url, page(3).url]);
+  });
+
+  it('checks the extras only after something was removed', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async (url) => ({ status: url.endsWith('/p1/') ? 404 : 200 }));
+
+    await searchForSources('q', { maxSources: 3 });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(5);
   });
 
   it('never asks for more than 10', async () => {

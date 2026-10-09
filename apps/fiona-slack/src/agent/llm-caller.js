@@ -32,6 +32,8 @@ const PERPLEXITY_DOMAIN_FILTER = (process.env.PERPLEXITY_DOMAIN_FILTER ?? 'www.e
 // ─── Citation Link Checking (AI-227) ────────────────────────────────────────
 // Time budget for checking one answer's sources; unfinished checks keep the source.
 const CITATION_LINK_CHECK_TIMEOUT_MS = parsePositiveIntEnv(process.env.CITATION_LINK_CHECK_TIMEOUT_MS, 2000);
+// Limit on the rewrite after a cited source proved dead (measured 1.4-3.6s live).
+const CITATION_REGENERATE_TIMEOUT_MS = parsePositiveIntEnv(process.env.CITATION_REGENERATE_TIMEOUT_MS, 20000);
 // Retired-path prefixes the domain-level search filter cannot express.
 const CITATION_PATH_DENYLIST = parseDenylist(process.env.CITATION_PATH_DENYLIST ?? 'www.ed-fi.org/what-is-ed-fi-old/');
 
@@ -499,26 +501,55 @@ function promptsToInputItems(prompts) {
     .filter(Boolean);
 }
 
-/**
- * Drop sources Fiona must not cite: retired paths (never fetched) and pages
- * that return 404 or 410. Pages the check cannot confirm are kept.
- *
- * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
- * @param {{ warn?: (msg: string) => void }} [logger]
- */
-async function validateSources(sources, logger) {
-  const toCheck = sources.filter((source) => !isDenylisted(source.url, CITATION_PATH_DENYLIST)).map((s) => s.url);
-  const verdicts = await checkUrls(toCheck, {
+/** HEAD-check these URLs within the link-check budget. */
+function checkSourceUrls(urls) {
+  return checkUrls(urls, {
     timeoutMs: CITATION_LINK_CHECK_TIMEOUT_MS,
     allowedHosts: PERPLEXITY_DOMAIN_FILTER,
   });
-  const { kept, removed } = filterSources(sources, verdicts, CITATION_PATH_DENYLIST);
+}
+
+/**
+ * Start checking search results while the answer is still streaming. The
+ * verdicts land in the link-check cache, so validateSources() afterwards
+ * finds them there instead of waiting on the network. Never rejects.
+ *
+ * @param {Array} results - Raw search results from a stream event
+ * @returns {Promise<void>}
+ */
+function prefetchLinkChecks(results) {
+  const urls = normalizeSources(results)
+    .sources.map((source) => source.url)
+    .filter((url) => !isDenylisted(url, CITATION_PATH_DENYLIST));
+  return checkSourceUrls(urls).then(
+    () => {},
+    () => {},
+  );
+}
+
+/**
+ * Drop sources Fiona must not cite: retired paths (never fetched, and dropped
+ * even when link checking is off) and pages that return 404 or 410. Pages the
+ * check cannot confirm are kept.
+ *
+ * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
+ * @param {{ warn?: (msg: string) => void }} [logger]
+ * @param {{ checkLinks?: boolean }} [options] - false applies only the denylist
+ */
+async function validateSources(sources, logger, { checkLinks = true } = {}) {
+  // Denylist first, once per source; only what survives it is fetched.
+  const listed = filterSources(sources, new Map(), CITATION_PATH_DENYLIST);
+  const toCheck = listed.kept.map((source) => source.url);
+  const verdicts = checkLinks ? await checkSourceUrls(toCheck) : new Map();
+  const live = filterSources(listed.kept, verdicts, []);
+  const kept = live.kept;
+  const removed = [...listed.removed, ...live.removed];
   const count = (verdict) => [...verdicts.values()].filter((v) => v === verdict).length;
   const stats = {
-    checked: new Set(toCheck).size,
+    checked: checkLinks ? new Set(toCheck).size : 0,
     dead: count('dead'),
     unknown: count('unknown'),
-    denylisted: removed.filter((entry) => entry.reason === 'denylisted').length,
+    denylisted: listed.removed.length,
   };
   if (removed.length > 0) {
     logger?.warn?.(
@@ -590,6 +621,9 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   // arrive after text deltas have started.
   let searchResults = [];
   let textBuffer = '';
+  const linkCheck = isCitationLinkCheckEnabled();
+  // Link checks started mid-stream, so they overlap with generation.
+  const prefetches = [];
 
   for await (const event of response) {
     switch (event?.type) {
@@ -602,6 +636,7 @@ export async function callPerplexityChat(streamer, prompts, logger) {
       case 'response.reasoning.search_results':
         if (Array.isArray(event.results) && event.results.length > 0) {
           searchResults = event.results;
+          if (linkCheck) prefetches.push(prefetchLinkChecks(event.results));
         }
         break;
 
@@ -672,17 +707,24 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
   // The text `resolved` was built from: the model's answer, or its rewrite.
   let answerText = textBuffer;
+  // A reply with no text is a failed generation; there is nothing to validate.
+  const noText = !textBuffer.trim();
 
   let declinedDeadSources = false;
-  if (sources.length > 0 && isCitationLinkCheckEnabled()) {
+  // The denylist applies even with link checking off, so the kill switch does
+  // not bring retired pages back.
+  if (sources.length > 0 && !noText && (linkCheck || CITATION_PATH_DENYLIST.length > 0)) {
     const started = Date.now();
     let regenerated = false;
     let validation;
     try {
-      validation = await validateSources(sources, logger);
+      // Mid-stream checks have usually finished by now; waiting on them lets
+      // validateSources() read their verdicts from the cache.
+      await Promise.all(prefetches);
+      validation = await validateSources(sources, logger, { checkLinks: linkCheck });
     } catch (error) {
       logger?.warn?.(`[citations] link check failed, sending the answer unchecked: ${error.message}`);
-      if (metadata) {
+      if (metadata && linkCheck) {
         metadata.link_check = {
           checked: 0,
           dead: 0,
@@ -720,13 +762,12 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         }
         resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
       }
-      if (metadata) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
+      if (metadata && linkCheck) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
     }
   }
   // An answer that was only a source list is empty once the list is stripped.
   // A reply that was empty to begin with is a failed generation, not this: it
   // goes out as '' so callers' empty-answer handling (llm_empty) still applies.
-  const noText = !answerText.trim();
   const emptyAnswer = !noText && !resolved.text.trim();
   const declined = declinedDeadSources || emptyAnswer;
   if (metadata) {
@@ -870,10 +911,11 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
   if (!query || !query.trim()) return [];
 
   const cappedMaxSources = clampSearchMaxSources(maxSources);
-  // Ask for a few extra when link checking is on, so removing dead results
-  // does not leave the command short (AI-227).
+  // Ask for a few extra, so removing dead or retired results does not leave
+  // the command short (AI-227). Only the first cappedMaxSources are checked;
+  // the extras are checked only to fill gaps.
   const linkCheck = isCitationLinkCheckEnabled();
-  const fetchCount = linkCheck ? Math.min(cappedMaxSources + 3, SEARCH_ABSOLUTE_MAX) : cappedMaxSources;
+  const fetchCount = Math.min(cappedMaxSources + 3, SEARCH_ABSOLUTE_MAX);
 
   try {
     const response = await perplexityClient.search.create({
@@ -886,9 +928,14 @@ export async function searchForSources(query, { maxSources = SEARCH_MAX_SOURCES,
 
     if (Array.isArray(rawResults) && rawResults.length > 0) {
       const { sources } = normalizeSources(rawResults, { maxSources: fetchCount });
-      if (!linkCheck) return sources;
       try {
-        const { kept } = await validateSources(sources, logger);
+        const head = sources.slice(0, cappedMaxSources);
+        const { kept } = await validateSources(head, logger, { checkLinks: linkCheck });
+        if (kept.length < cappedMaxSources && sources.length > head.length) {
+          // Something was dropped: check the extras together, in one more round.
+          const extras = await validateSources(sources.slice(head.length), logger, { checkLinks: linkCheck });
+          kept.push(...extras.kept);
+        }
         return kept.slice(0, cappedMaxSources);
       } catch (error) {
         logger?.warn?.(`[citations] link check failed, returning unfiltered search results: ${error.message}`);
@@ -967,12 +1014,23 @@ export async function regenerateFromSources(
   { model = PERPLEXITY_API_MODEL } = {},
 ) {
   if (!perplexityClient) return null;
+  // With no result to offer, the model would answer from background knowledge,
+  // which is the ungrounded answer a decline exists to prevent.
+  if (!liveSources.some((source) => sourceIndexMap[source.url] !== undefined)) {
+    logger?.warn?.('Rewrite from live sources skipped: no live source has a result id');
+    return null;
+  }
   try {
-    const response = await perplexityClient.responses.create({
-      model,
-      input: buildRegenerateInput(prompts, liveSources, sourceIndexMap),
-      stream: false,
-    });
+    // One attempt, bounded: the user sees nothing while this runs, and the
+    // SDK default would wait up to 15 minutes per try, with 2 retries.
+    const response = await perplexityClient.responses.create(
+      {
+        model,
+        input: buildRegenerateInput(prompts, liveSources, sourceIndexMap),
+        stream: false,
+      },
+      { timeout: CITATION_REGENERATE_TIMEOUT_MS, maxRetries: 0 },
+    );
     // Failed and cancelled runs arrive over HTTP 200, as in summarizeForEscalation.
     if (response?.status && response.status !== 'completed' && response.status !== 'incomplete') {
       logger?.warn?.(

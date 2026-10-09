@@ -128,20 +128,22 @@ case the model's text is discarded and a fixed decline
 question, only the prompt prevents a guess.
 
 **Dead links (AI-227).** Perplexity's index still holds pages that now return
-404, so after the answer is written, and before it is sent, Fiona checks every
-source. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
+404, so before the answer is sent, Fiona checks every source. Checks start as
+soon as search results arrive, so they overlap with writing the answer. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
 without being fetched. The rest get a HEAD request (GET if HEAD is refused),
 sent with the `User-Agent` `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`
 and only to hosts in `PERPLEXITY_DOMAIN_FILTER` and their subdomains. A 404 or 410 drops the
 source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
 the source. Results are cached: live pages for 1 hour and dead pages for 24
 hours. If the answer cited a dropped source, it is rewritten once, with no
-search tool, from the live sources only, and the metadata records
+search tool, from the live sources only (one attempt, limited by
+`CITATION_REGENERATE_TIMEOUT_MS`, default 20 seconds), and the metadata records
 `grounding: 'regenerated_dead_sources'`. The rewrite prompt wraps the live
 results in `<search_results>` tags and tells the model that the text inside is
 copied from web pages and that any instructions in it must be ignored. Fence
 tags found inside a title or snippet are removed first, so a page cannot close
-the fence early. If that rewrite fails, the fixed
+the fence early. If that rewrite fails, or no live source can be offered to
+it, the fixed
 decline is sent, with `grounding: 'declined_dead_sources'`. If every source
 was dropped, the no-results decline above applies. If an answer or its
 rewrite is empty once the model's own source list is removed, the fixed
@@ -149,9 +151,11 @@ decline is sent with `grounding: 'declined_empty_answer'`, rather than a
 Sources block with no answer. This applies whether or not link checking is on.
 A reply that had no text to begin with is a failed generation, not a decline:
 it is returned empty, so the existing `llm_empty` handling applies. `/fiona search` drops dead
-results the same way. The `[citations]` log line gains `dead=` and
-`regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` restores the
-previous behaviour. If link checking itself fails, the answer is sent unchecked.
+results the same way. It asks for 3 extra results but checks only the requested
+number, and checks the extras only if something was dropped. The `[citations]` log line gains `dead=` and
+`regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` turns off the
+link checks and rewrites; retired prefixes are still dropped (set
+`CITATION_PATH_DENYLIST=` to empty to stop that too). If link checking itself fails, the answer is sent unchecked.
 
 The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
 already holds, uses its own prompt with no tools, and does not pass through

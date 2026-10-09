@@ -434,4 +434,66 @@ describe('regenerateFromSources', () => {
     await regenerateFromSources(USER, [{ url: LIVE_A, title: 'A' }], { [LIVE_A]: 1 }, undefined, { model: 'x/y' });
     expect(mockCreate.mock.calls[0][0].model).toBe('x/y');
   });
+
+  it('makes one bounded attempt: its own timeout and no SDK retries', async () => {
+    mockCreate.mockResolvedValueOnce(completed('ok'));
+    await regenerateFromSources(USER, [{ url: LIVE_A, title: 'A' }], { [LIVE_A]: 1 });
+    expect(mockCreate.mock.calls[0][1]).toEqual({ timeout: 20000, maxRetries: 0 });
+  });
+
+  it('returns null without calling the model when no live source has a result id', async () => {
+    const rewritten = await regenerateFromSources(USER, [{ url: LIVE_A, title: 'A' }], {});
+    expect(rewritten).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('link check: the denylist with the kill switch off', () => {
+  it('still drops retired pages, without fetching anything', async () => {
+    process.env.CITATION_LINK_CHECK_ENABLED = 'false';
+    globalThis.fetch = jest.fn();
+    mockCreate.mockResolvedValueOnce(makeStream([{ text: 'A [1].', searchResults: results([LIVE_A, RETIRED]) }]));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+
+    const metadata = streamer.__citation_metadata;
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(metadata.sources.map((s) => s.url)).toEqual([LIVE_A]);
+    expect(Object.values(metadata.citation_index)).toEqual([LIVE_A]);
+    expect(metadata.link_check).toBeUndefined();
+  });
+});
+
+describe('link check: timing', () => {
+  it('starts checking when search results arrive, before the stream ends, and fetches each URL once', async () => {
+    mockFetchDead();
+    const inner = makeStream([{ searchResults: results([LIVE_A, LIVE_B]) }, { text: 'A [1].' }])[
+      Symbol.asyncIterator
+    ]();
+    let fetchesWhenStreamEnded;
+    mockCreate.mockResolvedValueOnce({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          const step = await inner.next();
+          if (step.done) fetchesWhenStreamEnded = globalThis.fetch.mock.calls.length;
+          return step;
+        },
+      }),
+    });
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+
+    expect(fetchesWhenStreamEnded).toBe(2);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(streamer.__citation_metadata.link_check).toEqual(expect.objectContaining({ checked: 2, dead: 0 }));
+  });
+
+  it('does not wait on link checks when the model returned no text', async () => {
+    mockFetchDead();
+    mockCreate.mockResolvedValueOnce(makeStream([{ text: '', searchResults: results([LIVE_A]) }]));
+    const streamer = makeStreamer(makeMetadata());
+    const { botText } = await callPerplexityChat(streamer, USER);
+    expect(botText).toBe('');
+    expect(streamer.__citation_metadata.link_check).toBeUndefined();
+  });
 });

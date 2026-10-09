@@ -56,7 +56,9 @@ Two throwaway live spikes on the #118 head (`4ba6e39`), using `perplexity/sonar`
 ## 3. Architecture
 
 All changes sit in `callPerplexityChat` (`apps/fiona-slack/src/agent/llm-caller.js`), after the stream ends and before
-the single `streamer.append`. The answer is already held back until the stream ends, so users see nothing new. The
+the single `streamer.append`. The one exception is that link checks start as soon as a `search_results` event arrives,
+so they overlap with generation. Their verdicts land in the cache, and the post-stream step reads them from there. A
+reply with no text skips the post-stream step entirely. The answer is already held back until the stream ends, so users see nothing new. The
 Sources block renderer, the listeners (apart from the log line) and the metadata lifecycle states don't change.
 
 ```
@@ -141,7 +143,10 @@ stream ends (answer held back, as today)
   - Then each live source as `[id] title`, `URL: …` and its snippet, under its **original result id**, so there are
     gaps (for example `[1] [2] [4]`).
   - The same thread history (`prompts`) as the first call, so multi-turn context is kept.
-- **No tools, not streamed.**
+- **No tools, not streamed.** One bounded attempt: `CITATION_REGENERATE_TIMEOUT_MS` (default 20000) and no SDK
+  retries. The SDK default is a 15-minute timeout with 2 retries.
+- **Nothing to offer:** if no live source has a result id, the rewrite is skipped and returns `null`, since the model
+  would otherwise answer from background knowledge.
 - **Output** goes through the same pipeline as a first answer: the model-list safety net, `linkifyCitationMarkers` and
   `cited_markers`. A marker for an id that isn't live stays plain text, which is the existing rule for invented
   markers.
@@ -150,11 +155,12 @@ stream ends (answer held back, as today)
 
 ### 3.6 `/fiona search`
 
-- `searchForSources` requests `min(requested + 3, SEARCH_ABSOLUTE_MAX)` results, applies the denylist and
-  `checkUrls`, removes dead results, then trims to the requested count.
+- `searchForSources` requests `min(requested + 3, SEARCH_ABSOLUTE_MAX)` results. It applies the denylist and
+  `checkUrls` to the first `requested`, and checks the extras only if something was removed (in one more round). It
+  then trims to the requested count.
 - `unknown` results are kept.
 - If every result is removed, the command's existing no-results message is shown.
-- The kill switch covers it.
+- The kill switch turns off its link checks; the denylist still applies.
 
 ### 3.7 Observability
 
@@ -174,7 +180,7 @@ stream ends (answer held back, as today)
 | Every source was removed | #118's guard declines | `declined_no_results` (the `dead` count shows why) |
 | No citations at all (chit-chat) | No rewrite; removed sources are only dropped from the list | unchanged |
 | Incomplete run (`max_output_tokens`) | Same rules as a complete run | as above |
-| Kill switch off | Exactly today's behaviour; nothing fetched | unchanged |
+| Kill switch off | Nothing fetched; only the denylist applies | unchanged |
 | Link checking itself throws | Fails open: the answer is sent as if nothing were removed, with no rewrite; `metadata.link_check.error = true` | unchanged |
 
 The rewrite gets **one attempt** (a decision made during design). If it fails, Fiona declines rather than falling back
@@ -186,7 +192,8 @@ to sentence removal (rejected in spike 1) or sending the original answer (which 
 |---|---|---|
 | `CITATION_LINK_CHECK_ENABLED` | on | Kill switch. Off **only** when set to exactly `'false'`. AI-217's flags are the reverse (off unless exactly `'true'`) because for them off is safe; here, off brings dead links back. A comment in `deployment-flags.js` explains the difference. |
 | `CITATION_LINK_CHECK_TIMEOUT_MS` | `2000` | The shared time budget for one batch of checks. |
-| `CITATION_PATH_DENYLIST` | `www.ed-fi.org/what-is-ed-fi-old/` | Retired-path prefixes. |
+| `CITATION_PATH_DENYLIST` | `www.ed-fi.org/what-is-ed-fi-old/` | Retired-path prefixes. Applies even with the kill switch off. |
+| `CITATION_REGENERATE_TIMEOUT_MS` | `20000` | Limit on the one rewrite attempt. |
 
 All three go in `.env.sample`. Changing any of them requires a restart.
 
@@ -227,7 +234,7 @@ The suite is Jest (`npm test`) with a mocked `fetch` and a mocked Perplexity cli
   - Every source removed → `declined_no_results`.
   - A model-written list citing a dead source → rewrite.
   - An incomplete run follows the same rules.
-  - Kill switch off → nothing fetched, and output identical to today.
+  - Kill switch off → nothing fetched; retired pages are still dropped.
   - `metadata.link_check` is filled in.
 - **Listeners:** `dead=` and `regenerated=` appear on the `[citations]` line on both answer paths.
 - **`search-caller.test.js`:**
@@ -270,7 +277,8 @@ The suite is Jest (`npm test`) with a mocked `fetch` and a mocked Perplexity cli
 
 - **Docs:** PRD §2.2.2 (`docs/fiona-slack-prd.md`) describes the validation step, the rewrite and the new `grounding`
   values.
-- **Rollback:** `CITATION_LINK_CHECK_ENABLED=false`, then restart.
+- **Rollback:** `CITATION_LINK_CHECK_ENABLED=false`, then restart. To also stop the denylist, set
+  `CITATION_PATH_DENYLIST=` (empty).
 - **Web team (posted on AI-237):**
   - `www.ed-fi.org/robots.txt` has `Crawl-delay: 10` **above** any `User-agent:` line, outside Yoast's
     `User-agent: * / Disallow:` block, so many parsers ignore it.
