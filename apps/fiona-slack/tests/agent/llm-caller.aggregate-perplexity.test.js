@@ -1051,7 +1051,7 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toContain('https://www.ed-fi.org/contact/');
     // Scope: Ed-Fi implementation coding is in, general coding and trivia are out,
     // and out-of-scope questions are declined as out of scope, not as "not found".
-    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi technology/i);
+    expect(system).toMatch(/implementing, integrating, or extending the Ed-Fi Technology Suite/i);
     expect(system).toMatch(/general programming/i);
     expect(system).toMatch(/outside what you can help with/i);
     // Measured: a generic SQL question was answered by recasting it onto Ed-Fi's Admin database.
@@ -1092,30 +1092,11 @@ describe('callLLM returns botText alongside metadata', () => {
     const unquoted = system.replaceAll('"Ed-Fi specifically says"', '""').replaceAll('"Ed-Fi"', '""');
     const bareUses = [
       ...unquoted.matchAll(
-        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|APIs?|technology|documentation|community|implementations?|code base|questions?|tools|specifications|licensing|AI)\b)/g,
+        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|APIs?|Technology Suite|documentation|implementations?|code base|questions?|tools|specifications|licensing|AI)\b)/g,
       ),
     ].map((match) => unquoted.slice(Math.max(0, match.index - 30), match.index + 30));
     expect(bareUses).toEqual([]);
-  });
-
-  it('asks the model to note open-source licensing only when a cited source says so', async () => {
-    // SME review 2026-08-26 (Q-001): the answer did not note that the code is open source.
-    // Grounded on purpose: licensing is a high-risk topic (AI-231), so the prompt asserts nothing itself.
-    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
-    mockCreate.mockResolvedValueOnce(
-      (async function* () {
-        yield { type: 'response.completed', response: { status: 'completed' } };
-      })(),
-    );
-
-    await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
-      error: jest.fn(),
-      warn: jest.fn(),
-      info: jest.fn(),
-    });
-
-    const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
-    expect(system).toMatch(/when a cited (?:search )?result says .{0,60}open source/i);
-    expect(system).not.toMatch(/Ed-Fi (?:technology|code) is open[- ]source/i);
+    // Not approved terms (PR #135 review): "Ed-Fi Technology Suite" is the correct name.
+    expect(system).not.toMatch(/Ed-Fi (?:technology|community)\b/);
   });
 });

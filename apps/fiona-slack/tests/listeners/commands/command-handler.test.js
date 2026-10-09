@@ -393,8 +393,10 @@ describe('buildHelpText (all features on)', () => {
   });
 
   it('follows the Ed-Fi terminology guidelines (AI-225)', () => {
-    expect(buildHelpText()).toMatch(/^ask <question>\s+Ask a question about Ed-Fi technology /m);
+    expect(buildHelpText()).toMatch(/^ask <question>\s+Ask a question about the Ed-Fi Technology Suite$/m);
     expect(buildHelpText()).toContain('the Ed-Fi Data Standard');
+    expect(buildHelpText()).toContain('the Ed-Fi Technology Suite using natural language');
+    expect(buildHelpText()).not.toMatch(/Ed-Fi (?:technology|community)\b/);
   });
 
   it('advertises one ticket command, described in Ed-Fi terms', () => {
