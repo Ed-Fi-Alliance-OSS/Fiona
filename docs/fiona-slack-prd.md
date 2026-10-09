@@ -130,12 +130,14 @@ question, only the prompt prevents a guess.
 **Dead links (AI-227).** Perplexity's index still holds pages that now return
 404, so before the answer is sent, Fiona checks every source. Checks start as
 soon as search results arrive, so they overlap with writing the answer. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
-without being fetched. The rest get a HEAD request (GET if HEAD is refused),
+without being fetched. The rest get a HEAD request (GET if HEAD is refused, and
+a GET to confirm a HEAD 404 or 410),
 sent with the `User-Agent` `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`
 and only to hosts in `PERPLEXITY_DOMAIN_FILTER` and their subdomains. A 404 or 410 drops the
 source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
-the source. Results are cached: live pages for 1 hour and dead pages for 24
-hours. If the answer cited a dropped source, it is rewritten once, with no
+the source. Results are cached for 1 hour, live and dead alike, so a page that
+404s briefly returns quickly. If the answer cited a dropped source (through its
+`[n]` marker, or by linking its URL directly), it is rewritten once, with no
 search tool, from the live sources only (one attempt, limited by
 `CITATION_REGENERATE_TIMEOUT_MS`, default 20 seconds), and the metadata records
 `grounding: 'regenerated_dead_sources'`. The rewrite prompt wraps the live
@@ -155,7 +157,8 @@ results the same way. It asks for 3 extra results but checks only the requested
 number, and checks the extras only if something was dropped. The `[citations]` log line gains `dead=` and
 `regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` turns off the
 link checks and rewrites; retired prefixes are still dropped (set
-`CITATION_PATH_DENYLIST=` to empty to stop that too). If link checking itself fails, the answer is sent unchecked.
+`CITATION_PATH_DENYLIST=` to empty to stop that too). If link checking itself fails, no source is dropped as dead, but retired
+prefixes are still dropped (and an answer citing one is still rewritten).
 
 The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
 already holds, uses its own prompt with no tools, and does not pass through

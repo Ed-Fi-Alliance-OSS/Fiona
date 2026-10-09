@@ -107,7 +107,8 @@ stream ends (answer held back, as today)
   hosts.
 - **Time limit:** the whole batch shares one budget (`CITATION_LINK_CHECK_TIMEOUT_MS`, default 2000), enforced as a
   hard deadline. When it runs out, every request still in flight is aborted and the batch returns at once, even if a
-  request ignores the abort. Anything unfinished counts as `unknown`.
+  request ignores the abort. Anything unfinished counts as `unknown`, and a result that arrives later is discarded,
+  not cached.
 - **The link keeps the original URL.** A redirect works for the user as well, so nothing is rewritten.
 - **Cache:** in-memory, in the process, at most 2,000 entries with the oldest removed first.
   - Live and dead results are both kept 1h, so a page that 404s briefly (a docs deploy, a CDN blip) is back within
@@ -186,7 +187,7 @@ stream ends (answer held back, as today)
 | No citations at all (chit-chat) | No rewrite; removed sources are only dropped from the list | unchanged |
 | Incomplete run (`max_output_tokens`) | Same rules as a complete run | as above |
 | Kill switch off | Nothing fetched; only the denylist applies | unchanged |
-| Link checking itself throws | Fails open: the answer is sent as if nothing were removed, with no rewrite; `metadata.link_check.error = true` | unchanged |
+| Link checking itself throws | Fails open: no source is dropped as dead. The denylist still applies, and an answer citing a retired page is still rewritten. `metadata.link_check.error = true` | unchanged |
 
 The rewrite gets **one attempt** (a decision made during design). If it fails, Fiona declines rather than falling back
 to sentence removal (rejected in spike 1) or sending the original answer (which fails "claim not made").

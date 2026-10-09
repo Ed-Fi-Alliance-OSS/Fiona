@@ -297,7 +297,8 @@ export { MetadataLifecycleState };
  *   empty once a model-written source list was stripped, so NO_SOURCES_DECLINE_TEXT was sent instead.
  * @property {Object} [link_check] - Citation link check summary (AI-227): { checked, dead, unknown, denylisted,
  *   regenerated, ms, error? }. Set whenever link checking ran for this answer. `error: true` means link checking
- *   itself threw and the answer was sent unchecked (checked/dead/unknown/denylisted are all 0, regenerated is false).
+ *   itself threw: no source was dropped as dead (checked/dead/unknown are 0), but the denylist still applied, so
+ *   denylisted can be non-zero, and regenerated is true if the answer cited a denylisted source and was rewritten.
  * @property {Array<Object>} [search_results] - Optional: raw search results from Perplexity
  * @property {Array<string>} [related_questions] - Optional: related questions suggested by API
  * @property {Object} [evidence_snippets] - Optional: map of source URL -> evidence snippet

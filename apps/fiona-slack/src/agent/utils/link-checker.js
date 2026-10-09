@@ -146,10 +146,12 @@ export async function checkUrls(urls, { timeoutMs, allowedHosts, fetchImpl = glo
       probe(url, controller.signal, fetchImpl, allowedBases)
         .catch(() => 'unknown')
         .then((verdict) => {
+          // A check that finishes after the budget ended is ignored: the caller
+          // already has "unknown" for it, and the cache must not hold a verdict
+          // reached outside the budget either, so a later answer retries it.
+          if (returned) return;
           remember(url, verdict, now());
-          // A check that finishes after the batch returned must not change the
-          // verdicts the caller already has.
-          if (!returned) verdicts.set(url, verdict);
+          verdicts.set(url, verdict);
         }),
     );
   }

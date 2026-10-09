@@ -250,6 +250,24 @@ describe('checkUrls time budget', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(verdicts.get(`${DOCS}/hung`)).toBe('unknown');
   });
+
+  it('does not cache a verdict that arrives after the budget ended, so the next check fetches again', async () => {
+    let finishHung;
+    const hung = jest.fn(
+      () =>
+        new Promise((resolve) => {
+          finishHung = () => resolve({ status: 200, headers: new Headers(), body: null });
+        }),
+    );
+    expect((await check([`${DOCS}/late`], hung, { timeoutMs: 20 })).get(`${DOCS}/late`)).toBe('unknown');
+    finishHung();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const fetchImpl = fakeFetch({});
+    const verdicts = await check([`${DOCS}/late`], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(verdicts.get(`${DOCS}/late`)).toBe('live');
+  });
 });
 
 describe('checkUrls cache', () => {
