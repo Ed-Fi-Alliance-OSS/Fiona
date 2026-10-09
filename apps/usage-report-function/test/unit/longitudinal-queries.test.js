@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { getWeeklyTrendSeries } from '../../lib/longitudinal-queries.js';
+import { getWeeklyTrendSeries, summarizeWeeklyTrend } from '../../lib/longitudinal-queries.js';
 
 describe('getWeeklyTrendSeries', () => {
   let mockInteractionsContainer;
@@ -367,5 +367,68 @@ describe('getWeeklyTrendSeries', () => {
     expect(weekB.errorRate).toBe(0);
     expect(weekB.errorRateWowPp).toBeNull();
     expect(weekB.usersWowPct).toBeNull(); // previous week had 0 users
+  });
+});
+
+describe('summarizeWeeklyTrend partial weeks', () => {
+  const visit = (userId, timestamp, status = 'success') => ({
+    userId,
+    threadTs: `${userId}-${timestamp}`,
+    status,
+    rateLimited: false,
+    timestamp,
+  });
+  const activityOf = (startISO, endISO, interactions) => ({
+    startISO,
+    endISO,
+    interactions,
+    feedback: [],
+    priorUserIds: new Set(),
+  });
+
+  it('clamps and flags weeks cut short at both ends, and omits WoW across them', () => {
+    // Thu 2026-10-01 .. Wed 2026-10-21 (exclusive end Thu 2026-10-22)
+    const weeks = summarizeWeeklyTrend(
+      activityOf('2026-10-01T00:00:00.000Z', '2026-10-22T00:00:00.000Z', [
+        visit('a', '2026-10-02T10:00:00.000Z'),
+        visit('a', '2026-10-06T10:00:00.000Z'),
+        visit('b', '2026-10-07T10:00:00.000Z'),
+        visit('a', '2026-10-13T10:00:00.000Z'),
+        visit('a', '2026-10-20T10:00:00.000Z', 'error'),
+      ]),
+      null,
+    );
+
+    expect(weeks.map((w) => [w.weekStart, w.weekEnd, w.partial])).toEqual([
+      ['2026-10-01', '2026-10-04', true],
+      ['2026-10-05', '2026-10-11', false],
+      ['2026-10-12', '2026-10-18', false],
+      ['2026-10-19', '2026-10-21', true],
+    ]);
+
+    // Full week after a partial week: no comparison.
+    expect(weeks[1]).toMatchObject({ usersWowPct: null, interactionsWowPct: null, errorRateWowPp: null });
+    // Full week after a full week: compared as usual (2 users -> 1 user).
+    expect(weeks[2].usersWowPct).toBeCloseTo(-50, 5);
+    expect(weeks[2].interactionsWowPct).toBeCloseTo(-50, 5);
+    expect(weeks[2].errorRateWowPp).toBe(0);
+    // Partial final week: no comparison.
+    expect(weeks[3]).toMatchObject({ usersWowPct: null, interactionsWowPct: null, errorRateWowPp: null });
+  });
+
+  it('has no partial weeks when the window is Monday-aligned', () => {
+    const weeks = summarizeWeeklyTrend(
+      activityOf('2026-10-05T00:00:00.000Z', '2026-10-19T00:00:00.000Z', [
+        visit('a', '2026-10-05T00:00:00.000Z'),
+        visit('a', '2026-10-18T23:59:59.999Z'),
+      ]),
+      null,
+    );
+
+    expect(weeks.map((w) => [w.weekStart, w.weekEnd, w.partial])).toEqual([
+      ['2026-10-05', '2026-10-11', false],
+      ['2026-10-12', '2026-10-18', false],
+    ]);
+    expect(weeks[1].usersWowPct).toBe(0);
   });
 });

@@ -9,13 +9,12 @@ import {
   assertReportWindow,
   coveringWindow,
   fetchActivity,
-  lastIncludedDate,
   loadActivity,
-  MS_PER_DAY,
   REPORT_WINDOW_DAYS,
   resolveWeeklyReportWindow,
   sliceActivity,
 } from '../../lib/activity-records.js';
+import { lastIncludedDate, MS_PER_DAY } from '../../lib/report-dates.js';
 
 const makeQueryable = (resourcesList) => {
   const query = jest.fn();

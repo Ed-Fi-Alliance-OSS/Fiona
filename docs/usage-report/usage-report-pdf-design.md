@@ -186,16 +186,16 @@ and handed to its own renderer. Each slice stays independently testable.
 
 | Section                       | Data source                                                             |
 | ------------------------------- | -------------------------------------------------------------------------|
-| KPI summary                      | `getKpiSummary` (`lib/kpi-summary.js`)                                  |
-| Week-over-week trends             | `getWeeklyTrendSeries` (`lib/longitudinal-queries.js`, §5)             |
-| Weekly snapshots (appendix)         | Same `getWeeklyTrendSeries` output, reshaped (no WoW columns)         |
-| Daily summary                     | `getDailySummary` (`lib/daily-queries.js`)                             |
+| KPI summary                      | `summarizeActivity` (`lib/kpi-core.js`)                                 |
+| Week-over-week trends             | `summarizeWeeklyTrend` (`lib/longitudinal-queries.js`, §5); weeks cut short by the window are labelled with their actual days, marked partial, and excluded from week-over-week comparisons |
+| Weekly snapshots (appendix)         | Same `summarizeWeeklyTrend` output, reshaped (no WoW columns)         |
+| Daily summary                     | `summarizeDailyActivity` (`lib/daily-queries.js`)                      |
 | Feedback details (appendix)          | `getFeedbackDetails` (`lib/cosmos-queries.js`) — chronological, unfiltered |
 | Representative feedback (cards)      | `getRepresentativeFeedbackInRange` (`lib/cosmos-queries.js`, §7)      |
-| Top users by feedback / interactions   | `getTopUsersByFeedback` / `getTopUsersByInteractions` (`lib/user-queries.js`) |
+| Top users by feedback / interactions   | `summarizeTopUsersByFeedback` / `summarizeTopUsersByInteractions` (`lib/user-queries.js`) |
 
-`getDailySummary` additionally tracks `newUsers`/`returningUsers`/`repeatRate`
-per day, mirroring `getWeeklyTrendSeries`'s logic: bucket each user's
+`summarizeDailyActivity` additionally tracks `newUsers`/`returningUsers`/`repeatRate`
+per day, mirroring `summarizeWeeklyTrend`'s logic: bucket each user's
 first-seen-in-range day, then reuse one prior-history query (not per-day)
 to classify true new vs. returning.
 

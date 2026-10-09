@@ -167,6 +167,25 @@ describe('buildUsageObservations', () => {
     expect(engagementDepth.observation).toBe('Average interactions per user peaked at — during Apr 13-19.');
   });
 
+  it('does not compare new-user growth when the latest week is partial', () => {
+    const partialLatest = [
+      { ...weeklyTrend[1], partial: false },
+      { ...weeklyTrend[2], weekStart: '2026-04-27', weekEnd: '2026-04-29', partial: true },
+    ];
+    const observation = buildUsageObservations(partialLatest).find(
+      (o) => o.metric === 'Latest new-user WoW growth',
+    ).observation;
+    expect(observation).toBe('Not compared: Apr 27-29, 2026 is a partial week.');
+  });
+
+  it('does not compare new-user growth when the prior week is partial', () => {
+    const partialPrior = [{ ...weeklyTrend[1], weekStart: '2026-04-23', partial: true }, { ...weeklyTrend[2] }];
+    const observation = buildUsageObservations(partialPrior).find(
+      (o) => o.metric === 'Latest new-user WoW growth',
+    ).observation;
+    expect(observation).toBe('Not compared: Apr 23-26, 2026 is a partial week.');
+  });
+
   it('returns an empty array when there is no weekly data', () => {
     expect(buildUsageObservations([])).toEqual([]);
   });

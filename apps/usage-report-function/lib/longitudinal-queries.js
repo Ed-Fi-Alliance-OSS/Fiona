@@ -5,7 +5,7 @@
 
 import { loadActivity } from './activity-records.js';
 import { summarizeActivityByPeriod } from './kpi-core.js';
-import { MS_PER_DAY } from './report-dates.js';
+import { lastIncludedDate, MS_PER_DAY } from './report-dates.js';
 
 function getWeekStartISO(timestamp) {
   const date = new Date(timestamp);
@@ -26,18 +26,33 @@ const changePct = (current, previous) => (previous > 0 ? ((current - previous) /
 /**
  * Week-over-week KPIs for fetched activity in Monday-Sunday (UTC) buckets,
  * with per-segment KPIs on each week when a directory is given.
+ *
+ * A week cut short by the window (e.g. a manual mid-week run) is labelled
+ * with the days it actually covers and marked `partial`; week-over-week
+ * changes involving a partial week are null, since comparing a few days
+ * with a full week would show a misleading drop or jump.
  */
 export function summarizeWeeklyTrend(activity, directory) {
+  const firstDay = activity.startISO.split('T')[0];
+  const lastDay = lastIncludedDate(activity.endISO);
   let prevWeek = null;
-  return summarizeActivityByPeriod(activity, directory, getWeekStartISO).map(([weekStart, kpis]) => {
+  return summarizeActivityByPeriod(activity, directory, getWeekStartISO).map(([monday, kpis]) => {
+    const sunday = getWeekEndISO(monday);
+    const weekStart = monday < firstDay ? firstDay : monday;
+    const weekEnd = sunday > lastDay ? lastDay : sunday;
+    const partial = weekStart !== monday || weekEnd !== sunday;
+    const comparable = prevWeek && !partial && !prevWeek.partial;
     const week = {
       weekStart,
-      weekEnd: getWeekEndISO(weekStart),
+      weekEnd,
+      partial,
       ...kpis,
-      usersWowPct: prevWeek ? changePct(kpis.uniqueUsers, prevWeek.uniqueUsers) : null,
-      interactionsWowPct: prevWeek ? changePct(kpis.totalInteractions, prevWeek.totalInteractions) : null,
+      usersWowPct: comparable ? changePct(kpis.uniqueUsers, prevWeek.uniqueUsers) : null,
+      interactionsWowPct: comparable ? changePct(kpis.totalInteractions, prevWeek.totalInteractions) : null,
       errorRateWowPp:
-        prevWeek && kpis.errorRate !== null && prevWeek.errorRate !== null ? kpis.errorRate - prevWeek.errorRate : null,
+        comparable && kpis.errorRate !== null && prevWeek.errorRate !== null
+          ? kpis.errorRate - prevWeek.errorRate
+          : null,
     };
     prevWeek = week;
     return week;

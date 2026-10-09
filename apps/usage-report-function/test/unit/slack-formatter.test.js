@@ -760,12 +760,16 @@ describe('formatWeeklyReport length cap', () => {
 
   it('says feedback was omitted, not that none was recorded, when every item has to be dropped', () => {
     const longItem = { ...feedbackItem, userMessage: 'q'.repeat(200), botResponse: 'a'.repeat(200) };
-    const withoutUrl = formatWeeklyReport({ ...baseKpis, reportUrl: null, representativeFeedback: [] });
-    // Size the URL so the head fits but the head plus even one item does not.
-    const reportUrl = `https://example.com/${'x'.repeat(3750 - withoutUrl.length)}`;
+    // Measure the head with a 1-character URL, then size the real URL so the head is
+    // 3,700 characters: the link still fits (head + 200 <= 3,900) but one item does not.
+    const probe = formatWeeklyReport({ ...baseKpis, reportUrl: 'U', representativeFeedback: [] });
+    const headLength = probe.indexOf('\n\n📋');
+    const prefix = 'https://example.com/';
+    const reportUrl = `${prefix}${'x'.repeat(3701 - headLength - prefix.length)}`;
 
     const message = formatWeeklyReport({ ...baseKpis, reportUrl, representativeFeedback: [longItem] });
 
+    expect(message.indexOf('\n\n📋')).toBe(3700);
     expect(message.length).toBeLessThanOrEqual(3900);
     expect(message).toContain(reportUrl);
     expect(message).toContain("Omitted to fit Slack's message limit");
@@ -777,14 +781,23 @@ describe('formatWeeklyReport length cap', () => {
     expect(message).toContain('No feedback recorded for this period.');
   });
 
-  it('hard-caps the message when the head alone exceeds the limit', () => {
+  it('leaves out an over-long report link instead of cutting the message mid-markup', () => {
+    const reportUrl = `https://example.com/${'x'.repeat(5000)}`;
     const message = formatWeeklyReport({
       ...baseKpis,
-      reportUrl: `https://example.com/${'x'.repeat(5000)}`,
-      representativeFeedback: [],
+      segments: {
+        internal: { ...baseKpis, segments: undefined },
+        external: { ...baseKpis, segments: undefined },
+        unknown: { ...baseKpis, segments: undefined },
+      },
+      reportUrl,
+      representativeFeedback: [feedbackItem],
     });
 
-    expect(message.length).toBe(3900);
-    expect(message.endsWith('…')).toBe(true);
+    expect(message).toContain('link too long to include');
+    expect(message).not.toContain(reportUrl);
+    expect(message.length).toBeLessThanOrEqual(3900);
+    expect(message.match(/```/g)).toHaveLength(2);
+    expect(message).toContain('📋 *Representative Feedback*');
   });
 });

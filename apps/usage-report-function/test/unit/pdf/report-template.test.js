@@ -338,6 +338,41 @@ describe('renderUsageTrendsPage', () => {
     expect(html).toContain('Peak weekly interactions');
     expect(html).toContain('Peak new users');
   });
+
+  it('flags a partial week with its actual dates in the chart labels and the detail table', () => {
+    const withPartial = [
+      { ...weeklyTrend[0], partial: false },
+      { ...weeklyTrend[1], weekEnd: '2026-04-22', partial: true },
+    ];
+    const html = renderUsageTrendsPage(withPartial, []);
+    const chartConfig = html.match(/__chartConfigs\['usage-trends-chart'\] = (\{.*\});/)[1];
+
+    expect(JSON.parse(chartConfig).data.labels).toEqual(['Apr 13-19, 2026', 'Apr 20-22, 2026 (partial)']);
+    expect(html).toContain('<td>Apr 20-22, 2026 (partial)</td>');
+    expect(html).not.toContain('Apr 20-26, 2026');
+  });
+});
+
+describe('partial week labels on other trend pages', () => {
+  const partialWeek = { weekStart: '2026-04-20', weekEnd: '2026-04-22', partial: true };
+
+  it('labels a partial week in the reliability charts', () => {
+    const html = renderReliabilityPage([{ ...partialWeek, errorRate: 0, goodFeedback: 1, badFeedback: 0 }], []);
+    expect(html).toContain('Apr 20-22, 2026 (partial)');
+  });
+
+  it('labels a partial week in the segment trend charts and table', () => {
+    const segment = { uniqueUsers: 1, totalInteractions: 1, feedbackTotal: 0 };
+    const html = renderSegmentTrendsPage([
+      {
+        ...partialWeek,
+        uniqueUsers: 1,
+        totalInteractions: 1,
+        segments: { internal: segment, external: { ...segment, uniqueUsers: 0, totalInteractions: 0 } },
+      },
+    ]);
+    expect(html).toContain('<td>Apr 20-22, 2026 (partial)</td>');
+  });
 });
 
 const weeklyTrendWithFeedback = [
@@ -689,5 +724,31 @@ describe('renderExecutiveReportHtml', () => {
     expect(html).toContain('Internal user');
     // Entries carry an email field, but no email may ever reach the rendered report.
     expect(html).not.toMatch(EMAIL_PATTERN);
+  });
+});
+
+describe('renderUsageTrendsPage new-user WoW with partial weeks', () => {
+  it('shows N/A instead of a percentage next to a partial week', () => {
+    const week = (weekStart, weekEnd, newUsers, partial) => ({
+      weekStart,
+      weekEnd,
+      partial,
+      uniqueUsers: 5,
+      newUsers,
+      sessions: 5,
+      totalInteractions: 10,
+    });
+    const html = renderUsageTrendsPage(
+      [
+        week('2026-09-21', '2026-09-27', 4, false),
+        week('2026-09-28', '2026-10-04', 2, false),
+        week('2026-10-05', '2026-10-07', 1, true),
+      ],
+      [],
+    );
+
+    expect(html).toContain('-50.0%');
+    const partialRow = html.split('<tr>').find((row) => row.includes('(partial)</td>'));
+    expect(partialRow).toContain('<td>N/A</td>');
   });
 });

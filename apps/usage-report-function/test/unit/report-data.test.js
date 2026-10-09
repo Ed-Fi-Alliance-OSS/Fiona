@@ -190,10 +190,17 @@ describe('buildExecutiveReportData', () => {
   it('derives weekly trend, trend window and daily summary from the same activity', async () => {
     const { weeklyTrend, trendWeekly, dailySummary } = await build();
 
-    expect(weeklyTrend.map((w) => w.weekStart)).toEqual(['2026-06-22', '2026-06-29']);
+    // The period starts on Wednesday 2026-06-24, so its first week is clamped and marked partial.
+    expect(weeklyTrend.map((w) => [w.weekStart, w.weekEnd, w.partial])).toEqual([
+      ['2026-06-24', '2026-06-28', true],
+      ['2026-06-29', '2026-07-05', false],
+    ]);
+    expect(weeklyTrend[1]).toMatchObject({ usersWowPct: null, interactionsWowPct: null, errorRateWowPp: null });
     expect(weeklyTrend.every((w) => w.segments)).toBe(true);
 
+    // The trend window starts on a Monday, so the same weeks are whole there.
     expect(trendWeekly.map((w) => w.weekStart)).toEqual(['2026-05-04', '2026-06-22', '2026-06-29']);
+    expect(trendWeekly.every((w) => w.partial === false)).toBe(true);
     expect(trendWeekly[0]).toMatchObject({ uniqueUsers: 1, newUsers: 1, goodFeedback: 1 });
     expect(trendWeekly[1]).toMatchObject({ newUsers: 0, returningUsers: 2 });
 

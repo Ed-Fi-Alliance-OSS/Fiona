@@ -29,6 +29,12 @@ export function formatPeriodLabel(startISO, endISO) {
   return `${startISO.split('T')[0]} to ${lastIncludedDate(endISO)}`;
 }
 
+/** A week's label, flagged when the report window cut the week short. */
+export function formatTrendWeekLabel(week) {
+  const label = formatWeekLabel(week.weekStart, week.weekEnd);
+  return week.partial ? `${label} (partial)` : label;
+}
+
 /** Formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC. */
 export function formatCompactTimestamp(iso) {
   const d = new Date(iso);

@@ -55,7 +55,9 @@ export function buildUsageObservations(weeklyTrend) {
   const previousWeek = weeklyTrend.length > 1 ? weeklyTrend[weeklyTrend.length - 2] : null;
 
   let newUserGrowthObservation = 'Not enough weeks to calculate new-user week-over-week growth.';
-  if (previousWeek) {
+  if (previousWeek && (lastWeek.partial || previousWeek.partial)) {
+    newUserGrowthObservation = `Not compared: ${formatWeekLabel(lastWeek.partial ? lastWeek.weekStart : previousWeek.weekStart, lastWeek.partial ? lastWeek.weekEnd : previousWeek.weekEnd)} is a partial week.`;
+  } else if (previousWeek) {
     if (previousWeek.newUsers > 0) {
       const pct = ((lastWeek.newUsers - previousWeek.newUsers) / previousWeek.newUsers) * 100;
       newUserGrowthObservation = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% versus ${formatWeekLabel(previousWeek.weekStart, previousWeek.weekEnd).replace(/, \d{4}$/, '')}.`;

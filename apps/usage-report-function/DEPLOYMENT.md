@@ -38,12 +38,16 @@ PRINCIPAL_ID=$(az functionapp identity show \
   --resource-group fiona-rg \
   --query principalId -o tsv)
 
-# Grant Cosmos DB Data Reader role (scoped to the chatbot database, which
-# includes the interactions, feedback and slack-users containers)
-az role assignment create \
-  --assignee-object-id "$PRINCIPAL_ID" \
-  --role "Cosmos DB Data Reader" \
-  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.DocumentDB/databaseAccounts/fiona/sqlDatabases/chatbot
+# Grant the Cosmos DB Built-in Data Reader data-plane role (role definition
+# 00000000-0000-0000-0000-000000000001), scoped to the chatbot database, which
+# includes the interactions, feedback and slack-users containers. A control-plane
+# `az role assignment create` does NOT grant data access for Entra ID clients.
+az cosmosdb sql role assignment create \
+  --account-name fiona \
+  --resource-group fiona-rg \
+  --role-definition-id 00000000-0000-0000-0000-000000000001 \
+  --principal-id "$PRINCIPAL_ID" \
+  --scope "/dbs/chatbot"
 
 # Grant Key Vault Secrets User role
 az role assignment create \
@@ -124,7 +128,8 @@ design, including this pipeline.
      --auth-mode login
    ```
 2. Create a dedicated service principal for the workflow, scoped to:
-   - `Cosmos DB Data Reader` (data-plane role, via
+   - `Cosmos DB Built-in Data Reader` (data-plane role
+     `00000000-0000-0000-0000-000000000001`, via
      `az cosmosdb sql role assignment create`) on the `chatbot` database
      (this must include `slack-users`: the PDF job fails if it can't read the
      user directory)
@@ -195,11 +200,12 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 
 ## Troubleshooting
 
-- **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `chatbot` database
+- **Cosmos DB connection errors:** Verify Managed Identity has the `Cosmos DB Built-in Data Reader` data-plane role (`az cosmosdb sql role assignment list`) scoped to the `chatbot` database
 - **Missing user segments:** If `slack-users` can't be read, the Slack summary posts unsegmented
   totals with a visible "segments unavailable" note and logs a warning naming the container and
   status code, while the executive PDF job **fails** so the problem gets fixed. Verify both report
-  identities have `Cosmos DB Data Reader` on the `chatbot` database (which covers `slack-users`).
+  identities have the `Cosmos DB Built-in Data Reader` data-plane role on the `chatbot` database
+  (which covers `slack-users`).
 - **Most users show as Unknown:** A warning is logged when the directory resolves no users or leaves
   more than 25% Unknown. Check that the Slack user loader has populated email addresses.
 - **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret

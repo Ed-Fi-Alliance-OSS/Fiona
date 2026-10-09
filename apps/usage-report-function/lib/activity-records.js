@@ -8,8 +8,6 @@ import { isSuccessful } from './kpi-core.js';
 import { lastIncludedDate, MS_PER_DAY } from './report-dates.js';
 import { requireUserDirectory, tryGetUserDirectory } from './user-segments.js';
 
-export { lastIncludedDate, MS_PER_DAY };
-
 /** The scheduled report covers this many whole UTC days. */
 export const REPORT_WINDOW_DAYS = 7;
 

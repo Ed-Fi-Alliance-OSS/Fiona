@@ -66,7 +66,14 @@ const PROGRAMMING_ERRORS = [TypeError, ReferenceError, SyntaxError, RangeError];
  * directory is unavailable.
  */
 function isProgrammingError(error) {
-  return PROGRAMMING_ERRORS.some((type) => error instanceof type) || error?.code === 400 || error?.statusCode === 400;
+  // Node's fetch reports network failures as `TypeError: fetch failed` with
+  // the underlying socket error as `cause`; that is an outage, not a bug.
+  const isTransportFailure = error instanceof TypeError && error.cause !== undefined;
+  return (
+    (PROGRAMMING_ERRORS.some((type) => error instanceof type) && !isTransportFailure) ||
+    error?.code === 400 ||
+    error?.statusCode === 400
+  );
 }
 
 function describeFailure(error) {

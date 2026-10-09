@@ -4,7 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, expect, it } from '@jest/globals';
-import { formatCompactTimestamp, formatPeriodLabel, formatWeekLabel } from '../../../lib/pdf/format.js';
+import {
+  formatCompactTimestamp,
+  formatPeriodLabel,
+  formatTrendWeekLabel,
+  formatWeekLabel,
+} from '../../../lib/pdf/format.js';
 
 describe('formatWeekLabel', () => {
   it('formats a week within the same month as "Mon D-D, YYYY"', () => {
@@ -37,5 +42,23 @@ describe('formatPeriodLabel', () => {
 
   it('keeps the end date when the window ends mid-day', () => {
     expect(formatPeriodLabel('2026-10-05T00:00:00.000Z', '2026-10-12T09:30:00.000Z')).toBe('2026-10-05 to 2026-10-12');
+  });
+});
+
+describe('formatTrendWeekLabel', () => {
+  it('labels a full week like formatWeekLabel', () => {
+    expect(formatTrendWeekLabel({ weekStart: '2026-10-05', weekEnd: '2026-10-11', partial: false })).toBe(
+      'Oct 5-11, 2026',
+    );
+  });
+
+  it('treats a week without a partial flag as full', () => {
+    expect(formatTrendWeekLabel({ weekStart: '2026-10-05', weekEnd: '2026-10-11' })).toBe('Oct 5-11, 2026');
+  });
+
+  it('flags a partial week with its actual dates', () => {
+    expect(formatTrendWeekLabel({ weekStart: '2026-10-19', weekEnd: '2026-10-21', partial: true })).toBe(
+      'Oct 19-21, 2026 (partial)',
+    );
   });
 });

@@ -249,3 +249,26 @@ describe('directory failure classification', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown error'));
   });
 });
+
+describe('transport failures surfaced as TypeError', () => {
+  const fetchFailed = () =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });
+
+  it('treats `TypeError: fetch failed` with a cause as an unavailable directory in the Slack path', async () => {
+    const warn = jest.fn();
+    await expect(tryGetUserDirectory(failingContainer(fetchFailed()), ['U1'], warn)).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("'slack-users' unavailable"));
+  });
+
+  it('fails the PDF path with an "unavailable" error', async () => {
+    await expect(requireUserDirectory(failingContainer(fetchFailed()), ['U1'], jest.fn())).rejects.toThrow(
+      'unavailable',
+    );
+  });
+
+  it('still rethrows a plain TypeError, which is a bug in our code', async () => {
+    const bug = new TypeError("Cannot read properties of undefined (reading 'id')");
+    await expect(tryGetUserDirectory(failingContainer(bug), ['U1'], jest.fn())).rejects.toBe(bug);
+    await expect(requireUserDirectory(failingContainer(bug), ['U1'], jest.fn())).rejects.toBe(bug);
+  });
+});

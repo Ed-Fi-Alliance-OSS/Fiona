@@ -15,7 +15,7 @@ import {
   segmentLabel,
 } from '../report-presentation.js';
 import { SEGMENT_KEYS } from '../user-segments.js';
-import { formatCompactTimestamp, formatPeriodLabel, formatWeekLabel } from './format.js';
+import { formatCompactTimestamp, formatPeriodLabel, formatTrendWeekLabel } from './format.js';
 
 // Okabe-Ito palette (color-blind safe) plus dash patterns and point shapes,
 // so each series stays distinguishable in grayscale.
@@ -128,18 +128,19 @@ function observationTable(headerA, headerB, rows, keyA, keyB) {
 }
 
 export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
-  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
   const interactions = weeklyTrend.map((w) => w.totalInteractions);
   const users = weeklyTrend.map((w) => w.uniqueUsers);
   const sessions = weeklyTrend.map((w) => w.sessions);
   const newUsers = weeklyTrend.map((w) => w.newUsers);
 
   const trendRows = weeklyTrend.map((week, index) => {
-    if (index === 0) {
+    const previous = weeklyTrend[index - 1];
+    // No comparison across a partial week (see summarizeWeeklyTrend).
+    if (!previous || week.partial || previous.partial) {
       return { ...week, newUsersWowPct: null };
     }
 
-    const previous = weeklyTrend[index - 1];
     const newUsersWowPct =
       previous.newUsers > 0 ? ((week.newUsers - previous.newUsers) / previous.newUsers) * 100 : null;
     return { ...week, newUsersWowPct };
@@ -149,7 +150,7 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
     ['Week', 'Users', 'New Users', 'New User WoW %', 'Sessions', 'Interactions'],
     trendRows,
     [
-      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      formatTrendWeekLabel,
       (w) => w.uniqueUsers,
       (w) => w.newUsers,
       (w) => (w.newUsersWowPct === null ? 'N/A' : `${w.newUsersWowPct >= 0 ? '+' : ''}${w.newUsersWowPct.toFixed(1)}%`),
@@ -239,7 +240,7 @@ export function renderUsageTrendsPage(weeklyTrend, usageObservations) {
 }
 
 export function renderSegmentTrendsPage(weeklyTrend) {
-  const labels = weeklyTrend.map((week) => formatWeekLabel(week.weekStart, week.weekEnd));
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
   const hasUnknown = weeklyTrend.some((week) => hasSegmentActivity(week.segments?.unknown));
   const segmentKeys = SEGMENT_KEYS.filter((key) => key !== 'unknown' || hasUnknown);
   const chartSeries = [
@@ -273,7 +274,7 @@ export function renderSegmentTrendsPage(weeklyTrend) {
     },
   });
   const columns = [
-    ['Week', (week) => formatWeekLabel(week.weekStart, week.weekEnd)],
+    ['Week', formatTrendWeekLabel],
     ...segmentKeys.map((key) => [`${segmentLabel(key)} users`, (week) => week.segments[key].uniqueUsers]),
     ['Total users', (week) => week.uniqueUsers],
     ...segmentKeys.map((key) => [`${segmentLabel(key)} interactions`, (week) => week.segments[key].totalInteractions]),
@@ -305,7 +306,7 @@ export function renderSegmentTrendsPage(weeklyTrend) {
 }
 
 export function renderReliabilityPage(weeklyTrend, reliabilityTakeaways, { period, trendWindow } = {}) {
-  const labels = weeklyTrend.map((w) => formatWeekLabel(w.weekStart, w.weekEnd));
+  const labels = weeklyTrend.map(formatTrendWeekLabel);
   const errorRates = weeklyTrend.map((w) => w.errorRate);
   const goodFeedback = weeklyTrend.map((w) => w.goodFeedback);
   const badFeedback = weeklyTrend.map((w) => w.badFeedback);
@@ -516,7 +517,7 @@ export function renderAppendixPage(weeklyTrend, dailySummary) {
     ],
     weeklyTrend,
     [
-      (w) => formatWeekLabel(w.weekStart, w.weekEnd),
+      formatTrendWeekLabel,
       (w) => w.uniqueUsers,
       (w) => w.sessions,
       (w) => w.totalInteractions,

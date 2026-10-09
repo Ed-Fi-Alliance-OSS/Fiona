@@ -3,7 +3,6 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { fetchActivity } from './activity-records.js';
 import { summarizeActivityByPeriod } from './kpi-core.js';
 
 function getDayKey(timestamp) {
@@ -28,13 +27,4 @@ export function summarizeDailyActivity(activity) {
     returningUsers: kpis.returningUsers,
     repeatRate: kpis.repeatRate,
   }));
-}
-
-/**
- * Returns per-day usage summary for [startISO, endISO).
- *
- * @returns {Promise<Array<Object>>} days ordered oldest to newest
- */
-export async function getDailySummary(interactionsContainer, deploymentType, startISO, endISO) {
-  return summarizeDailyActivity(await fetchActivity(interactionsContainer, null, deploymentType, startISO, endISO));
 }
