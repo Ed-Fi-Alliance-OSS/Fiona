@@ -3,7 +3,12 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+
+// The describe blocks below predate link checking (AI-227) and assert the
+// exact max_results sent; link checking asks for a few extra results. Its own
+// block turns it back on.
+process.env.CITATION_LINK_CHECK_ENABLED = 'false';
 
 // Mock the Perplexity SDK so tests control search results without hitting the API.
 // llm-caller.js creates one Perplexity client on load (for both chat and
@@ -22,6 +27,8 @@ process.env.PERPLEXITY_API_KEY = 'test-key';
 const { searchForSources, formatSearchResults, escapeMrkdwn, extractSearchQuery, SEARCH_ERROR_TEXT } = await import(
   '../../src/agent/search-caller.js'
 );
+
+const { clearLinkCheckCache } = await import('../../src/agent/utils/link-checker.js');
 
 /**
  * Configure mockSearchCreate to resolve with the given results array.
@@ -82,11 +89,12 @@ describe('searchForSources', () => {
     );
   });
 
+  // max_results is the clamped count plus 3 extras, to fill in for dropped results.
   it.each([
-    ['zero', 0, 1],
-    ['negative', -2, 1],
-    ['NaN', Number.NaN, 5],
-    ['non-integer', 2.9, 2],
+    ['zero', 0, 4],
+    ['negative', -2, 4],
+    ['NaN', Number.NaN, 8],
+    ['non-integer', 2.9, 5],
   ])('clamps %s maxSources to a valid max_results value', async (_label, maxSources, expectedMaxResults) => {
     mockSearchOk([]);
     await searchForSources('query', { maxSources });
@@ -95,7 +103,7 @@ describe('searchForSources', () => {
     );
   });
 
-  it('passes max_results to the SDK and caps results via normalizeSources', async () => {
+  it('passes max_results to the SDK and caps results to maxSources', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       url: `https://docs.ed-fi.org/page-${i}`,
       title: `Page ${i}`,
@@ -105,8 +113,14 @@ describe('searchForSources', () => {
     const sources = await searchForSources('query', { maxSources: 3 });
     expect(sources).toHaveLength(3);
     expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ max_results: 3 }),
+      expect.objectContaining({ max_results: 6 }),
     );
+  });
+
+  it('drops denylisted results even with link checking off', async () => {
+    mockSearchOk([{ url: 'https://www.ed-fi.org/what-is-ed-fi-old/mission/' }, { url: 'https://docs.ed-fi.org/p1/' }]);
+    const sources = await searchForSources('query', { maxSources: 5 });
+    expect(sources.map((s) => s.url)).toEqual(['https://docs.ed-fi.org/p1/']);
   });
 
   it('passes search_domain_filter to the SDK', async () => {
@@ -469,5 +483,96 @@ describe('SEARCH_ERROR_TEXT', () => {
   it('is a non-empty string', () => {
     expect(typeof SEARCH_ERROR_TEXT).toBe('string');
     expect(SEARCH_ERROR_TEXT.length).toBeGreaterThan(0);
+  });
+});
+
+describe('searchForSources link checking (AI-227)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearLinkCheckCache();
+    delete process.env.CITATION_LINK_CHECK_ENABLED;
+  });
+
+  afterEach(() => {
+    process.env.CITATION_LINK_CHECK_ENABLED = 'false';
+    globalThis.fetch = () => Promise.reject(new Error('Unexpected network call in a unit test; mock globalThis.fetch'));
+  });
+
+  const page = (n) => ({ url: `https://docs.ed-fi.org/p${n}/`, title: `P${n}` });
+
+  it('asks for 3 extra results, removes dead ones, and trims to the requested count', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async (url) => ({ status: url.endsWith('/p2/') ? 404 : 200 }));
+
+    const sources = await searchForSources('q', { maxSources: 3 });
+
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 6 }));
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(3).url, page(4).url]);
+  });
+
+  it('checks only the requested count when nothing is removed', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+
+    const sources = await searchForSources('q', { maxSources: 3 });
+
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(2).url, page(3).url]);
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).toEqual([page(1).url, page(2).url, page(3).url]);
+  });
+
+  it('checks the extras only after something was removed', async () => {
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async (url) => ({ status: url.endsWith('/p1/') ? 404 : 200 }));
+
+    await searchForSources('q', { maxSources: 3 });
+
+    // 3 head results (p1 twice: HEAD, then the GET confirming its 404), then the 2 extras.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(6);
+  });
+
+  it('never asks for more than 10', async () => {
+    mockSearchOk([page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+    await searchForSources('q', { maxSources: 9 });
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 10 }));
+  });
+
+  it('removes denylisted results without fetching them', async () => {
+    mockSearchOk([{ url: 'https://www.ed-fi.org/what-is-ed-fi-old/mission/' }, page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+    const sources = await searchForSources('q', { maxSources: 5 });
+    expect(sources.map((s) => s.url)).toEqual([page(1).url]);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an empty list when every result is dead', async () => {
+    mockSearchOk([page(1)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 404 }));
+    expect(await searchForSources('q', { maxSources: 5 })).toEqual([]);
+  });
+
+  // Forces validateSources() to throw without a throwing fetch: checkUrls()
+  // swallows every fetch error itself, so the throw has to come from downstream.
+  // A fresh module registry (jest.resetModules) picks up the throwing mock for
+  // this one import only; the outer `searchForSources` used by every other test
+  // in this file was already bound to the real, non-throwing source-filter.js.
+  it('returns the unfiltered results, trimmed to the requested count, when link checking throws', async () => {
+    jest.resetModules();
+    jest.unstable_mockModule('../../src/agent/utils/source-filter.js', () => ({
+      filterSources: () => {
+        throw new Error('source-filter exploded');
+      },
+      isDenylisted: () => false,
+      parseDenylist: () => [],
+      urlKey: (url) => url,
+    }));
+    const { searchForSources: searchForSourcesFailOpen } = await import('../../src/agent/search-caller.js');
+
+    mockSearchOk([page(1), page(2), page(3), page(4), page(5)]);
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+
+    const sources = await searchForSourcesFailOpen('q', { maxSources: 3 });
+
+    expect(sources.map((s) => s.url)).toEqual([page(1).url, page(2).url, page(3).url]);
   });
 });

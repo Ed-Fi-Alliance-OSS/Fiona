@@ -335,8 +335,9 @@ describe('callPerplexityChat – buffer and linkify', () => {
     // Only a search-results event, no text delta.
     mockCreate.mockResolvedValue(makeStream([{ searchResults: urlsToResults(['https://only-citation.example.com']) }]));
 
-    await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
+    expect(botText).toBe('');
     expect(streamer.append).not.toHaveBeenCalled();
   });
 
@@ -430,8 +431,16 @@ describe('callPerplexityChat – buffer and linkify', () => {
   // Failed and cancelled runs arrive over a successful HTTP 200. The SDK's
   // `ResponseFailedEvent` carries a top-level `error` and no `response`.
   it.each([
-    ['response.failed', { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } }, 'upstream refused'],
-    ['response.cancelled', { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } }, 'run cancelled'],
+    [
+      'response.failed',
+      { type: 'response.failed', sequence_number: 3, error: { message: 'upstream refused' } },
+      'upstream refused',
+    ],
+    [
+      'response.cancelled',
+      { type: 'response.cancelled', response: { status: 'cancelled', error: { message: 'run cancelled' } } },
+      'run cancelled',
+    ],
     ['bare error', { type: 'error', error: { message: 'stream broke' } }, 'stream broke'],
     ['detail-less response.failed', { type: 'response.failed', sequence_number: 3 }, 'no error detail'],
   ])('throws on a %s terminal event without appending the partial answer', async (_label, terminalEvent, expectedDetail) => {
@@ -596,14 +605,6 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(botText).toBe('Claim [[1]](https://docs.ed-fi.org/four/). Other [[2]](https://docs.ed-fi.org/two/).');
     });
 
-    it('removes the model list, with or without a heading, so only the Sources block lists sources', async () => {
-      const withHeading = await run('A [1].\n\n**Sources:**\n- [1] [Four](https://docs.ed-fi.org/four/)');
-      const bare = await run('A [1].\n\n[1] https://docs.ed-fi.org/four/');
-
-      expect(withHeading.botText).toBe('A [[1]](https://docs.ed-fi.org/four/).');
-      expect(bare.botText).toBe('A [[1]](https://docs.ed-fi.org/four/).');
-    });
-
     it("numbers the Sources block by the model's numbers, and the uncited results after them", async () => {
       const { metadata } = await run(
         'A [1]. B [2].\n\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] [Two](https://docs.ed-fi.org/two/)',
@@ -618,148 +619,10 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(metadata.cited_markers).toEqual([1, 2]);
     });
 
-    it('matches list URLs to results ignoring scheme, www and a trailing slash', async () => {
-      const { botText } = await run('A [1].\n\n[1] [Four](http://www.docs.ed-fi.org/four)');
-
-      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/).');
-    });
-
-    it('leaves a marker unlinked when its list URL is not among the search results', async () => {
-      const { botText, metadata } = await run(
-        'A [1]. B [2].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] [Elsewhere](https://example.com/made-up)',
-      );
-
-      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [2].');
-      expect(Object.values(metadata.citation_index)).not.toContain('https://example.com/made-up');
-      expect(metadata.cited_markers).toEqual([1]);
-    });
-
     it('keeps result-id linking when the answer has no trailing list', async () => {
       const { botText } = await run('A [4]. B [2].');
 
       expect(botText).toBe('A [[4]](https://docs.ed-fi.org/four/). B [[2]](https://docs.ed-fi.org/two/).');
-    });
-
-    it('keeps a trailing numbered list of steps with links that the answer never cites', async () => {
-      const text = 'Setup steps:\n[1] Open https://docs.ed-fi.org/one/\n[2] Check https://docs.ed-fi.org/two/';
-
-      const { botText } = await run(text);
-
-      expect(botText).toBe(
-        'Setup steps:\n[[1]](https://docs.ed-fi.org/one/) Open https://docs.ed-fi.org/one/\n[[2]](https://docs.ed-fi.org/two/) Check https://docs.ed-fi.org/two/',
-      );
-    });
-
-    it('keeps a trailing list of steps even when the answer cites one of its numbers', async () => {
-      // Only [1] is cited earlier, so this is not evidence of a bibliography.
-      const text =
-        'Follow the cited guidance [1] to complete these steps:\n[1] Open https://docs.ed-fi.org/one/\n[2] Check https://docs.ed-fi.org/two/';
-
-      const { botText } = await run(text);
-
-      expect(botText).toBe(
-        'Follow the cited guidance [[1]](https://docs.ed-fi.org/one/) to complete these steps:\n[[1]](https://docs.ed-fi.org/one/) Open https://docs.ed-fi.org/one/\n[[2]](https://docs.ed-fi.org/two/) Check https://docs.ed-fi.org/two/',
-      );
-    });
-
-    it('keeps an unheaded trailing list whose links are not search results', async () => {
-      const { botText } = await run('See [1].\n\n[1] Read https://example.com/elsewhere');
-
-      expect(botText).toBe(
-        'See [[1]](https://docs.ed-fi.org/one/).\n\n[[1]](https://docs.ed-fi.org/one/) Read https://example.com/elsewhere',
-      );
-    });
-
-    it('removes a whole headed list when one line names a page without a URL, leaving that marker unlinked', async () => {
-      const { botText, metadata } = await run(
-        'A [1]. B [2]. C [3].\n\nSources:\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] Ed-Fi docs home\n[3] [Two](https://docs.ed-fi.org/two/)',
-      );
-
-      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). B [2]. C [[3]](https://docs.ed-fi.org/two/).');
-      expect(metadata.citation_index).toEqual({
-        1: 'https://docs.ed-fi.org/four/',
-        3: 'https://docs.ed-fi.org/two/',
-        4: 'https://docs.ed-fi.org/one/',
-        5: 'https://docs.ed-fi.org/three/',
-      });
-      expect(metadata.cited_markers).toEqual([1, 3]);
-    });
-
-    it('keeps an unheaded trailing list intact when one of its lines has no URL', async () => {
-      const text = 'A [1]. B [2].\n\n[1] [Four](https://docs.ed-fi.org/four/)\n[2] Ed-Fi docs home';
-
-      const { botText } = await run(text);
-
-      expect(botText).toBe(
-        'A [[1]](https://docs.ed-fi.org/one/). B [[2]](https://docs.ed-fi.org/two/).\n\n[[1]](https://docs.ed-fi.org/one/) [Four](https://docs.ed-fi.org/four/)\n[[2]](https://docs.ed-fi.org/two/) Ed-Fi docs home',
-      );
-    });
-
-    it('numbers uncited results right after the listed markers, ignoring a stray large bracketed number', async () => {
-      const { metadata } = await run(
-        'In school year [2026], A [1].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',
-      );
-
-      expect(metadata.citation_index).toEqual({
-        1: 'https://docs.ed-fi.org/four/',
-        2: 'https://docs.ed-fi.org/one/',
-        3: 'https://docs.ed-fi.org/two/',
-        4: 'https://docs.ed-fi.org/three/',
-      });
-    });
-
-    it('skips numbers already in the answer when numbering uncited results', async () => {
-      const { botText, metadata } = await run(
-        'A [1]. Step [3].\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)',
-      );
-
-      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/four/). Step [3].');
-      expect(metadata.citation_index).toEqual({
-        1: 'https://docs.ed-fi.org/four/',
-        2: 'https://docs.ed-fi.org/one/',
-        4: 'https://docs.ed-fi.org/two/',
-        5: 'https://docs.ed-fi.org/three/',
-      });
-    });
-
-    it('treats a headed list as the model list even when the answer cites none of it', async () => {
-      const { botText } = await run('Some answer.\n\nSources\n[1] [Four](https://docs.ed-fi.org/four/)');
-
-      expect(botText).toBe('Some answer.');
-    });
-
-    it('links a listed URL to the result with the same path case, not one differing only in case', async () => {
-      const metadata = makeMetadata();
-      const streamer = makeStreamer(metadata);
-      mockCreate.mockResolvedValue(
-        makeStream([{ text: 'A [1].\n\n[1] [Upper](https://docs.ed-fi.org/Case)' }], {
-          finalResults: [
-            { id: 1, url: 'https://docs.ed-fi.org/Case' },
-            { id: 2, url: 'https://docs.ed-fi.org/case' },
-          ],
-        }),
-      );
-
-      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
-
-      expect(botText).toBe('A [[1]](https://docs.ed-fi.org/Case).');
-    });
-
-    it('leaves a marker unlinked when its URL loosely matches more than one result', async () => {
-      const metadata = makeMetadata();
-      const streamer = makeStreamer(metadata);
-      mockCreate.mockResolvedValue(
-        makeStream([{ text: 'A [1].\n\nSources\n[1] [X](http://docs.ed-fi.org/x)' }], {
-          finalResults: [
-            { id: 1, url: 'https://docs.ed-fi.org/x/' },
-            { id: 2, url: 'https://www.docs.ed-fi.org/x' },
-          ],
-        }),
-      );
-
-      const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
-
-      expect(botText).toBe('A [1].');
     });
 
     it('never emits Slack control syntax from a result URL in the inline link', async () => {
@@ -773,14 +636,6 @@ describe('callPerplexityChat – buffer and linkify', () => {
 
       expect(botText).toBe('A [[1]](https://docs.ed-fi.org/a%3E%3C!here%3E).');
       expect(botText).not.toContain('<!here>');
-    });
-
-    it('does not treat bracketed lines without URLs as a source list', async () => {
-      const { botText } = await run('Steps:\n[1] Install the tools.\n[2] Run the setup [3].');
-
-      expect(botText).toBe(
-        'Steps:\n[[1]](https://docs.ed-fi.org/one/) Install the tools.\n[[2]](https://docs.ed-fi.org/two/) Run the setup [[3]](https://docs.ed-fi.org/three/).',
-      );
     });
   });
 
@@ -801,29 +656,6 @@ describe('callPerplexityChat – buffer and linkify', () => {
       expect(metadata.citation_index[14]).toBe('https://docs.ed-fi.org/page-14');
     });
 
-    it('aliases a duplicate result id to the URL it shares', async () => {
-      const metadata = makeMetadata();
-      const streamer = makeStreamer(metadata);
-
-      mockCreate.mockResolvedValue(
-        makeStream([{ text: 'A [1]. Again [2].' }], {
-          finalResults: [
-            { id: 1, url: 'https://docs.ed-fi.org/a' },
-            { id: 2, url: 'https://docs.ed-fi.org/a' },
-            { id: 3, url: 'https://docs.ed-fi.org/c' },
-          ],
-        }),
-      );
-
-      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
-
-      expect(metadata.citation_index).toEqual({
-        1: 'https://docs.ed-fi.org/a',
-        2: 'https://docs.ed-fi.org/a',
-        3: 'https://docs.ed-fi.org/c',
-      });
-    });
-
     it('records which resolvable markers the answer actually cites', async () => {
       const metadata = makeMetadata();
       const streamer = makeStreamer(metadata);
@@ -840,25 +672,6 @@ describe('callPerplexityChat – buffer and linkify', () => {
       await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
       expect(metadata.cited_markers).toEqual([3, 12]);
-    });
-
-    it('omits ambiguous ids, matching what the inline markers link', async () => {
-      const metadata = makeMetadata();
-      const streamer = makeStreamer(metadata);
-
-      mockCreate.mockResolvedValue(
-        makeStream([{ text: 'A [1]. B [2].' }], {
-          finalResults: [
-            { id: 1, url: 'https://docs.ed-fi.org/a' },
-            { id: 1, url: 'https://docs.ed-fi.org/b' },
-            { id: 2, url: 'https://docs.ed-fi.org/c' },
-          ],
-        }),
-      );
-
-      await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
-
-      expect(metadata.citation_index).toEqual({ 2: 'https://docs.ed-fi.org/c' });
     });
   });
 

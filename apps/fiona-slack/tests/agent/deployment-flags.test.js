@@ -5,7 +5,9 @@
 
 import { describe, it, expect, beforeEach } from '@jest/globals';
 
-const { isEscalationEnabled, isTicketingFeatureEnabled } = await import('../../src/agent/deployment-flags.js');
+const { isCitationLinkCheckEnabled, isEscalationEnabled, isTicketingFeatureEnabled } = await import(
+  '../../src/agent/deployment-flags.js'
+);
 
 describe('isTicketingFeatureEnabled', () => {
   beforeEach(() => {
@@ -66,5 +68,27 @@ describe('isEscalationEnabled', () => {
   it('is independent of the ticketing flag', () => {
     process.env.TICKET_CREATION_ENABLED = 'true';
     expect(isEscalationEnabled()).toBe(false);
+  });
+});
+
+describe('isCitationLinkCheckEnabled', () => {
+  beforeEach(() => {
+    delete process.env.CITATION_LINK_CHECK_ENABLED;
+  });
+
+  // Unlike the AI-217 flags, off is the unsafe direction here: it lets dead
+  // links back into answers. So it defaults on.
+  it('is true when CITATION_LINK_CHECK_ENABLED is unset', () => {
+    expect(isCitationLinkCheckEnabled()).toBe(true);
+  });
+
+  it('is false only for the exact string "false"', () => {
+    process.env.CITATION_LINK_CHECK_ENABLED = 'false';
+    expect(isCitationLinkCheckEnabled()).toBe(false);
+  });
+
+  it.each(['', 'FALSE', '0', 'no', 'true'])('stays on for %p', (value) => {
+    process.env.CITATION_LINK_CHECK_ENABLED = value;
+    expect(isCitationLinkCheckEnabled()).toBe(true);
   });
 });
