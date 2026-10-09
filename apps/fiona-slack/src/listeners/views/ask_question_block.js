@@ -17,10 +17,14 @@
 
 export const ASK_QUESTION_BLOCK_ID = 'ask_question';
 const PREFIX = 'You asked: ';
-// Long enough for any real question and well under Slack's text-object limit;
-// the full question is captured with the conversation either way. Counted in
-// graphemes, so the cut never splits a character, emoji sequences included.
+// Long enough for any real question; the full question is captured with the
+// conversation either way. Counted in graphemes, so the cut never splits a
+// character, emoji sequences included.
 export const ASK_QUESTION_DISPLAY_MAX_CHARS = 300;
+// Slack's 3,000-character text limit counts UTF-16 code units, and one grapheme
+// can be many of them (a family emoji is 11), so the whole line, prefix
+// included, is also held to a unit budget well under it.
+export const ASK_QUESTION_DISPLAY_MAX_LENGTH = 1000;
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const SLACK_ENTITIES = { '&lt;': '<', '&gt;': '>', '&amp;': '&' };
@@ -38,12 +42,20 @@ function toDisplayText(text) {
     .replace(/&(?:lt|gt|amp);/g, (entity) => SLACK_ENTITIES[entity]);
 }
 
+function shorten(text) {
+  const chars = Array.from(graphemes.segment(text), ({ segment }) => segment);
+  const budget = ASK_QUESTION_DISPLAY_MAX_LENGTH - PREFIX.length;
+  if (chars.length <= ASK_QUESTION_DISPLAY_MAX_CHARS && text.length <= budget) return text;
+  let shown = '';
+  for (const char of chars.slice(0, ASK_QUESTION_DISPLAY_MAX_CHARS - 1)) {
+    if (shown.length + char.length > budget - 1) break;
+    shown += char;
+  }
+  return `${shown}…`;
+}
+
 export function createAskQuestionBlock(question) {
-  const chars = Array.from(graphemes.segment(toDisplayText(question)), ({ segment }) => segment);
-  const shown =
-    chars.length > ASK_QUESTION_DISPLAY_MAX_CHARS
-      ? `${chars.slice(0, ASK_QUESTION_DISPLAY_MAX_CHARS - 1).join('')}…`
-      : chars.join('');
+  const shown = shorten(toDisplayText(question));
   return {
     type: 'context',
     block_id: ASK_QUESTION_BLOCK_ID,

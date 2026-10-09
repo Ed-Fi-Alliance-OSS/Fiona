@@ -766,6 +766,24 @@ describe('message (assistant thread handler)', () => {
       expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
     });
 
+    // Same markers as @fiona ask, so the question is captured the same way on
+    // every surface.
+    it('keeps the place of a mention inside an ask question', async () => {
+      mockMessage.text = 'ask Can <@UALICE> help with <#C999|ods-help>?';
+
+      await messageHandler({
+        client: mockClient,
+        context: mockContext,
+        logger: mockLogger,
+        message: mockMessage,
+        say: mockSay,
+        setStatus: mockSetStatus,
+      });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'Can @someone help with #a-channel?' }]);
+    });
+
     it('responds with search results when message starts with "search "', async () => {
       mockMessage.text = 'search Data Standard 6.0';
 

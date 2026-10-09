@@ -20,26 +20,9 @@ import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.j
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
-import { parseCommandKeyword } from '../commands/command-handler.js';
+import { parseMessageCommand } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
-
-/**
- * The text of an `ask` mention with the invoking mention(s) removed and every
- * later mention replaced by a neutral marker, so the question still reads as a
- * sentence. It is shown back to the user ("You asked:") and stored with
- * feedback, so no user or channel id is kept.
- */
-function askTextWithMentionMarkers(text) {
-  return text
-    .replace(/^(?:\s*<@[^>]+>)+/, '')
-    .replace(/<(?:@|!subteam\^)[^>]+>/g, '@someone')
-    .replace(/<#[^>]+>/g, '#a-channel')
-    .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
-    .replace(/<![^>]+>/g, '')
-    .replace(/ {2,}/g, ' ')
-    .trim();
-}
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation
@@ -81,11 +64,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
       const text = (event.text || '').replace(/<[@#!][^>]+>/g, '').trim();
-      let cmd = text ? parseCommandKeyword(text) : null;
-      if (cmd?.keyword === 'ask') {
-        const marked = parseCommandKeyword(askTextWithMentionMarkers(event.text));
-        if (marked?.keyword === 'ask') cmd = marked;
-      }
+      const cmd = text ? parseMessageCommand(event.text) : null;
 
       if (
         await declineOverLongAsk({

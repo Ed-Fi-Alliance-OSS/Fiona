@@ -99,8 +99,9 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    from this line at click time (AI-248); it is the only copy Slack can give
    back at that point, since an ephemeral message cannot be fetched later.
    (Conversation capture, below, may separately keep the full question.) A
-   mention inside an `@fiona ask` question appears as `@someone` or
-   `#a-channel`, so no user or channel id is shown or stored.
+   mention inside an `ask` question (`@fiona ask`, or `ask` in the assistant
+   panel) becomes `@someone` or `#a-channel`, so no user or channel id is shown,
+   stored with feedback, or captured.
 7. The numbered Sources block (AI-230) sits between the answer and the feedback
    buttons, exactly as on a standard `app_mention` answer, and the grounding rules
    (AI-231) apply unchanged — a question with no usable sources gets the same

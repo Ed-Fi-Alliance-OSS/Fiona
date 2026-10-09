@@ -21,7 +21,7 @@ import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.j
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
-import { parseCommandKeyword } from '../commands/command-handler.js';
+import { parseMessageCommand } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -86,7 +86,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
-      const cmd = parseCommandKeyword(text);
+      const cmd = parseMessageCommand(message.text);
 
       if (
         await declineOverLongAsk({

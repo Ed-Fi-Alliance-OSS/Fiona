@@ -373,10 +373,7 @@ async function handleEscalate({ command, ack, respond, client, logger }) {
 
   // postEscalation records the interaction on both success and failure; this
   // path only renders the ephemeral confirmation or error to the invoking user.
-  await respond({
-    response_type: 'ephemeral',
-    text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT,
-  });
+  await reply({ text: result.ok ? (dm ? ESCALATE_DM_TEXT : ESCALATE_CONFIRM_TEXT) : ESCALATE_ERROR_TEXT });
 }
 
 /**

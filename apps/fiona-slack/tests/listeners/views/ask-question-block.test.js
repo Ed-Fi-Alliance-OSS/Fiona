@@ -6,6 +6,7 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   ASK_QUESTION_DISPLAY_MAX_CHARS,
+  ASK_QUESTION_DISPLAY_MAX_LENGTH,
   createAskQuestionBlock,
   extractAskQuestion,
 } from '../../../src/listeners/views/ask_question_block.js';
@@ -65,6 +66,18 @@ describe('ask question block', () => {
     expect(extractAskQuestion([createAskQuestionBlock(question)])).toBe(
       `${'x'.repeat(ASK_QUESTION_DISPLAY_MAX_CHARS - 2)}${emoji}…`,
     );
+  });
+
+  // Slack's 3,000-character limit counts UTF-16 code units, not what the eye
+  // sees: a family emoji is 11 units. 272 of them pass the 3,000-unit question
+  // limit and are under 300 graphemes, so only a unit budget keeps the block
+  // deliverable.
+  it('stays within Slack’s text limit when few graphemes take many code units', () => {
+    const family = '👩‍👩‍👧‍👦';
+    const [element] = createAskQuestionBlock(family.repeat(272)).elements;
+
+    expect(element.text.length).toBeLessThanOrEqual(ASK_QUESTION_DISPLAY_MAX_LENGTH);
+    expect(element.text.endsWith(`${family}…`)).toBe(true);
   });
 
   it('keeps a question exactly at the limit whole', () => {

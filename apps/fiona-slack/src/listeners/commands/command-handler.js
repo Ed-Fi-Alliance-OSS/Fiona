@@ -219,6 +219,40 @@ export function parseCommandKeyword(text) {
 }
 
 /**
+ * The text of an `ask` message with any leading invocation mention removed and
+ * every other mention replaced by a neutral marker, so the question still reads
+ * as a sentence. The question is shown back to the user ("You asked:"), stored
+ * with feedback and captured, so no user or channel id is kept.
+ */
+function askTextWithMentionMarkers(text) {
+  return text
+    .replace(/^(?:\s*<@[^>]+>)+/, '')
+    .replace(/<(?:@|!subteam\^)[^>]+>/g, '@someone')
+    .replace(/<#[^>]+>/g, '#a-channel')
+    .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
+    .replace(/<![^>]+>/g, '')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Parses a command keyword from a Slack message's raw text (an @-mention or an
+ * assistant-panel message). Mention tokens are removed before matching. An
+ * `ask` question keeps a marker where each mention was (see
+ * askTextWithMentionMarkers), the same on every surface.
+ *
+ * @param {string} rawText - The message text as Slack sent it.
+ * @returns {{ keyword: string, rawArgs: string }|null}
+ */
+export function parseMessageCommand(rawText) {
+  const text = (rawText || '').replace(/<[@#!][^>]+>/g, '').trim();
+  const cmd = text ? parseCommandKeyword(text) : null;
+  if (cmd?.keyword !== 'ask') return cmd;
+  const marked = parseCommandKeyword(askTextWithMentionMarkers(rawText));
+  return marked?.keyword === 'ask' ? marked : cmd;
+}
+
+/**
  * Dispatches a parsed command to the appropriate say() response.
  * Centralizes routing so each handler only calls this once.
  *

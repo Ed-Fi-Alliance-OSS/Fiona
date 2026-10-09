@@ -866,6 +866,17 @@ describe('fionaCommandCallback', () => {
       );
     });
 
+    it('logs, rather than throws, when the confirmation cannot be delivered', async () => {
+      mockRespond.mockRejectedValue(Object.assign(new Error('expired_url'), { name: 'HTTPError', status: 404 }));
+      const ack = jest.fn().mockResolvedValue(undefined);
+
+      await expect(
+        fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger }),
+      ).resolves.toBeUndefined();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond to /fiona escalate'));
+    });
+
     it('sends an ephemeral error when postEscalation fails', async () => {
       mockPostEscalation.mockResolvedValue({ ok: false, errorType: 'post_failed' });
       const ack = jest.fn().mockResolvedValue(undefined);
