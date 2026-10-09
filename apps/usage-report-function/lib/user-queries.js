@@ -4,27 +4,12 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 /**
- * Returns per-user interaction aggregates for [startISO, endISO), sorted by
+ * Per-user interaction aggregates for fetched interaction records, sorted by
  * interaction count descending and capped at `limit`. Includes errored
  * records in the interaction/session counts so error-heavy users remain
  * visible.
  */
-export async function getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO, limit = 10) {
-  const { resources: interactions } = await interactionsContainer.items
-    .query({
-      query: `SELECT i.userId, i.threadTs, i.status, i.timestamp
-       FROM interactions i
-       WHERE i.deploymentType = @deploymentType
-         AND i.timestamp >= @startISO
-         AND i.timestamp < @endISO`,
-      parameters: [
-        { name: '@deploymentType', value: deploymentType },
-        { name: '@startISO', value: startISO },
-        { name: '@endISO', value: endISO },
-      ],
-    })
-    .fetchAll();
-
+export function summarizeTopUsersByInteractions(interactions, limit = 10) {
   const userStats = new Map();
 
   for (const record of interactions) {
@@ -72,26 +57,10 @@ export async function getTopUsersByInteractions(interactionsContainer, deploymen
 }
 
 /**
- * Returns per-user feedback aggregates for [startISO, endISO), sorted by
+ * Per-user feedback aggregates for fetched feedback records, sorted by
  * feedback count descending and capped at `limit`.
  */
-export async function getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO, limit = 10) {
-  const { resources: feedback } = await feedbackContainer.items
-    .query({
-      // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
-      query: `SELECT f.userId, f["value"] AS feedbackValue, f.timestamp
-       FROM feedback f
-       WHERE f.deploymentType = @deploymentType
-         AND f.timestamp >= @startISO
-         AND f.timestamp < @endISO`,
-      parameters: [
-        { name: '@deploymentType', value: deploymentType },
-        { name: '@startISO', value: startISO },
-        { name: '@endISO', value: endISO },
-      ],
-    })
-    .fetchAll();
-
+export function summarizeTopUsersByFeedback(feedback, limit = 10) {
   const userStats = new Map();
 
   for (const record of feedback) {

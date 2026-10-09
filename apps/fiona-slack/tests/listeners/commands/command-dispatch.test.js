@@ -33,6 +33,13 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: mockRollbackFinalization,
 }));
 
+const mockSearchForSources = jest.fn();
+jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
+  searchForSources: mockSearchForSources,
+  formatSearchResults: (query, sources) => ({ text: `${sources.length} result(s) for ${query}`, blocks: null }),
+  SEARCH_ERROR_TEXT: ':warning: search failed',
+}));
+
 const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
 const { CREATE_TICKET_ACTION, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
@@ -63,6 +70,7 @@ beforeEach(() => {
   // branch a test is exercising.
   mockIsTicketingEnabled.mockReturnValue(true);
   mockShouldFinalize.mockReturnValue(true);
+  mockSearchForSources.mockResolvedValue([{ title: 'Doc', url: 'https://docs.ed-fi.org' }]);
   mockBuildAskResponse.mockResolvedValue({
     response: { text: 'answer', blocks: [{ type: 'section' }], unfurl_links: false, unfurl_media: false },
     errorType: null,
@@ -339,5 +347,95 @@ describe('dispatchKeywordViaSay — file_ticket', () => {
     await expect(dispatchKeywordViaSay(ctx({ keyword: 'file_ticket', rawArgs: 'bug' }, say))).resolves.toBeUndefined();
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('channel_not_found'));
+  });
+});
+
+// AI-198 review. Help and search follow ask's fail-closed rule, and a failed
+// delivery is recorded rather than counted as a success.
+describe('dispatchKeywordViaSay — help and search', () => {
+  const kwCtx = (keyword, over = {}) => ({
+    ...ctx({ keyword, rawArgs: keyword === 'search' ? 'Data Standard' : '' }, jest.fn().mockResolvedValue(undefined)),
+    client: { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } },
+    interactionType: 'app_mention',
+    ...over,
+  });
+
+  it.each(['help', 'search'])('answers %s ephemerally, never with say()', async (keyword) => {
+    const params = kwCtx(keyword);
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+    expect(params.say).not.toHaveBeenCalled();
+    expect(params.markInteractionError).not.toHaveBeenCalled();
+  });
+
+  // A surface added later must default to private, as ask already does.
+  it.each(['help', 'search'])('keeps %s private on a surface it has not seen before', async (keyword) => {
+    const params = kwCtx(keyword, { interactionType: 'some_future_surface' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
+    expect(params.say).not.toHaveBeenCalled();
+  });
+
+  it.each(['help', 'search'])('answers %s with say() in the assistant panel', async (keyword) => {
+    const params = kwCtx(keyword, { interactionType: 'assistant_message' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.say).toHaveBeenCalledTimes(1);
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it.each(['help', 'search'])('marks post_failed when the %s ephemeral cannot be posted', async (keyword) => {
+    const params = kwCtx(keyword);
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+
+    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+  });
+
+  it('marks search_failed when the search itself fails but the notice is delivered', async () => {
+    mockSearchForSources.mockRejectedValueOnce(new Error('upstream down'));
+    const params = kwCtx('search');
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ text: ':warning: search failed' }),
+    );
+    expect(params.markInteractionError).toHaveBeenCalledWith('search_failed');
+  });
+
+  it('marks post_failed, not search_failed, when neither the search nor the notice gets through', async () => {
+    mockSearchForSources.mockRejectedValueOnce(new Error('upstream down'));
+    const params = kwCtx('search');
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.markInteractionError).toHaveBeenCalledTimes(1);
+    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+  });
+
+  it.each(['help', 'search'])('omits thread_ts for a top-level %s mention', async (keyword) => {
+    const params = kwCtx(keyword);
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral.mock.calls[0][0]).not.toHaveProperty('thread_ts');
+  });
+
+  it.each(['help', 'search'])('keeps the %s reply in-thread for a mention inside a thread', async (keyword) => {
+    const params = kwCtx(keyword, { threadTs: '100.00', messageTs: '123.45' });
+
+    await dispatchKeywordViaSay(params);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C1', user: 'U1', thread_ts: '100.00' }),
+    );
   });
 });

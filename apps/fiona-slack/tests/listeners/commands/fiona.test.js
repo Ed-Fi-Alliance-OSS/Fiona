@@ -130,10 +130,11 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('search <query>'));
     });
 
-    // it('ack() response includes /fiona escalate', async () => {
-    //   await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
-    //   expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona escalate'));
-    // });
+    it('ack() response includes /fiona escalate when escalation is on', async () => {
+      process.env.ESCALATION_ENABLED = 'true';
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
+      expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('/fiona escalate'));
+    });
 
     it('calls recordInteraction with interactionType slash_help', async () => {
       await fionaCommandCallback({ command: mockCommand, ack: mockAck, logger: mockLogger });
