@@ -1,6 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
 import { SEGMENTS_UNAVAILABLE_NOTE, segmentFootnote } from '../../lib/report-presentation.js';
-import { formatFeedbackSection, formatLongitudinalReport, formatWeeklyReport } from '../../lib/slack-formatter.js';
+import {
+  formatFeedbackSection,
+  formatLongitudinalReport,
+  formatWeeklyReport,
+  slackSafeText,
+} from '../../lib/slack-formatter.js';
 
 describe('formatWeeklyReport', () => {
   const baseKpis = {
@@ -673,5 +678,52 @@ describe('formatWeeklyReport with representativeFeedback', () => {
   it('shows the no-feedback message when representativeFeedback is empty', () => {
     const message = formatWeeklyReport({ ...baseKpis, representativeFeedback: [] });
     expect(message).toContain('No feedback recorded for this period.');
+  });
+});
+
+describe('slackSafeText', () => {
+  it.each([
+    ['<!channel> please read', '&lt;!channel&gt; please read'],
+    ['<!here>', '&lt;!here&gt;'],
+    ['ask <@U123ABC>', 'ask &lt;@U123ABC&gt;'],
+    ['<!subteam^S123>', '&lt;!subteam^S123&gt;'],
+    ['<https://evil.example|Click here>', '&lt;https://evil.example|Click here&gt;'],
+    ['Q&A', 'Q&amp;A'],
+    ['already &lt; escaped', 'already &amp;lt; escaped'],
+  ])('neutralizes Slack control sequences in %j', (input, expected) => {
+    expect(slackSafeText(input)).toBe(expected);
+  });
+
+  it('collapses line breaks so stored text cannot fake extra report lines', () => {
+    expect(slackSafeText('first\n2. 👍 Positive\r\n   Q: spoofed')).toBe('first 2. 👍 Positive Q: spoofed');
+  });
+
+  it('truncates before escaping so an entity is never cut in half', () => {
+    const result = slackSafeText(`${'a'.repeat(108)}<<<<`);
+    expect(result).toBe(`${'a'.repeat(108)}&lt;&lt;…`);
+  });
+
+  it('returns an empty string for missing or non-string values', () => {
+    expect(slackSafeText(null)).toBe('');
+    expect(slackSafeText(undefined)).toBe('');
+    expect(slackSafeText(42)).toBe('');
+  });
+});
+
+describe('formatWeeklyReport escapes stored feedback text', () => {
+  it('never emits a raw Slack mention or link from the question, answer or reason', () => {
+    const message = formatFeedbackSection([
+      {
+        value: 'bad-feedback',
+        userMessage: '<!channel> urgent',
+        botResponse: 'see <https://evil.example|docs> or ask <@U999>',
+        reason: '<!here> wrong & unhelpful',
+        hasReason: true,
+      },
+    ]);
+    expect(message).not.toMatch(/<[!@#]|<https?:/);
+    expect(message).toContain('Q: &lt;!channel&gt; urgent');
+    expect(message).toContain('A: see &lt;https://evil.example|docs&gt; or ask &lt;@U999&gt;');
+    expect(message).toContain('Reason: &lt;!here&gt; wrong &amp; unhelpful');
   });
 });

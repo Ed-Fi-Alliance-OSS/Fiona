@@ -26,6 +26,22 @@ function truncate(text, maxLength = 110) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
+/**
+ * Makes stored, user-supplied text inert in Slack mrkdwn. Escaping `&`, `<`
+ * and `>` (Slack's only required escapes) neutralizes control sequences such
+ * as `<!channel>`, `<!here>`, `<@U123>` and `<url|label>` links, so a typed
+ * question can't ping the report channel or spoof a link. Line breaks are
+ * collapsed so the text can't fake extra report lines. Truncation happens
+ * first so it never cuts an escape sequence in half.
+ */
+export function slackSafeText(text, maxLength = 110) {
+  if (typeof text !== 'string') return '';
+  return truncate(text.replace(/\s+/g, ' ').trim(), maxLength)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 export function formatWeekLabel(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
@@ -53,9 +69,9 @@ export function formatFeedbackSection(feedbackItems) {
   feedbackItems.forEach((item, index) => {
     const sentimentLabel = item.value === 'good-feedback' ? '👍 Positive' : '👎 Negative';
     lines.push(`${index + 1}. ${sentimentLabel}`);
-    lines.push(`   Q: ${truncate(item.userMessage)}`);
-    lines.push(`   A: ${truncate(item.botResponse)}`);
-    lines.push(`   Reason: ${item.hasReason ? truncate(item.reason) : '(no reason provided)'}`);
+    lines.push(`   Q: ${slackSafeText(item.userMessage)}`);
+    lines.push(`   A: ${slackSafeText(item.botResponse)}`);
+    lines.push(`   Reason: ${item.hasReason ? slackSafeText(item.reason) : '(no reason provided)'}`);
   });
 
   return lines.join('\n');
