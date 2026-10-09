@@ -146,7 +146,9 @@ decline is sent, with `grounding: 'declined_dead_sources'`. If every source
 was dropped, the no-results decline above applies. If an answer or its
 rewrite is empty once the model's own source list is removed, the fixed
 decline is sent with `grounding: 'declined_empty_answer'`, rather than a
-Sources block with no answer. This applies whether or not link checking is on. `/fiona search` drops dead
+Sources block with no answer. This applies whether or not link checking is on.
+A reply that had no text to begin with is a failed generation, not a decline:
+it is returned empty, so the existing `llm_empty` handling applies. `/fiona search` drops dead
 results the same way. The `[citations]` log line gains `dead=` and
 `regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` restores the
 previous behaviour. If link checking itself fails, the answer is sent unchecked.

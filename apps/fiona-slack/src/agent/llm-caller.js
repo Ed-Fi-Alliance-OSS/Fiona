@@ -670,6 +670,8 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let sources = metadata?.sources ?? normalizeSources(searchResults).sources;
   let sourceIndexMap = metadata?.source_index_map || {};
   let resolved = resolveCitations(textBuffer, sources, sourceIndexMap, searchResults);
+  // The text `resolved` was built from: the model's answer, or its rewrite.
+  let answerText = textBuffer;
 
   let declinedDeadSources = false;
   if (sources.length > 0 && isCitationLinkCheckEnabled()) {
@@ -706,7 +708,6 @@ export async function callPerplexityChat(streamer, prompts, logger) {
           metadata.source_index_map = sourceIndexMap;
         }
         const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
-        let answerText = textBuffer;
         if (citedRemoved && sources.length > 0) {
           const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
           if (rewritten) {
@@ -723,7 +724,10 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     }
   }
   // An answer that was only a source list is empty once the list is stripped.
-  const emptyAnswer = !resolved.text.trim();
+  // A reply that was empty to begin with is a failed generation, not this: it
+  // goes out as '' so callers' empty-answer handling (llm_empty) still applies.
+  const noText = !answerText.trim();
+  const emptyAnswer = !noText && !resolved.text.trim();
   const declined = declinedDeadSources || emptyAnswer;
   if (metadata) {
     metadata.citation_index = declined ? {} : Object.fromEntries(resolved.indexToUrl);
@@ -764,8 +768,10 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     return { botText, citations: [] };
   }
 
-  botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
-  await streamer.append({ markdown_text: botText });
+  if (!noText) {
+    botText = linkifyCitationMarkers(resolved.text, resolved.indexToUrl);
+    await streamer.append({ markdown_text: botText });
+  }
 
   return { botText, citations: searchResults.map((result) => result?.url).filter(Boolean) };
 }

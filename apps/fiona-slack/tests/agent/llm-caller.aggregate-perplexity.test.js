@@ -328,18 +328,17 @@ describe('callPerplexityChat – buffer and linkify', () => {
     expect(citations).toEqual(['https://result.example.com']);
   });
 
-  it('sends the decline instead of a bare Sources block when there is no text', async () => {
+  it('does not call streamer.append when there is no text', async () => {
     const metadata = makeMetadata();
     const streamer = makeStreamer(metadata);
 
     // Only a search-results event, no text delta.
     mockCreate.mockResolvedValue(makeStream([{ searchResults: urlsToResults(['https://only-citation.example.com']) }]));
 
-    await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
+    const { botText } = await callPerplexityChat(streamer, [{ role: 'user', content: 'hello' }]);
 
-    expect(streamer.append).toHaveBeenCalledTimes(1);
-    expect(streamer.append).toHaveBeenCalledWith({ markdown_text: NO_SOURCES_DECLINE_TEXT });
-    expect(metadata.grounding).toBe('declined_empty_answer');
+    expect(botText).toBe('');
+    expect(streamer.append).not.toHaveBeenCalled();
   });
 
   it('defaults to the perplexity/sonar model slug when PERPLEXITY_API_MODEL is unset', async () => {

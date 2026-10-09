@@ -344,13 +344,20 @@ describe('an answer that is empty once its source list is stripped', () => {
     expect(metadata.cited_markers).toEqual([]);
   });
 
-  it('declines when the model returns no text at all', async () => {
-    process.env.CITATION_LINK_CHECK_ENABLED = 'false';
+  // A reply with no text is a failed generation (e.g. response.incomplete at
+  // max_output_tokens), not a decline: callers turn '' into llm_empty.
+  it.each([
+    ['with link checking off', 'false'],
+    ['with link checking on', 'true'],
+  ])('returns empty text, not a decline, when the model returns no text at all %s', async (_label, enabled) => {
+    process.env.CITATION_LINK_CHECK_ENABLED = enabled;
+    mockFetchDead('https://unused.example.com/');
     mockCreate.mockResolvedValueOnce(makeStream([{ text: '  \n', searchResults: results([LIVE_A]) }]));
     const streamer = makeStreamer(makeMetadata());
-    await callPerplexityChat(streamer, USER);
-    expect(streamer._appended).toEqual([NO_SOURCES_DECLINE_TEXT]);
-    expect(streamer.__citation_metadata.grounding).toBe('declined_empty_answer');
+    const { botText } = await callPerplexityChat(streamer, USER);
+    expect(botText).toBe('');
+    expect(streamer._appended).toEqual([]);
+    expect(streamer.__citation_metadata.grounding).not.toBe('declined_empty_answer');
   });
 
   it('declines when the rewrite is only a source list', async () => {
