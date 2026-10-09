@@ -14,7 +14,7 @@ import {
   recordSourceCount,
 } from './utils/citation-telemetry.js';
 import { checkUrls } from './utils/link-checker.js';
-import { filterSources, isDenylisted, parseDenylist } from './utils/source-filter.js';
+import { filterSources, isDenylisted, parseDenylist, urlKey } from './utils/source-filter.js';
 import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
@@ -510,21 +510,49 @@ function checkSourceUrls(urls) {
 }
 
 /**
- * Start checking search results while the answer is still streaming. The
- * verdicts land in the link-check cache, so validateSources() afterwards
- * finds them there instead of waiting on the network. Never rejects.
+ * Start checking search results while the answer is still streaming, so the
+ * checks overlap with generation. Each verdict, `unknown` included, is added
+ * to `into`; validateSources() reuses them instead of checking again, so a
+ * slow host is not waited on a second time. Never rejects.
  *
  * @param {Array} results - Raw search results from a stream event
+ * @param {Map<string, 'live' | 'dead' | 'unknown'>} into
  * @returns {Promise<void>}
  */
-function prefetchLinkChecks(results) {
+function prefetchLinkChecks(results, into) {
   const urls = normalizeSources(results)
     .sources.map((source) => source.url)
     .filter((url) => !isDenylisted(url, CITATION_PATH_DENYLIST));
   return checkSourceUrls(urls).then(
-    () => {},
+    (verdicts) => {
+      for (const [url, verdict] of verdicts) into.set(url, verdict);
+    },
     () => {},
   );
+}
+
+/**
+ * Drop retired sources only, without checking links: the fallback when link
+ * checking throws, so the denylist still applies.
+ */
+function denylistOnly(sources) {
+  const removed = sources
+    .filter((source) => isDenylisted(source.url, CITATION_PATH_DENYLIST))
+    .map((source) => ({ url: source.url, id: source.id, reason: 'denylisted' }));
+  const removedUrls = new Set(removed.map((entry) => entry.url));
+  return {
+    kept: sources.filter((source) => !removedUrls.has(source.url)),
+    removed,
+    stats: { checked: 0, dead: 0, unknown: 0, denylisted: removed.length },
+  };
+}
+
+const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
+
+/** True when the text links any of `urls` directly, as a markdown link or a bare URL. */
+function textLinksAny(text, urls) {
+  const keys = new Set(urls.map(urlKey));
+  return [...text.matchAll(URL_IN_TEXT)].some(([url]) => keys.has(urlKey(url.replace(/[.,;:!?'"*_]+$/, ''))));
 }
 
 /**
@@ -534,13 +562,19 @@ function prefetchLinkChecks(results) {
  *
  * @param {Array<import('./utils/source-normalizer.js').NormalizedSource>} sources
  * @param {{ warn?: (msg: string) => void }} [logger]
- * @param {{ checkLinks?: boolean }} [options] - false applies only the denylist
+ * @param {{ checkLinks?: boolean, known?: Map<string, 'live' | 'dead' | 'unknown'> }} [options] - checkLinks
+ *   false applies only the denylist; known holds verdicts already checked for this answer, which are not fetched again
  */
-async function validateSources(sources, logger, { checkLinks = true } = {}) {
+async function validateSources(sources, logger, { checkLinks = true, known = new Map() } = {}) {
   // Denylist first, once per source; only what survives it is fetched.
   const listed = filterSources(sources, new Map(), CITATION_PATH_DENYLIST);
   const toCheck = listed.kept.map((source) => source.url);
-  const verdicts = checkLinks ? await checkSourceUrls(toCheck) : new Map();
+  let verdicts = new Map();
+  if (checkLinks) {
+    const unchecked = toCheck.filter((url) => !known.has(url));
+    const fresh = unchecked.length > 0 ? await checkSourceUrls(unchecked) : new Map();
+    verdicts = new Map(toCheck.map((url) => [url, fresh.get(url) ?? known.get(url)]));
+  }
   const live = filterSources(listed.kept, verdicts, []);
   const kept = live.kept;
   const removed = [...listed.removed, ...live.removed];
@@ -622,8 +656,10 @@ export async function callPerplexityChat(streamer, prompts, logger) {
   let searchResults = [];
   let textBuffer = '';
   const linkCheck = isCitationLinkCheckEnabled();
-  // Link checks started mid-stream, so they overlap with generation.
+  // Link checks started mid-stream, so they overlap with generation;
+  // `prefetched` collects their verdicts.
   const prefetches = [];
+  const prefetched = new Map();
 
   for await (const event of response) {
     switch (event?.type) {
@@ -636,7 +672,7 @@ export async function callPerplexityChat(streamer, prompts, logger) {
       case 'response.reasoning.search_results':
         if (Array.isArray(event.results) && event.results.length > 0) {
           searchResults = event.results;
-          if (linkCheck) prefetches.push(prefetchLinkChecks(event.results));
+          if (linkCheck) prefetches.push(prefetchLinkChecks(event.results, prefetched));
         }
         break;
 
@@ -717,52 +753,55 @@ export async function callPerplexityChat(streamer, prompts, logger) {
     const started = Date.now();
     let regenerated = false;
     let validation;
+    let checkFailed = false;
     try {
-      // Mid-stream checks have usually finished by now; waiting on them lets
-      // validateSources() read their verdicts from the cache.
+      // Mid-stream checks have usually finished by now; validateSources()
+      // reuses their verdicts and checks only what they did not cover.
       await Promise.all(prefetches);
-      validation = await validateSources(sources, logger, { checkLinks: linkCheck });
+      validation = await validateSources(sources, logger, { checkLinks: linkCheck, known: prefetched });
     } catch (error) {
-      logger?.warn?.(`[citations] link check failed, sending the answer unchecked: ${error.message}`);
-      if (metadata && linkCheck) {
-        metadata.link_check = {
-          checked: 0,
-          dead: 0,
-          unknown: 0,
-          denylisted: 0,
-          regenerated: false,
-          ms: Date.now() - started,
-          error: true,
-        };
-      }
+      logger?.warn?.(
+        `[citations] link check failed, sending the answer with only the denylist applied: ${error.message}`,
+      );
+      checkFailed = true;
+      validation = denylistOnly(sources);
     }
-    if (validation) {
-      const { kept, removed, stats } = validation;
-      if (removed.length > 0) {
-        const removedUrls = new Set(removed.map((entry) => entry.url));
-        sources = kept;
-        sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
-        // Compare normalized URLs: the normalizer re-encodes some characters, so a
-        // raw result URL can differ from its source URL.
-        searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
-        if (metadata) {
-          metadata.sources = sources;
-          metadata.source_index_map = sourceIndexMap;
-        }
-        const citedRemoved = resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker)));
-        if (citedRemoved && sources.length > 0) {
-          const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
-          if (rewritten) {
-            answerText = rewritten;
-            regenerated = true;
-            if (metadata) metadata.grounding = 'regenerated_dead_sources';
-          } else {
-            declinedDeadSources = true;
-          }
-        }
-        resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
+    const { kept, removed, stats } = validation;
+    if (removed.length > 0) {
+      const removedUrls = new Set(removed.map((entry) => entry.url));
+      sources = kept;
+      sourceIndexMap = Object.fromEntries(Object.entries(sourceIndexMap).filter(([url]) => !removedUrls.has(url)));
+      // Compare normalized URLs: the normalizer re-encodes some characters, so a
+      // raw result URL can differ from its source URL.
+      searchResults = searchResults.filter((result) => !removedUrls.has(normalizeSource(result)?.url));
+      if (metadata) {
+        metadata.sources = sources;
+        metadata.source_index_map = sourceIndexMap;
       }
-      if (metadata && linkCheck) metadata.link_check = { ...stats, regenerated, ms: Date.now() - started };
+      // A removed page counts as cited through its [n] marker, or when the
+      // answer links it directly.
+      const citedRemoved =
+        resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker))) ||
+        textLinksAny(textBuffer, [...removedUrls]);
+      if (citedRemoved && sources.length > 0) {
+        const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
+        if (rewritten) {
+          answerText = rewritten;
+          regenerated = true;
+          if (metadata) metadata.grounding = 'regenerated_dead_sources';
+        } else {
+          declinedDeadSources = true;
+        }
+      }
+      resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
+    }
+    if (metadata && linkCheck) {
+      metadata.link_check = {
+        ...stats,
+        regenerated,
+        ms: Date.now() - started,
+        ...(checkFailed ? { error: true } : {}),
+      };
     }
   }
   // An answer that was only a source list is empty once the list is stripped.

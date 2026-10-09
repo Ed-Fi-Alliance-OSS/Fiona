@@ -526,7 +526,8 @@ describe('searchForSources link checking (AI-227)', () => {
 
     await searchForSources('q', { maxSources: 3 });
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(5);
+    // 3 head results (p1 twice: HEAD, then the GET confirming its 404), then the 2 extras.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(6);
   });
 
   it('never asks for more than 10', async () => {

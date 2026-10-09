@@ -7,7 +7,8 @@
  * Checks that cited pages still exist (AI-227). Perplexity's index still holds
  * ed-fi.org pages that now return 404, so a retrieved source can be dead.
  *
- * Only 404 and 410 count as dead. Anything the check cannot confirm (a 5xx, a
+ * Only 404 and 410 count as dead, and a HEAD that says so is confirmed with a
+ * GET, since some servers answer HEAD with 404 for a page GET serves. Anything the check cannot confirm (a 5xx, a
  * timeout, a network error, another 4xx) is "unknown" and the caller keeps the
  * source: a slow or unreachable site must not strip every source from every
  * answer.
@@ -20,8 +21,9 @@
 
 export const LINK_CHECK_USER_AGENT = 'Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)';
 
-const LIVE_TTL_MS = 60 * 60 * 1000;
-const DEAD_TTL_MS = 24 * 60 * 60 * 1000;
+// Dead verdicts expire as fast as live ones, so a page that 404s for a moment
+// (a docs deploy, a CDN blip) is back in answers within the hour.
+const VERDICT_TTL_MS = 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 2000;
 // Servers that refuse HEAD answer with one of these; GET gets the real status.
 const HEAD_REFUSED = new Set([403, 405, 501]);
@@ -39,7 +41,7 @@ export function clearLinkCheckCache() {
 function remember(url, verdict, now) {
   if (verdict === 'unknown') return;
   cache.delete(url);
-  cache.set(url, { verdict, expiresAt: now + (verdict === 'dead' ? DEAD_TTL_MS : LIVE_TTL_MS) });
+  cache.set(url, { verdict, expiresAt: now + VERDICT_TTL_MS });
   while (cache.size > MAX_CACHE_ENTRIES) {
     cache.delete(cache.keys().next().value);
   }
@@ -92,7 +94,8 @@ async function finalStatus(url, method, signal, fetchImpl, allowedBases) {
 
 async function probe(url, signal, fetchImpl, allowedBases) {
   let status = await finalStatus(url, 'HEAD', signal, fetchImpl, allowedBases);
-  if (HEAD_REFUSED.has(status)) {
+  // A refused HEAD gets the real status from GET; a dead one is confirmed by it.
+  if (HEAD_REFUSED.has(status) || verdictFor(status) === 'dead') {
     status = await finalStatus(url, 'GET', signal, fetchImpl, allowedBases);
   }
   return status === null ? 'unknown' : verdictFor(status);

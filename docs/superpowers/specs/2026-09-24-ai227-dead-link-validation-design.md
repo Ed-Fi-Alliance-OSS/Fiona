@@ -93,7 +93,8 @@ stream ends (answer held back, as today)
 
 ### 3.2 Link checking (`link-checker.js`)
 
-- **Method:** HEAD first, falling back to GET on 403/405/501. Redirects are followed.
+- **Method:** HEAD first, falling back to GET on 403/405/501. A HEAD 404/410 is confirmed with a GET before it
+  counts as dead, since some servers answer HEAD with 404 for a page GET serves. Redirects are followed.
 - **Verdicts:**
   - 404 or 410 → `dead`.
   - A final 2xx (after following any 3xx) → `live`.
@@ -109,8 +110,10 @@ stream ends (answer held back, as today)
   request ignores the abort. Anything unfinished counts as `unknown`.
 - **The link keeps the original URL.** A redirect works for the user as well, so nothing is rewritten.
 - **Cache:** in-memory, in the process, at most 2,000 entries with the oldest removed first.
-  - Live results are kept 1h and dead results 24h.
-  - `unknown` is never cached, so it's retried next time.
+  - Live and dead results are both kept 1h, so a page that 404s briefly (a docs deploy, a CDN blip) is back within
+    the hour.
+  - `unknown` is never cached, so a later answer retries it. Within one answer, the verdicts from the mid-stream
+    check are reused, `unknown` included, so a slow host is not waited on twice.
 - **`User-Agent`:** `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`. This exact string is shared with the web
   team (§6).
 
@@ -126,7 +129,8 @@ stream ends (answer held back, as today)
 
 1. Today's marker-to-URL mapping runs first, over **all** sources. This includes the model-written-list safety net,
    because a model's own list uses its own numbers rather than result ids.
-2. The cited URLs are those of `cited_markers` under that mapping. If any cited URL was removed (dead or denylisted),
+2. The cited URLs are those of `cited_markers` under that mapping, plus any removed URL the answer links directly (a
+   markdown link or a bare URL, matched loosely like `urlKey`). If any cited URL was removed (dead or denylisted),
    Fiona rewrites the answer.
 3. Uncited removed sources are simply dropped: they leave *Also retrieved*, and no rewrite runs.
 4. The final `citation_index` and `cited_markers` are rebuilt from the **filtered** sources, and from the rewritten text
@@ -164,7 +168,8 @@ stream ends (answer held back, as today)
 
 ### 3.7 Observability
 
-- `metadata.link_check = { checked, dead, unknown, denylisted, regenerated, ms }`.
+- `metadata.link_check = { checked, dead, unknown, denylisted, regenerated, ms }`, plus `error: true` when link
+  checking threw. The denylist still applies then; nothing else is removed.
 - `metadata.grounding` gains `regenerated_dead_sources` and `declined_dead_sources`. `declined_no_results` is
   unchanged.
 - The `[citations]` log line in `message.js` and `app_mention.js` gains `dead=N regenerated=true|false`, following

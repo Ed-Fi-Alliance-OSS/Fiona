@@ -144,13 +144,15 @@ describe('link check: dead or retired sources the answer does not cite', () => {
     expect(globalThis.fetch.mock.calls.map(([url]) => url)).not.toContain(RETIRED);
   });
 
-  it('keeps a source whose check is unknown', async () => {
+  it('keeps a source whose check is unknown, without checking it a second time', async () => {
     globalThis.fetch = jest.fn(async () => ({ status: 503 }));
     mockCreate.mockResolvedValueOnce(makeStream([{ text: 'A [1].', searchResults: results([LIVE_A]) }]));
     const streamer = makeStreamer(makeMetadata());
     await callPerplexityChat(streamer, USER);
     expect(streamer._appended).toEqual([`A [[1]](${LIVE_A}).`]);
     expect(streamer.__citation_metadata.link_check.unknown).toBe(1);
+    // The mid-stream check's unknown is reused, not re-fetched after the stream.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('declines with declined_no_results when every source is removed', async () => {
@@ -288,6 +290,32 @@ describe('link check: a cited source is dead', () => {
     await callPerplexityChat(streamer, USER);
     expect(mockCreate).toHaveBeenCalledTimes(2);
     expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
+  });
+
+  it('rewrites when the answer links a dead source directly instead of through its marker', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([{ text: `See [the old page](${DEAD}) [1].`, searchResults: results([LIVE_A, DEAD]) }]),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
+    expect(streamer.__citation_metadata.grounding).toBe('regenerated_dead_sources');
+  });
+
+  it('matches a bare dead URL loosely: trailing punctuation, missing slash, no www.', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([{ text: 'Read https://ed-fi.org/blog/gone. Also [1].', searchResults: results([LIVE_A, DEAD]) }]),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
   it('applies the same rules to an incomplete run', async () => {

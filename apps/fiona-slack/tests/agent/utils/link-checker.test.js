@@ -74,6 +74,25 @@ describe('checkUrls verdicts', () => {
     expect(verdicts.get(`${DOCS}/a`)).toBe('dead');
   });
 
+  it.each([404, 410])('confirms a HEAD %i with GET before calling the page dead', async (status) => {
+    const fetchImpl = fakeFetch({ [`HEAD ${DOCS}/a`]: status, [`GET ${DOCS}/a`]: status });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
+    expect(fetchImpl.mock.calls.map(([, init]) => init.method)).toEqual(['HEAD', 'GET']);
+    expect(verdicts.get(`${DOCS}/a`)).toBe('dead');
+  });
+
+  it('takes the GET status when HEAD says 404 but GET serves the page', async () => {
+    const fetchImpl = fakeFetch({ [`HEAD ${DOCS}/a`]: 404, [`GET ${DOCS}/a`]: 200 });
+    const verdicts = await check([`${DOCS}/a`], fetchImpl);
+    expect(verdicts.get(`${DOCS}/a`)).toBe('live');
+  });
+
+  it('does not GET a page HEAD already found live', async () => {
+    const fetchImpl = fakeFetch({ [`${DOCS}/a`]: 200 });
+    await check([`${DOCS}/a`], fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['rejects', () => Promise.reject(new Error('stream locked'))],
     [
@@ -105,10 +124,10 @@ describe('checkUrls host allowlist', () => {
 
   // Review Focus 4: the allowlist names www.ed-fi.org, but results also use the bare host.
   it('matches the allowlist with or without a leading www.', async () => {
-    const fetchImpl = fakeFetch({ 'https://ed-fi.org/gone/': 404 });
-    const verdicts = await check(['https://ed-fi.org/gone/'], fetchImpl);
+    const fetchImpl = fakeFetch({});
+    const verdicts = await check(['https://ed-fi.org/page/'], fetchImpl);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(verdicts.get('https://ed-fi.org/gone/')).toBe('dead');
+    expect(verdicts.get('https://ed-fi.org/page/')).toBe('live');
   });
 
   it('reports a malformed URL as unknown without fetching', async () => {
@@ -119,10 +138,10 @@ describe('checkUrls host allowlist', () => {
   });
 
   it('matches a subdomain of an allowlisted host', async () => {
-    const fetchImpl = fakeFetch({ 'https://stage.ed-fi.org/success-stories/': 404 });
+    const fetchImpl = fakeFetch({});
     const verdicts = await check(['https://stage.ed-fi.org/success-stories/'], fetchImpl);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(verdicts.get('https://stage.ed-fi.org/success-stories/')).toBe('dead');
+    expect(verdicts.get('https://stage.ed-fi.org/success-stories/')).toBe('live');
   });
 
   it('rejects lookalike hosts that merely contain the allowlisted domain', async () => {
@@ -153,7 +172,13 @@ describe('checkUrls redirects', () => {
       [`${DOCS}/new/`]: 404,
     });
     const verdicts = await check([`${DOCS}/old`], fetchImpl);
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([`${DOCS}/old`, `${DOCS}/new/`]);
+    // HEAD follows the redirect to a 404, then GET follows it again to confirm.
+    expect(fetchImpl.mock.calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      `HEAD ${DOCS}/old`,
+      `HEAD ${DOCS}/new/`,
+      `GET ${DOCS}/old`,
+      `GET ${DOCS}/new/`,
+    ]);
     expect(verdicts.get(`${DOCS}/old`)).toBe('dead');
   });
 
@@ -241,18 +266,20 @@ describe('checkUrls cache', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps a dead verdict for 24h', async () => {
+  // A brief 404 (a docs deploy, a CDN blip) must not hide a page for long.
+  it('keeps a dead verdict for 1h, like a live one', async () => {
     let clock = 0;
     const now = () => clock;
     const fetchImpl = fakeFetch({ [`${DOCS}/gone`]: 404 });
     await check([`${DOCS}/gone`], fetchImpl, { now });
-    clock = 23 * 60 * 60 * 1000;
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // HEAD, then the confirming GET
+    clock = 59 * 60 * 1000;
     const verdicts = await check([`${DOCS}/gone`], fetchImpl, { now });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(verdicts.get(`${DOCS}/gone`)).toBe('dead');
-    clock = 25 * 60 * 60 * 1000;
-    await check([`${DOCS}/gone`], fetchImpl, { now });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(verdicts.get(`${DOCS}/gone`)).toBe('dead');
+    clock = 61 * 60 * 1000;
+    await check([`${DOCS}/gone`], fetchImpl, { now });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it('never caches unknown', async () => {

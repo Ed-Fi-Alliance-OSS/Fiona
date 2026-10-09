@@ -18,7 +18,7 @@ jest.unstable_mockModule('../../src/agent/utils/source-filter.js', () => ({
   filterSources: () => {
     throw new Error('source-filter exploded');
   },
-  isDenylisted: () => false,
+  isDenylisted: (url) => url.includes('/what-is-ed-fi-old/'),
   parseDenylist: () => [],
   urlKey: (url) => url,
 }));
@@ -38,6 +38,7 @@ const { clearLinkCheckCache } = await import('../../src/agent/utils/link-checker
 
 const LIVE_A = 'https://docs.ed-fi.org/live-a/';
 const LIVE_B = 'https://docs.ed-fi.org/live-b/';
+const RETIRED = 'https://www.ed-fi.org/what-is-ed-fi-old/mission/';
 
 function makeStream(chunks) {
   const events = [];
@@ -104,5 +105,19 @@ describe('link check: fails open when link checking itself throws', () => {
     expect(on.__citation_metadata.link_check).toEqual(
       expect.objectContaining({ checked: 0, dead: 0, unknown: 0, denylisted: 0, regenerated: false, error: true }),
     );
+  });
+
+  it('still drops retired pages, rewriting an answer that cited one', async () => {
+    globalThis.fetch = jest.fn(async () => ({ status: 200 }));
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Old mission [2].', searchResults: results([LIVE_A, RETIRED]) }]))
+      .mockResolvedValueOnce({ status: 'completed', output_text: 'Current [1].' });
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+
+    const metadata = streamer.__citation_metadata;
+    expect(streamer._appended).toEqual([`Current [[1]](${LIVE_A}).`]);
+    expect(metadata.sources.map((s) => s.url)).toEqual([LIVE_A]);
+    expect(metadata.link_check).toEqual(expect.objectContaining({ denylisted: 1, regenerated: true, error: true }));
   });
 });
