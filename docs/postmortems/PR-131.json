@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 131,
+  "title": "[AI-248] Consolidate the /fiona ask plumbing and show the question with the answer",
+  "state": "merged",
+  "jiraKey": "AI-248",
+  "authorKind": "human",
+  "stats": {
+    "additions": 1912,
+    "deletions": 473,
+    "changedFiles": 23,
+    "commits": 19,
+    "reviewCycles": 1,
+    "reviewComments": 7,
+    "timeToFirstGreenCiMinutes": 1340,
+    "timeToMergeMinutes": 5708,
+    "ciRuns": {
+      "total": 12,
+      "failed": 3,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 2,
+      "build": 0,
+      "other": 1
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 21,
+      "md": 2
+    },
+    "testToSourceRatio": 1.1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 1,
+      "correctness": 3,
+      "rework": 3
+    },
+    "followupCommits": {
+      "fix": 8,
+      "feature": 0
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-09T21:15:21.323Z"
+}
