@@ -20,8 +20,8 @@ import {
 import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.js';
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
-import { dispatchKeywordViaSay } from '../commands/command-dispatch.js';
-import { parseCommandKeyword } from '../commands/command-handler.js';
+import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
+import { parseMessageCommand, stripMentions } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -57,7 +57,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
    * tokens such as `<@U0AJYKA5S4D>`), respond with a helpful introduction
    * rather than silently ignoring the message or forwarding an empty prompt.
    */
-  const text = ('text' in message ? message.text || '' : '').replace(/<[@#!][^>]+>/g, '').trim();
+  const text = stripMentions('text' in message ? message.text : '');
   if (!text) {
     await say(
       "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about the Ed-Fi Data Standard, Ed-Fi documentation, or Ed-Fi implementations.",
@@ -86,6 +86,25 @@ export const message = async ({ client, context, logger, message, say, setStatus
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
+      const cmd = parseMessageCommand(message.text, { botUserId: context.botUserId });
+
+      if (
+        await declineOverLongAsk({
+          cmd,
+          say,
+          client,
+          logger,
+          userId,
+          channelId: channel,
+          threadTs: thread_ts,
+          messageTs,
+          interactionType: 'assistant_message',
+          telemetry: { markInteractionError, claimResponseId },
+        })
+      ) {
+        return;
+      }
+
       if (
         await handleRateLimitedInteraction({
           userId,
@@ -105,15 +124,12 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
       // Route command keywords (help, ask, search, escalate) before invoking the LLM.
       // Only exact "help"/"escalate" match; "help me with X" falls through to the LLM.
-      const cmd = parseCommandKeyword(text);
       if (cmd) {
         await dispatchKeywordViaSay({
           cmd,
           say,
           logger,
-          markInteractionRecorded,
-          markInteractionError,
-          claimResponseId,
+          telemetry: { markInteractionRecorded, markInteractionError, claimResponseId },
           client,
           userId,
           teamId,

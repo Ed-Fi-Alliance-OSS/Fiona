@@ -3,11 +3,18 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { STORED_CONTEXT_TYPES } from '../../agent/feedback-response-types.js';
 import { extractSearchQuery } from '../../agent/search-caller.js';
+import { extractAskQuestion } from '../views/ask_question_block.js';
 import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback_block.js';
 
 const PRIVATE_METADATA_MAX_CHARS = 3000;
-const PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS = 1000;
+const PRIVATE_METADATA_QUERY_MAX_CHARS = 1000;
+// An ephemeral ask answer's stored copy is the only one there will ever be, so
+// the question gets the smaller share of the budget. Its "You asked:" line can
+// hold ~1,000 code units, which a pasted snippet could double once JSON-encoded,
+// and the trim below would then cut the answer to make room.
+const PRIVATE_METADATA_QUESTION_MAX_CHARS = 500;
 const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
 
 /**
@@ -32,10 +39,12 @@ function compactBotResponse(messageText) {
   return `${messageText.slice(0, PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS - 1)}…`;
 }
 
-function compactSearchQuery(searchQuery) {
-  if (typeof searchQuery !== 'string') return null;
-  if (searchQuery.length <= PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS) return searchQuery;
-  return `${searchQuery.slice(0, PRIVATE_METADATA_SEARCH_QUERY_MAX_CHARS - 1)}…`;
+function compactQuery(query, maxChars = PRIVATE_METADATA_QUERY_MAX_CHARS) {
+  if (typeof query !== 'string') return null;
+  if (query.length <= maxChars) return query;
+  // Never end on the first half of a surrogate pair.
+  const cut = /[\uD800-\uDBFF]/.test(query[maxChars - 2]) ? maxChars - 2 : maxChars - 1;
+  return `${query.slice(0, cut)}…`;
 }
 
 /**
@@ -47,16 +56,19 @@ function compactSearchQuery(searchQuery) {
  * assistant_message search results are ephemeral too) and to `ask` answers on
  * the public surfaces, which are ephemeral for the same privacy reason.
  *
- * Only search gets a query: a search response quotes the query in its header, so
- * extractSearchQuery can recover it. An `ask` answer does not quote the
- * question, and running extractSearchQuery over prose would invent one.
+ * A search response quotes its query in the header, so extractSearchQuery
+ * recovers it from the text. An `ask` answer carries its question in the
+ * "You asked:" block instead (AI-248); a streamed answer in the assistant
+ * panel has none, and its question is read back from the thread later.
  */
-function buildClickTimeContext(responseType, messageText) {
+function buildClickTimeContext(responseType, message) {
+  if (!STORED_CONTEXT_TYPES.has(responseType)) return null;
+  const messageText = message?.text;
   if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
     return { searchQuery: extractSearchQuery(messageText), botResponse: messageText ?? null };
   }
   if (responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
-    return { botResponse: messageText ?? null };
+    return { question: extractAskQuestion(message?.blocks), botResponse: messageText ?? null };
   }
   return null;
 }
@@ -66,13 +78,15 @@ function buildPrivateMetadata(baseMetadata, contextToStore = null) {
     return JSON.stringify(baseMetadata);
   }
 
-  const searchQuery = compactSearchQuery(contextToStore.searchQuery);
+  const searchQuery = compactQuery(contextToStore.searchQuery);
+  const question = compactQuery(contextToStore.question, PRIVATE_METADATA_QUESTION_MAX_CHARS);
   let botResponse = compactBotResponse(contextToStore.botResponse);
 
   const encode = () =>
     JSON.stringify({
       ...baseMetadata,
       ...(searchQuery ? { searchQuery } : {}),
+      ...(question ? { question } : {}),
       ...(botResponse ? { botResponse } : {}),
     });
 
@@ -160,7 +174,7 @@ export const feedbackActionCallback = async ({ ack, body, client, logger }) => {
             responseType,
             interactionType,
           },
-          buildClickTimeContext(responseType, body.message?.text),
+          buildClickTimeContext(responseType, body.message),
         ),
         blocks: [
           {
