@@ -36,7 +36,7 @@ import { createSourcesBlocks } from '../views/sources_block.js';
  *
  * @see {@link https://docs.slack.dev/reference/events/app_mention/}
  */
-export const appMentionCallback = async ({ event, client, logger, say }) => {
+export const appMentionCallback = async ({ event, client, context, logger, say }) => {
   const { channel, team, user } = event;
   const thread_ts = event.thread_ts || event.ts;
   const messageTs = event.ts;
@@ -64,7 +64,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
       // Strip Slack mention tokens (users, channels, special commands) before sending to LLM
       const text = stripMentions(event.text);
-      const cmd = parseMessageCommand(event.text);
+      const cmd = parseMessageCommand(event.text, { botUserId: context?.botUserId });
 
       if (
         await declineOverLongAsk({

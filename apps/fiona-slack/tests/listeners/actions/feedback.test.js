@@ -303,6 +303,23 @@ describe('feedbackActionCallback', () => {
       expect(JSON.parse(view.private_metadata).question).toBe('What is Ed-Fi?');
     });
 
+    // The question gets the smaller share of private_metadata, so a long,
+    // escape-heavy question cannot squeeze out the only copy of the answer.
+    it('caps the stored question so the answer keeps its room', async () => {
+      mockBody.message.text = 'a'.repeat(1400);
+      mockBody.message.blocks = [
+        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: `You asked: ${'"'.repeat(988)}` }] },
+      ];
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(view.private_metadata.length).toBeLessThanOrEqual(3000);
+      expect(meta.question).toBe(`${'"'.repeat(499)}…`);
+      expect(meta.botResponse).toBe('a'.repeat(1400));
+    });
+
     it('carries the ask response type into the modal', async () => {
       await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 

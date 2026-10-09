@@ -21,7 +21,7 @@ import { handleRateLimitedInteraction } from '../../agent/rate-limited-handler.j
 import { buildThreadHistory } from '../../agent/thread-history.js';
 import { generateResponseId, shouldFinalize } from '../../agent/utils/idempotent-finalize.js';
 import { declineOverLongAsk, dispatchKeywordViaSay } from '../commands/command-dispatch.js';
-import { parseMessageCommand } from '../commands/command-handler.js';
+import { parseMessageCommand, stripMentions } from '../commands/command-handler.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -57,7 +57,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
    * tokens such as `<@U0AJYKA5S4D>`), respond with a helpful introduction
    * rather than silently ignoring the message or forwarding an empty prompt.
    */
-  const text = ('text' in message ? message.text || '' : '').replace(/<[@#!][^>]+>/g, '').trim();
+  const text = stripMentions('text' in message ? message.text : '');
   if (!text) {
     await say(
       "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
@@ -86,7 +86,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
       say,
     },
     async ({ claimResponseId, markRateLimited, markInteractionRecorded, markInteractionError }) => {
-      const cmd = parseMessageCommand(message.text);
+      const cmd = parseMessageCommand(message.text, { botUserId: context.botUserId });
 
       if (
         await declineOverLongAsk({

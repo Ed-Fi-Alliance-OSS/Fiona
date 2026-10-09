@@ -10,6 +10,11 @@ import { FEEDBACK_RESPONSE_TYPES, parseFeedbackBlockId } from '../views/feedback
 
 const PRIVATE_METADATA_MAX_CHARS = 3000;
 const PRIVATE_METADATA_QUERY_MAX_CHARS = 1000;
+// An ephemeral ask answer's stored copy is the only one there will ever be, so
+// the question gets the smaller share of the budget. Its "You asked:" line can
+// hold ~1,000 code units, which a pasted snippet could double once JSON-encoded,
+// and the trim below would then cut the answer to make room.
+const PRIVATE_METADATA_QUESTION_MAX_CHARS = 500;
 const PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS = 1500;
 
 /**
@@ -34,10 +39,12 @@ function compactBotResponse(messageText) {
   return `${messageText.slice(0, PRIVATE_METADATA_BOT_RESPONSE_MAX_CHARS - 1)}…`;
 }
 
-function compactQuery(query) {
+function compactQuery(query, maxChars = PRIVATE_METADATA_QUERY_MAX_CHARS) {
   if (typeof query !== 'string') return null;
-  if (query.length <= PRIVATE_METADATA_QUERY_MAX_CHARS) return query;
-  return `${query.slice(0, PRIVATE_METADATA_QUERY_MAX_CHARS - 1)}…`;
+  if (query.length <= maxChars) return query;
+  // Never end on the first half of a surrogate pair.
+  const cut = /[\uD800-\uDBFF]/.test(query[maxChars - 2]) ? maxChars - 2 : maxChars - 1;
+  return `${query.slice(0, cut)}…`;
 }
 
 /**
@@ -72,7 +79,7 @@ function buildPrivateMetadata(baseMetadata, contextToStore = null) {
   }
 
   const searchQuery = compactQuery(contextToStore.searchQuery);
-  const question = compactQuery(contextToStore.question);
+  const question = compactQuery(contextToStore.question, PRIVATE_METADATA_QUESTION_MAX_CHARS);
   let botResponse = compactBotResponse(contextToStore.botResponse);
 
   const encode = () =>

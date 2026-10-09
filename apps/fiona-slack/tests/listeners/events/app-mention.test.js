@@ -581,7 +581,8 @@ describe('appMentionCallback', () => {
       ['@here', '<@UFIONA> ask Does <!here> need to know?', 'Does @here need to know?'],
       ['@channel', '<@UFIONA> ask Does <!channel> need to know?', 'Does @channel need to know?'],
       ['@everyone with a label', '<@UFIONA> ask Does <!everyone|@everyone> know?', 'Does @everyone know?'],
-      ['a date', '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?', 'Is the release?'],
+      ['a date, by its label', '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?', 'Is Nov 14 the release?'],
+      ['a token with no label', '<@UFIONA> ask Is <!date^1700000000^{date}> the release?', 'Is the release?'],
     ])('keeps the place of %s mentioned inside an ask question', async (_label, text, question) => {
       mockEvent.text = text;
 
@@ -591,6 +592,31 @@ describe('appMentionCallback', () => {
       expect(prompts).toEqual([{ role: 'user', content: question }]);
       const [{ blocks }] = mockClient.chat.postEphemeral.mock.calls[0];
       expect(blocks[0].elements[0].text).toBe(`You asked: ${question}`);
+    });
+
+    it('keeps the indentation of a pasted snippet', async () => {
+      const snippet = ['```', 'services:', '    api:', '        image: ods', '```'].join('\n');
+      mockEvent.text = `<@UFIONA> ask why does this fail?\n${snippet}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts[0].content).toBe(`why does this fail?\n${snippet}`);
+    });
+
+    it('removes Fiona’s own mention from the middle of the question rather than marking it', async () => {
+      mockEvent.text = '<@UFIONA> ask can <@UFIONA|fiona> or <@UALICE> help?';
+
+      await appMentionCallback({
+        event: mockEvent,
+        client: mockClient,
+        context: { botUserId: 'UFIONA' },
+        logger: mockLogger,
+        say: mockSay,
+      });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'can or @someone help?' }]);
     });
 
     it('keeps the markers when a mention comes before the keyword', async () => {

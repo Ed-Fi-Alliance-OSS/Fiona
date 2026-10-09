@@ -67,17 +67,7 @@ function seedFeedbackContext({ responseType, searchQuery, storedQuestion, stored
 async function gatherFeedbackContext({ client, logger, metadata, threadTs }) {
   let context = seedFeedbackContext(metadata);
   try {
-    context = await resolveFeedbackContext({
-      client,
-      responseType: metadata.responseType,
-      channelId: metadata.channelId,
-      threadTs,
-      messageTs: metadata.messageTs,
-      interactionType: metadata.interactionType,
-      searchQuery: metadata.searchQuery,
-      storedQuestion: metadata.storedQuestion,
-      storedBotResponse: metadata.storedBotResponse,
-    });
+    context = await resolveFeedbackContext(client, metadata, threadTs);
   } catch (e) {
     logger.error('Failed to fetch feedback context:', e);
   }
@@ -135,14 +125,14 @@ async function fetchMessageText(client, channelId, threadTs, messageTs) {
   return messages.find((message) => message.ts === messageTs)?.text ?? null;
 }
 
+/**
+ * The resolvers below take the metadata read by readFeedbackMetadata as-is,
+ * plus the thread to look in, so a new stored field is threaded through once.
+ */
 async function resolveSearchFeedbackContext(
   client,
-  channelId,
+  { channelId, messageTs, interactionType, searchQuery: storedSearchQuery, storedBotResponse },
   threadTs,
-  messageTs,
-  interactionType,
-  storedSearchQuery,
-  storedBotResponse,
 ) {
   if (interactionType === 'slash_search') {
     return {
@@ -173,12 +163,8 @@ async function resolveSearchFeedbackContext(
  */
 async function resolveAskFeedbackContext(
   client,
-  channelId,
+  { channelId, messageTs, interactionType, storedQuestion, storedBotResponse },
   threadTs,
-  messageTs,
-  interactionType,
-  storedQuestion,
-  storedBotResponse,
 ) {
   if (interactionType === 'assistant_message') {
     const fetched = await fetchThreadContext(client, channelId, threadTs, messageTs);
@@ -199,40 +185,14 @@ async function resolveAskFeedbackContext(
  *
  * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
  */
-async function resolveFeedbackContext({
-  client,
-  responseType,
-  channelId,
-  threadTs,
-  messageTs,
-  interactionType,
-  searchQuery,
-  storedQuestion,
-  storedBotResponse,
-}) {
-  if (responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
-    return resolveSearchFeedbackContext(
-      client,
-      channelId,
-      threadTs,
-      messageTs,
-      interactionType,
-      searchQuery,
-      storedBotResponse,
-    );
+async function resolveFeedbackContext(client, metadata, threadTs) {
+  if (metadata.responseType === FEEDBACK_RESPONSE_TYPES.SEARCH) {
+    return resolveSearchFeedbackContext(client, metadata, threadTs);
   }
-  if (responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
-    return resolveAskFeedbackContext(
-      client,
-      channelId,
-      threadTs,
-      messageTs,
-      interactionType,
-      storedQuestion,
-      storedBotResponse,
-    );
+  if (metadata.responseType === FEEDBACK_RESPONSE_TYPES.ASK) {
+    return resolveAskFeedbackContext(client, metadata, threadTs);
   }
-  return fetchThreadContext(client, channelId, threadTs, messageTs);
+  return fetchThreadContext(client, metadata.channelId, threadTs, metadata.messageTs);
 }
 
 /**

@@ -295,6 +295,8 @@ async function handleAsk({ command, ack, respond, client, logger }) {
     // A small reply through respond() can still replace the "Thinking…" line
     // (the answer may have failed for its size). If respond() is down too, the
     // notice goes through the Web API instead, so the user is not left waiting.
+    // That only reaches a channel Fiona is in; elsewhere (a DM between two
+    // people, a channel it has not joined) it fails and is logged.
     if (!(await reply({ text: ASK_DELIVERY_FAILED_TEXT }))) {
       const target = { channel: command.channel_id, user: command.user_id };
       await postEphemeralSafely(client, logger, target, { text: ASK_DELIVERY_FAILED_TEXT }, 'ask delivery-failure');

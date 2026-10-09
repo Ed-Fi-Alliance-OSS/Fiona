@@ -248,6 +248,10 @@ export function stripMentions(rawText) {
  * mention replaced by a neutral marker, so the question still reads as a
  * sentence. The question is shown back to the user ("You asked:"), stored with
  * feedback and captured, so no user or channel id is kept.
+ *
+ * A special token with a readable label (`<!date^…|Oct 9>`) keeps the label;
+ * one without is dropped, along with the space before it. Nothing else in the
+ * question is touched, so the indentation of a pasted snippet survives.
  */
 function askTextWithMentionMarkers(text) {
   return text
@@ -255,8 +259,8 @@ function askTextWithMentionMarkers(text) {
     .replace(/<(?:@|!subteam\^)[^>]+>/g, '@someone')
     .replace(/<#[^>]+>/g, '#a-channel')
     .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
-    .replace(/<![^>]+>/g, '')
-    .replace(/ {2,}/g, ' ')
+    .replace(/<![^>|]+\|([^>]+)>/g, '$1')
+    .replace(/ *<![^>]+>/g, '')
     .trim();
 }
 
@@ -267,6 +271,10 @@ function askTextWithMentionMarkers(text) {
  * gets help. An `ask` question keeps a marker where each mention was (see
  * askTextWithMentionMarkers), the same on every surface.
  *
+ * Fiona's own mention is not a marker: wherever it appears (`ask @fiona what
+ * is …`) it is removed, as the invocation at the start is, so the question does
+ * not name "@someone" who is not involved.
+ *
  * The keyword is matched twice, once with every mention removed and once with
  * markers. The two can disagree only when a mention sits inside the keyword
  * itself (`fiona <@U1> ask …`). The keyword decision then follows the
@@ -274,13 +282,17 @@ function askTextWithMentionMarkers(text) {
  * mentions dropped rather than marked.
  *
  * @param {string} rawText - The message text as Slack sent it.
+ * @param {{ botUserId?: string }} [options] - Fiona's own user id, when known.
  * @returns {{ keyword: string, rawArgs: string }|null}
  */
-export function parseMessageCommand(rawText) {
+export function parseMessageCommand(rawText, { botUserId } = {}) {
   const text = stripMentions(rawText);
   const cmd = text ? parseCommandKeyword(text) : null;
   if (cmd?.keyword !== 'ask') return cmd;
-  const marked = parseCommandKeyword(askTextWithMentionMarkers(rawText));
+  const withoutSelf = botUserId
+    ? rawText.replace(new RegExp(String.raw` *<@${botUserId}(?:\|[^>]*)?>`, 'g'), '')
+    : rawText;
+  const marked = parseCommandKeyword(askTextWithMentionMarkers(withoutSelf));
   return marked?.keyword === 'ask' ? marked : cmd;
 }
 

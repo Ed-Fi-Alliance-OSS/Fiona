@@ -101,7 +101,9 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    (Conversation capture, below, may separately keep the full question.) A
    mention inside an `ask` question (`@fiona ask`, or `ask` in the assistant
    panel) becomes `@someone` or `#a-channel`, so no user or channel id is shown,
-   stored with feedback, or captured. Slash-command text is shown as typed: the
+   stored with feedback, or captured. Fiona's own mention is removed wherever it
+   appears, a date keeps its readable label, and the rest of the question
+   (indentation included) is left as typed. Slash-command text is shown as typed: the
    manifest sets `should_escape: false`, so a `<Descriptor>` in it is literal
    text, not Slack link markup.
    The question stored with a feedback rating is this displayed text: decoded,
