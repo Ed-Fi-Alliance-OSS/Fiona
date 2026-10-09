@@ -168,7 +168,7 @@ Also worth reporting even though it's not a failure:
   that uses the thread, use a normal `@fiona` question in the thread.
 - **Bare `search` with no query isn't a command.** It's answered as a normal question. Bare
   `ask` is different: it shows the help message (T7).
-- **The *You asked:* line shortens a very long question.** A question over 300 characters shows its first 299, then `…`.
+- **The *You asked:* line shortens a very long question.** A question over 300 characters shows its first 299, then `…`. A question full of emoji can be cut sooner: the whole line is also held to 1,000 UTF-16 code units, and one emoji can take several (a family emoji takes 11). Either way the cut never splits a character, and the line ends in `…`.
   Feedback saves the question as shown in that line.
 
 ---

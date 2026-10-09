@@ -480,17 +480,21 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     expect(mockClient.conversations.replies).not.toHaveBeenCalled();
   });
 
-  it('falls back to the stored question when the assistant-panel thread has lost it', async () => {
+  // A streamed panel answer has no "You asked:" block, so its private_metadata
+  // never carries a question (feedback.test.js covers the click side).
+  it('records a null question when the assistant-panel thread has lost it', async () => {
     mockClient.conversations.replies.mockResolvedValue({ messages: [] });
 
     await feedbackReasonViewCallback({
       ack: mockAck,
-      view: askView({ interactionType: 'assistant_message', question: 'What is Ed-Fi?' }),
+      view: askView({ interactionType: 'assistant_message' }),
       client: mockClient,
       logger: mockLogger,
     });
 
-    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: 'What is Ed-Fi?' }));
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: null, botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+    );
   });
 
   it('does not call conversations.replies for an ephemeral answer that cannot be re-fetched', async () => {
@@ -522,12 +526,12 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     );
   });
 
-  it('keeps the stored question and answer when the thread lookup fails', async () => {
+  it('keeps the stored answer when the thread lookup fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await feedbackReasonViewCallback({
       ack: mockAck,
-      view: askView({ interactionType: 'assistant_message', question: 'What is Ed-Fi?' }),
+      view: askView({ interactionType: 'assistant_message' }),
       client: mockClient,
       logger: mockLogger,
     });
@@ -535,7 +539,7 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     expect(mockLogger.error).toHaveBeenCalled();
     expect(mockRecordFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
-        userMessage: 'What is Ed-Fi?',
+        userMessage: null,
         botResponse: 'The Ed-Fi Data Standard is a specification…',
       }),
     );
@@ -780,18 +784,14 @@ describe('feedbackReasonClosedCallback — ask response type', () => {
     );
   });
 
-  it('keeps the stored question when a dismissed modal’s thread lookup fails', async () => {
-    mockView.private_metadata = JSON.stringify({
-      ...JSON.parse(mockView.private_metadata),
-      interactionType: 'assistant_message',
-      question: 'What is Ed-Fi?',
-    });
-    mockClient.conversations.replies.mockRejectedValueOnce(new Error('channel_not_found'));
+  it('keeps the stored question when a thumbs-up modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({ ...JSON.parse(mockView.private_metadata), question: 'What is Ed-Fi?' });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
     await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: 'What is Ed-Fi?' }));
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
   });
 
   it('still ignores a dismissed thumbs-down', async () => {

@@ -94,7 +94,10 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
 6. The ephemeral answer opens with a plain-text "You asked: …" line repeating
-   the question (over 300 characters, its first 299 and `…`), because an
+   the question (over 300 visible characters, its first 299 and `…`; the whole
+   line is also held to 1,000 UTF-16 code units for Slack's text limit, so a
+   question heavy in emoji, some of which take up to 11 units, can be cut
+   earlier), because an
    ephemeral answer is not threaded under it. Feedback reads the question back
    from this line at click time (AI-248); it is the only copy Slack can give
    back at that point, since an ephemeral message cannot be fetched later.

@@ -159,6 +159,12 @@ async function resolveSearchFeedbackContext(
  * that block existed has no stored question, and userMessage is then null
  * rather than guessed at.
  *
+ * A streamed panel answer has no "You asked:" block, so nothing stores its
+ * question at click time; the thread is its only source. If the lookup fails
+ * the question is recorded as null, as it was before AI-248, while the answer
+ * falls back to its stored copy. Reading the thread at click time instead would
+ * put an API call ahead of views.open and its short-lived trigger_id.
+ *
  * @returns {Promise<{ userMessage: string | null, botResponse: string | null }>}
  */
 async function resolveAskFeedbackContext(
@@ -172,7 +178,7 @@ async function resolveAskFeedbackContext(
     // streamed message is gone or the thread was truncated; the copy stored at
     // click time is then the only surviving record of the answer.
     return {
-      userMessage: fetched.userMessage ?? storedQuestion ?? null,
+      userMessage: fetched.userMessage ?? null,
       botResponse: fetched.botResponse ?? storedBotResponse ?? null,
     };
   }

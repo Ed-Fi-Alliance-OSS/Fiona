@@ -204,14 +204,28 @@ export async function declineOverLongAsk({
   telemetry.claimResponseId(responseId);
   if (!shouldFinalize(responseId, logger)) return true;
   telemetry.markInteractionError('question_too_long');
+  let delivered;
   if (interactionType === ASSISTANT_PANEL) {
-    await say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs }).catch((err) =>
-      logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`),
+    delivered = await say({ text: ASK_TOO_LONG_TEXT, thread_ts: threadTs }).then(
+      () => true,
+      (err) => {
+        logger?.warn?.(`Failed to send ask too-long notice: ${describeError(err)}`);
+        return false;
+      },
     );
   } else {
     const target = ephemeralTarget({ channelId, userId, threadTs, messageTs });
-    await postEphemeralSafely(client, logger, target, { text: ASK_TOO_LONG_TEXT }, 'ask too-long');
+    const { errorType } = await postEphemeralSafely(
+      client,
+      logger,
+      target,
+      { text: ASK_TOO_LONG_TEXT },
+      'ask too-long',
+    );
+    delivered = !errorType;
   }
+  // The user never saw the decline, so a Slack retry should get to send it.
+  if (!delivered) rollbackFinalization(responseId);
   return true;
 }
 

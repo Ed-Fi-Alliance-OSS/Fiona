@@ -521,6 +521,25 @@ describe('declineOverLongAsk', () => {
     await expect(declineOverLongAsk(params)).resolves.toBe(true);
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask too-long response'));
   });
+
+  // The user never saw it, so a Slack retry must not be swallowed as a duplicate.
+  it.each([
+    ['an @-mention ephemeral', {}, (params) => params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('x'))],
+    ['an assistant-panel say()', { interactionType: 'assistant_message' }, (params) => params.say.mockRejectedValueOnce(new Error('x'))],
+  ])('releases the response when %s decline fails to send', async (_label, over, fail) => {
+    const params = base(over);
+    fail(params);
+
+    await declineOverLongAsk(params);
+
+    expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
+  });
+
+  it('keeps the response claimed once the decline is delivered', async () => {
+    await declineOverLongAsk(base());
+
+    expect(mockRollbackFinalization).not.toHaveBeenCalled();
+  });
 });
 
 // AI-198 review. Help and search follow ask's fail-closed rule, and a failed
