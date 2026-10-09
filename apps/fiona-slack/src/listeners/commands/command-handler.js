@@ -38,7 +38,7 @@ export function buildHelpText() {
   const escalationEnabled = isEscalationEnabled();
   if (escalationEnabled) commands.push(HELP_ESCALATE_LINE);
   return `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, the Ed-Fi Data Standard, and the rest of the Ed-Fi Technology Suite using natural language.
+Fiona helps you use natural language to navigate the Ed-Fi Alliance's documentation, including use cases, getting started playbooks, and reference documentation for the Ed-Fi Data Standard and Ed-Fi Technology Suite.
 
 *Available commands:*
 \`\`\`
