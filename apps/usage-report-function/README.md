@@ -20,17 +20,19 @@ Total; Total always includes that activity.
 
 Segmentation uses the current email recorded in the `slack-users` Cosmos DB container
 (`COSMOS_USERS_CONTAINER`, default `slack-users`), populated by Fiona's Slack user
-loader. The executive PDF presents the summary, readout, and detailed usage
-comparisons as metric rows with Internal, External, Unknown, and Total columns.
-Its weekly usage charts compare Internal, External, and Total (with Unknown
-plotted when it has activity); reliability and feedback charts show overall
-trends only for a concise legend. Feedback entries include
-each author's current email and segment
-(or **Email unavailable** and **Unknown email** when absent). Overall KPIs
-remain alongside the segmented views. Unlike the Slack summary, the PDF contains
-email addresses: treat its shareable link as sensitive and distribute it only to
-authorized recipients. If the user directory is unavailable, report generation
-fails rather than publishing misleading segment counts.
+loader. Emails are only used to classify users; neither report shows them. If the
+user directory can't be read, both reports fall back to unsegmented totals and log
+a warning rather than failing.
+
+All figures come from one fetch of the report window's activity and share the KPI
+definitions in `lib/kpi-core.js`, so segments always sum to Total. A session is one
+user's conversation thread. The weekly report covers the 7 whole UTC days before the
+run date, and the PDF uses the same window.
+
+The executive PDF keeps the overall KPI cards and readout on its cover, then compares
+Internal, External, (Unknown when present), and Total on a dedicated segment page and
+in weekly segment trend charts. Feedback cards and top-user tables are labeled
+Internal/External/Unknown user.
 
 When a matching executive PDF report is available (generated separately by
 the `generate-usage-report-pdf` GitHub Actions workflow — see

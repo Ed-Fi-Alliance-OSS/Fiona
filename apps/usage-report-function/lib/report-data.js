@@ -3,12 +3,19 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import {
+  activityUserIds,
+  assertReportWindow,
+  coveringWindow,
+  fetchActivity,
+  sliceActivity,
+} from './activity-records.js';
 import { getFeedbackDetails, getRepresentativeFeedbackInRange } from './cosmos-queries.js';
-import { getDailySummary } from './daily-queries.js';
-import { getKpiSummary } from './kpi-summary.js';
-import { getWeeklyTrendSeries } from './longitudinal-queries.js';
-import { getTopUsersByFeedback, getTopUsersByInteractions } from './user-queries.js';
-import { getUserDirectory, getUserSegmentKpis } from './user-segments.js';
+import { summarizeDailyActivity } from './daily-queries.js';
+import { summarizePeriodKpis } from './kpi-summary.js';
+import { summarizeWeeklyTrend } from './longitudinal-queries.js';
+import { summarizeTopUsersByFeedback, summarizeTopUsersByInteractions } from './user-queries.js';
+import { segmentOf, tryGetUserDirectory } from './user-segments.js';
 
 const HISTORICAL_BASELINE_START_ISO = '2026-04-01T00:00:00.000Z';
 
@@ -32,27 +39,15 @@ function snapStartToMondayISO(iso) {
   return d.toISOString();
 }
 
-function snapEndExclusiveToMondayISO(endISO) {
-  const lastIncludedDay = startOfUtcDay(endISO);
-  lastIncludedDay.setUTCDate(lastIncludedDay.getUTCDate() - 1);
-
-  const day = lastIncludedDay.getUTCDay();
-  const diffToSunday = day === 0 ? 0 : 7 - day;
-  const sunday = new Date(lastIncludedDay);
-  sunday.setUTCDate(sunday.getUTCDate() + diffToSunday);
-
-  const nextMonday = new Date(sunday);
-  nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
-  return nextMonday.toISOString();
-}
-
+// The trend window reaches back for history but never past the requested
+// end, so no chart or table shows activity after the report period.
 function resolveTrendWindow(startISO, endISO, historicalBaselineStartISO) {
   const baseline = startOfUtcDay(historicalBaselineStartISO);
   const rollingWindowStart = subtractThreeMonthsUtc(endISO);
   const unsnappedStart = rollingWindowStart > baseline ? rollingWindowStart : baseline;
 
   const trendStartISO = snapStartToMondayISO(unsnappedStart.toISOString());
-  const trendEndISO = snapEndExclusiveToMondayISO(endISO);
+  const trendEndISO = endISO;
 
   if (new Date(trendStartISO) >= new Date(trendEndISO)) {
     return {
@@ -68,10 +63,15 @@ function resolveTrendWindow(startISO, endISO, historicalBaselineStartISO) {
 }
 
 /**
- * Fetches every independent data slice needed for the executive PDF report
- * and returns them as one plain object, with no formatting/rendering logic
- * applied. Each slice is fetched by its own dedicated query function so it
- * stays independently testable and reusable outside of PDF rendering.
+ * Fetches everything the executive PDF report needs and returns it as one
+ * plain object, with no formatting/rendering logic applied.
+ *
+ * Interaction and feedback activity is fetched once for the window covering
+ * both the report period and the trend window, then sliced in memory, so
+ * the KPI summary, weekly trend, daily summary, top users and segments all
+ * describe exactly the same records for the requested [startISO, endISO).
+ * The user directory is looked up once; if it can't be read the report is
+ * built without internal/external segments.
  */
 export async function buildExecutiveReportData({
   interactionsContainer,
@@ -81,62 +81,34 @@ export async function buildExecutiveReportData({
   startISO,
   endISO,
   historicalBaselineStartISO = HISTORICAL_BASELINE_START_ISO,
+  warn = console.warn,
 }) {
+  assertReportWindow(startISO, endISO);
   const trendWindow = resolveTrendWindow(startISO, endISO, historicalBaselineStartISO);
+  const fetchWindow = coveringWindow({ startISO, endISO }, trendWindow);
 
-  const [
-    kpiSummary,
-    weeklyTrend,
-    trendWeekly,
-    dailySummary,
-    feedbackDetails,
-    representativeFeedback,
-    topUsersByFeedback,
-    topUsersByInteractions,
-    userSegments,
-  ] = await Promise.all([
-    getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO),
-    getWeeklyTrendSeries(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO, usersContainer),
-    getWeeklyTrendSeries(
-      interactionsContainer,
-      feedbackContainer,
-      deploymentType,
-      trendWindow.startISO,
-      trendWindow.endISO,
-      usersContainer,
-    ),
-    getDailySummary(interactionsContainer, deploymentType, startISO, endISO),
+  const [activity, feedbackDetails, representativeFeedback] = await Promise.all([
+    fetchActivity(interactionsContainer, feedbackContainer, deploymentType, fetchWindow.startISO, fetchWindow.endISO),
     getFeedbackDetails(feedbackContainer, deploymentType, startISO, endISO),
     getRepresentativeFeedbackInRange(feedbackContainer, deploymentType, startISO, endISO),
-    getTopUsersByFeedback(feedbackContainer, deploymentType, startISO, endISO),
-    getTopUsersByInteractions(interactionsContainer, deploymentType, startISO, endISO),
-    getUserSegmentKpis(interactionsContainer, feedbackContainer, usersContainer, deploymentType, startISO, endISO),
   ]);
+  const directory = await tryGetUserDirectory(usersContainer, activityUserIds(activity), warn);
 
-  const directory = await getUserDirectory(usersContainer, [
-    ...new Set(
-      [...feedbackDetails, ...representativeFeedback, ...topUsersByFeedback, ...topUsersByInteractions].map(
-        (entry) => entry.userId,
-      ),
-    ),
-  ]);
-  const labelFeedback = (entry) => ({
-    ...entry,
-    segment: directory.get(entry.userId)?.segment ?? 'unknown',
-    email: directory.get(entry.userId)?.email ?? null,
-  });
+  const periodActivity = sliceActivity(activity, startISO, endISO);
+  const { segments, ...kpiSummary } = summarizePeriodKpis(periodActivity, directory);
+  const withSegment = (entry) => (directory ? { ...entry, segment: segmentOf(directory, entry.userId) } : entry);
 
   return {
     period: { deploymentType, startISO, endISO },
     trendWindow,
     kpiSummary,
-    weeklyTrend,
-    trendWeekly,
-    dailySummary,
-    feedbackDetails: feedbackDetails.map(labelFeedback),
-    representativeFeedback: representativeFeedback.map(labelFeedback),
-    topUsersByFeedback: topUsersByFeedback.map(labelFeedback),
-    topUsersByInteractions: topUsersByInteractions.map(labelFeedback),
-    userSegments,
+    weeklyTrend: summarizeWeeklyTrend(periodActivity, directory),
+    trendWeekly: summarizeWeeklyTrend(sliceActivity(activity, trendWindow.startISO, trendWindow.endISO), directory),
+    dailySummary: summarizeDailyActivity(periodActivity),
+    feedbackDetails: feedbackDetails.map(withSegment),
+    representativeFeedback: representativeFeedback.map(withSegment),
+    topUsersByFeedback: summarizeTopUsersByFeedback(periodActivity.feedback).map(withSegment),
+    topUsersByInteractions: summarizeTopUsersByInteractions(periodActivity.interactions).map(withSegment),
+    userSegments: segments ?? undefined,
   };
 }

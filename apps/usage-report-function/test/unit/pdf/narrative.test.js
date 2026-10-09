@@ -9,15 +9,15 @@ import { buildReadoutBullets, buildReliabilityTakeaways, buildUsageObservations 
 const kpiSummary = {
   totalInteractions: 437,
   uniqueUsers: 32,
-  totalSessions: 110,
+  sessions: 110,
   avgInteractionsPerUser: 13.3,
-  errorCount: 12,
+  errors: 12,
   errorRate: 2.7,
-  rateLimitedEvents: 0,
+  rateLimited: 0,
   goodFeedback: 30,
   badFeedback: 7,
   feedbackTotal: 37,
-  positiveFeedbackPct: 82.2,
+  feedbackRatio: 82.2,
   newUsers: 9,
   returningUsers: 23,
   newUserPct: 28.1,
@@ -68,12 +68,38 @@ describe('buildReadoutBullets', () => {
   });
 
   it('notes rate-limited events when present', () => {
-    const bullets = buildReadoutBullets(
-      { ...kpiSummary, rateLimitedEvents: 5 },
-      weeklyTrend,
-      '2026-06-24T00:00:00.000Z',
-    );
+    const bullets = buildReadoutBullets({ ...kpiSummary, rateLimited: 5 }, weeklyTrend, '2026-06-24T00:00:00.000Z');
     expect(bullets[2]).toBe('Reliability recorded 12 errors (2.7%) and 5 rate-limited events.');
+  });
+
+  const segment = (uniqueUsers, totalInteractions) => ({
+    uniqueUsers,
+    totalInteractions,
+    goodFeedback: 0,
+    badFeedback: 0,
+  });
+
+  it('adds a segment bullet that includes unknown users when they have activity', () => {
+    const bullets = buildReadoutBullets(kpiSummary, weeklyTrend, '2026-06-24T00:00:00.000Z', {
+      internal: segment(20, 300),
+      external: segment(10, 120),
+      unknown: segment(2, 17),
+    });
+    expect(bullets).toHaveLength(5);
+    expect(bullets[4]).toBe(
+      'Internal (@ed-fi.org): 20 users and 300 interactions; external: 10 users and 120 interactions; unknown email: 2 users and 17 interactions.',
+    );
+  });
+
+  it('omits unknown users from the segment bullet when they have no activity', () => {
+    const bullets = buildReadoutBullets(kpiSummary, weeklyTrend, '2026-06-24T00:00:00.000Z', {
+      internal: segment(22, 310),
+      external: segment(10, 127),
+      unknown: segment(0, 0),
+    });
+    expect(bullets[4]).toBe(
+      'Internal (@ed-fi.org): 22 users and 310 interactions; external: 10 users and 127 interactions.',
+    );
   });
 });
 
@@ -116,7 +142,7 @@ describe('buildReliabilityTakeaways', () => {
     const zeroTakeaways = buildReliabilityTakeaways(kpiSummary, weeklyTrend);
     expect(zeroTakeaways.find((t) => t.signal === 'Rate limiting').takeaway).toBe('0 rate-limited events.');
 
-    const nonzeroTakeaways = buildReliabilityTakeaways({ ...kpiSummary, rateLimitedEvents: 3 }, weeklyTrend);
+    const nonzeroTakeaways = buildReliabilityTakeaways({ ...kpiSummary, rateLimited: 3 }, weeklyTrend);
     expect(nonzeroTakeaways.find((t) => t.signal === 'Rate limiting').takeaway).toBe('3 rate-limited events.');
   });
 

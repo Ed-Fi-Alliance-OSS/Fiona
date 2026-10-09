@@ -3,125 +3,36 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { activityUserIds, fetchActivity } from './activity-records.js';
+import { addFeedback, addInteraction, createKpiBuckets, summarizeKpiBuckets } from './kpi-core.js';
+import { tryGetUserDirectory } from './user-segments.js';
+
 /**
- * Returns whole-window KPI totals for [startISO, endISO) — the Executive
- * Summary section of the PDF report. Mirrors the same success/rate-limited
- * filtering conventions used by `cosmos-queries.js` and
- * `longitudinal-queries.js`: `uniqueUsers`/`totalSessions`/
- * `avgInteractionsPerUser` count only status === 'success' &&
- * rateLimited === false records, while `totalInteractions`/`errorRate`
- * count all records.
+ * Whole-window KPI totals for fetched activity, plus per-segment KPIs when a
+ * user directory is given (`segments` is null otherwise). See kpi-core.js
+ * for the KPI definitions.
  */
-export async function getKpiSummary(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO) {
-  const rangeParams = [
-    { name: '@deploymentType', value: deploymentType },
-    { name: '@startISO', value: startISO },
-    { name: '@endISO', value: endISO },
-  ];
+export function summarizePeriodKpis(activity, directory) {
+  const buckets = createKpiBuckets(directory);
+  for (const record of activity.interactions) addInteraction(buckets, record, directory);
+  for (const record of activity.feedback) addFeedback(buckets, record, directory);
+  return summarizeKpiBuckets(buckets, (userId) => !activity.priorUserIds.has(userId));
+}
 
-  const [{ resources: interactions }, { resources: feedback }] = await Promise.all([
-    interactionsContainer.items
-      .query({
-        query: `SELECT i.userId, i.threadTs, i.status, i.rateLimited
-         FROM interactions i
-         WHERE i.deploymentType = @deploymentType
-           AND i.timestamp >= @startISO
-           AND i.timestamp < @endISO`,
-        parameters: rangeParams,
-      })
-      .fetchAll(),
-    feedbackContainer.items
-      .query({
-        // `value` is a reserved word in Cosmos DB SQL; aliasing to it (`AS value`) returns 400 BadRequest.
-        query: `SELECT f["value"] AS feedbackValue
-         FROM feedback f
-         WHERE f.deploymentType = @deploymentType
-           AND f.timestamp >= @startISO
-           AND f.timestamp < @endISO`,
-        parameters: rangeParams,
-      })
-      .fetchAll(),
-  ]);
-
-  let errorCount = 0;
-  let rateLimitedEvents = 0;
-  let successRecords = 0;
-  const successUserIds = new Set();
-  const successThreadTs = new Set();
-
-  for (const record of interactions) {
-    if (record.status === 'error') {
-      errorCount += 1;
-    }
-    if (record.rateLimited === true) {
-      rateLimitedEvents += 1;
-    }
-    if (record.status === 'success' && record.rateLimited === false) {
-      successRecords += 1;
-      successUserIds.add(record.userId);
-      successThreadTs.add(record.threadTs);
-    }
-  }
-
-  let goodFeedback = 0;
-  let badFeedback = 0;
-  for (const record of feedback) {
-    if (record.feedbackValue === 'good-feedback') {
-      goodFeedback += 1;
-    } else if (record.feedbackValue === 'bad-feedback') {
-      badFeedback += 1;
-    }
-  }
-  const feedbackTotal = goodFeedback + badFeedback;
-
-  const totalInteractions = interactions.length;
-  const uniqueUsers = successUserIds.size;
-
-  let newUsers = 0;
-  const currentUsers = [...successUserIds];
-  if (currentUsers.length > 0) {
-    const { resources: priorUsers } = await interactionsContainer.items
-      .query({
-        query: `SELECT DISTINCT VALUE i.userId
-         FROM interactions i
-         WHERE i.deploymentType = @deploymentType
-           AND i.timestamp < @startISO
-           AND i.status = 'success'
-           AND i.rateLimited = false
-           AND ARRAY_CONTAINS(@currentUsers, i.userId)`,
-        parameters: [
-          { name: '@deploymentType', value: deploymentType },
-          { name: '@startISO', value: startISO },
-          { name: '@currentUsers', value: currentUsers },
-        ],
-      })
-      .fetchAll();
-
-    const priorHistoryUsers = new Set(priorUsers);
-    for (const userId of currentUsers) {
-      if (!priorHistoryUsers.has(userId)) {
-        newUsers += 1;
-      }
-    }
-  }
-
-  const returningUsers = uniqueUsers - newUsers;
-
-  return {
-    totalInteractions,
-    uniqueUsers,
-    totalSessions: successThreadTs.size,
-    avgInteractionsPerUser: uniqueUsers > 0 ? successRecords / uniqueUsers : 0,
-    errorCount,
-    errorRate: totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0,
-    rateLimitedEvents,
-    goodFeedback,
-    badFeedback,
-    feedbackTotal,
-    positiveFeedbackPct: feedbackTotal > 0 ? (goodFeedback / feedbackTotal) * 100 : 0,
-    feedbackResponseRate: successRecords > 0 ? (feedbackTotal / successRecords) * 100 : 0,
-    newUsers,
-    returningUsers,
-    newUserPct: uniqueUsers > 0 ? (newUsers / uniqueUsers) * 100 : 0,
-  };
+/**
+ * Returns whole-window KPI totals for [startISO, endISO). Pass
+ * `usersContainer` to also get internal/external `segments`; if the
+ * directory can't be read, `segments` is null and the totals still return.
+ */
+export async function getKpiSummary(
+  interactionsContainer,
+  feedbackContainer,
+  deploymentType,
+  startISO,
+  endISO,
+  { usersContainer, warn } = {},
+) {
+  const activity = await fetchActivity(interactionsContainer, feedbackContainer, deploymentType, startISO, endISO);
+  const directory = await tryGetUserDirectory(usersContainer, activityUserIds(activity), warn);
+  return summarizePeriodKpis(activity, directory);
 }

@@ -107,7 +107,7 @@ describe('getWeeklyTrendSeries', () => {
     expect(weekA.goodFeedback).toBe(1);
     expect(weekA.badFeedback).toBe(0);
     expect(weekA.feedbackRatio).toBe(100);
-    expect(weekA.feedbackResponseRate).toBe(50); // 1 feedback / 2 successful records
+    expect(weekA.feedbackResponseRate).toBe(50); // 1 good/bad rating / 2 successful records
 
     expect(weekB.goodFeedback).toBe(0);
     expect(weekB.badFeedback).toBe(1);
@@ -154,6 +154,7 @@ describe('getWeeklyTrendSeries', () => {
     expect(weekA.usersWowPct).toBeNull();
     expect(weekA.interactionsWowPct).toBeNull();
     expect(weekA.errorRateWowPp).toBeNull();
+    expect(weekA.segments).toBeNull(); // no users container, so no segment breakdown
 
     expect(weekB.usersWowPct).toBe(200); // (3 - 1) / 1 * 100
     expect(weekB.interactionsWowPct).toBe(0); // (3 - 3) / 3 * 100
@@ -199,7 +200,9 @@ describe('getWeeklyTrendSeries', () => {
         { id: 'u4', email: 'four@external.org' },
       ],
     ]);
-    const weeks = await getWeeklyTrendSeries(interactions, feedback, deploymentType, startISO, endISO, users);
+    const weeks = await getWeeklyTrendSeries(interactions, feedback, deploymentType, startISO, endISO, {
+      usersContainer: users,
+    });
     expect(weeks[0].segments.internal).toMatchObject({
       uniqueUsers: 1,
       totalInteractions: 2,
@@ -216,5 +219,24 @@ describe('getWeeklyTrendSeries', () => {
     });
     expect(weeks[1].segments.unknown).toMatchObject({ uniqueUsers: 1, newUsers: 1, totalInteractions: 1 });
     expect(weeks[1].uniqueUsers).toBe(4);
+  });
+
+  it('falls back to unsegmented weeks and warns when the user directory cannot be read', async () => {
+    mockInteractionsContainer = makeQueryable([allInteractions, ['u4']]);
+    const warn = jest.fn();
+    const users = { items: { query: jest.fn(() => ({ fetchAll: jest.fn().mockRejectedValue(new Error('denied')) })) } };
+
+    const weeks = await getWeeklyTrendSeries(
+      mockInteractionsContainer,
+      mockFeedbackContainer,
+      deploymentType,
+      startISO,
+      endISO,
+      { usersContainer: users, warn },
+    );
+
+    expect(weeks).toHaveLength(2);
+    expect(weeks.every((week) => week.segments === null)).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('denied'));
   });
 });

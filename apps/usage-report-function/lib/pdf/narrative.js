@@ -3,6 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { hasSegmentActivity } from '../user-segments.js';
 import { formatWeekLabel } from './format.js';
 
 /**
@@ -17,23 +18,24 @@ import { formatWeekLabel } from './format.js';
 export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO, userSegments) {
   const periodStartDate = periodStartISO ? periodStartISO.split('T')[0] : 'the report start date';
 
-  const engagement = `During the report period, ${kpiSummary.uniqueUsers} unique users generated ${kpiSummary.totalSessions} sessions and ${kpiSummary.totalInteractions} interactions.`;
+  const engagement = `During the report period, ${kpiSummary.uniqueUsers} unique users generated ${kpiSummary.sessions} sessions and ${kpiSummary.totalInteractions} interactions.`;
 
   const newUserCallout = `${kpiSummary.newUsers} of those users were new (${kpiSummary.newUserPct.toFixed(1)}%), with no successful interactions before ${periodStartDate}.`;
 
   const rateLimitedPhrase =
-    kpiSummary.rateLimitedEvents === 0
-      ? 'no rate-limited events'
-      : `${kpiSummary.rateLimitedEvents} rate-limited events`;
-  const reliability = `Reliability recorded ${kpiSummary.errorCount} errors (${kpiSummary.errorRate.toFixed(1)}%) and ${rateLimitedPhrase}.`;
+    kpiSummary.rateLimited === 0 ? 'no rate-limited events' : `${kpiSummary.rateLimited} rate-limited events`;
+  const reliability = `Reliability recorded ${kpiSummary.errors} errors (${kpiSummary.errorRate.toFixed(1)}%) and ${rateLimitedPhrase}.`;
 
-  const feedback = `Feedback included ${kpiSummary.feedbackTotal} ratings (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad), with ${kpiSummary.positiveFeedbackPct.toFixed(1)}% positive.`;
+  const feedback = `Feedback included ${kpiSummary.feedbackTotal} ratings (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad), with ${kpiSummary.feedbackRatio.toFixed(1)}% positive.`;
 
   const bullets = [engagement, newUserCallout, reliability, feedback];
   if (userSegments) {
     const { internal, external, unknown } = userSegments;
+    const unknownPart = hasSegmentActivity(unknown)
+      ? `; unknown email: ${unknown.uniqueUsers} users and ${unknown.totalInteractions} interactions`
+      : '';
     bullets.push(
-      `Internal (@ed-fi.org): ${internal.uniqueUsers} users and ${internal.totalInteractions} interactions; external: ${external.uniqueUsers} users and ${external.totalInteractions} interactions; unknown email: ${unknown.uniqueUsers} users and ${unknown.totalInteractions} interactions.`,
+      `Internal (@ed-fi.org): ${internal.uniqueUsers} users and ${internal.totalInteractions} interactions; external: ${external.uniqueUsers} users and ${external.totalInteractions} interactions${unknownPart}.`,
     );
   }
   return bullets;
@@ -93,12 +95,12 @@ export function buildReliabilityTakeaways(kpiSummary, _weeklyTrend) {
   return [
     {
       signal: 'System error rate',
-      takeaway: `${kpiSummary.errorRate.toFixed(1)}% overall (${kpiSummary.errorCount} errors).`,
+      takeaway: `${kpiSummary.errorRate.toFixed(1)}% overall (${kpiSummary.errors} errors).`,
     },
-    { signal: 'Rate limiting', takeaway: `${kpiSummary.rateLimitedEvents} rate-limited events.` },
+    { signal: 'Rate limiting', takeaway: `${kpiSummary.rateLimited} rate-limited events.` },
     {
       signal: 'Feedback quality',
-      takeaway: `${kpiSummary.positiveFeedbackPct.toFixed(1)}% positive feedback overall (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad).`,
+      takeaway: `${kpiSummary.feedbackRatio.toFixed(1)}% positive feedback overall (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad).`,
     },
   ];
 }

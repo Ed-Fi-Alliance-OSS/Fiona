@@ -139,9 +139,9 @@ design, including this pipeline.
 
 ### How it fits together
 
-- The workflow runs on a cron a few hours before `REPORT_SCHEDULE` (both
-  compute the same `[oneWeekAgo, endOfReport)` window, so they describe the
-  same week), generates the PDF via
+- The workflow runs on a cron a few hours before `REPORT_SCHEDULE`, on the
+  same UTC day (both use `resolveWeeklyReportWindow`: the 7 whole UTC days
+  before that day, so they describe exactly the same records), generates the PDF via
   `scripts/generate-executive-report-artifact.js`, uploads it to
   `usage-reports/executive-report-<deploymentType>-<start>-to-<end>.pdf`,
   generates a 6-day SAS URL for it (the Azure AD user delegation SAS this
@@ -154,9 +154,9 @@ design, including this pipeline.
   without a link (with a warning logged) rather than blocking.
 - Trigger a run manually via the Actions tab (`workflow_dispatch`) to
   regenerate the PDF/link outside the schedule.
-- The PDF now includes individual feedback authors' email addresses. The SAS
-  URL in `latest-link.json` grants access to this personal data until it
-  expires; share the Slack message and URL only with authorized recipients.
+- The PDF labels feedback and top users only as Internal/External/Unknown;
+  it contains no email addresses. It still includes Slack user IDs and
+  feedback Q/A text, so share the SAS URL only with intended recipients.
 
 ## Testing
 
@@ -194,7 +194,8 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 ## Troubleshooting
 
 - **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `fiona` database
-- **Missing user segments:** Verify both report identities can read the `slack-users` container
+- **Missing user segments:** Reports fall back to unsegmented totals (with a warning logged) when
+  `slack-users` can't be read. Verify both report identities can read the `slack-users` container
   in `chatbot`, and the Slack user loader has populated email addresses.
 - **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret
 - **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`

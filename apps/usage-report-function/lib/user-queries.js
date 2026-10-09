@@ -25,6 +25,11 @@ export async function getTopUsersByInteractions(interactionsContainer, deploymen
     })
     .fetchAll();
 
+  return summarizeTopUsersByInteractions(interactions, limit);
+}
+
+/** Per-user interaction aggregates for already-fetched interaction records. */
+export function summarizeTopUsersByInteractions(interactions, limit = 10) {
   const userStats = new Map();
 
   for (const record of interactions) {
@@ -92,6 +97,11 @@ export async function getTopUsersByFeedback(feedbackContainer, deploymentType, s
     })
     .fetchAll();
 
+  return summarizeTopUsersByFeedback(feedback, limit);
+}
+
+/** Per-user feedback aggregates for already-fetched feedback records. */
+export function summarizeTopUsersByFeedback(feedback, limit = 10) {
   const userStats = new Map();
 
   for (const record of feedback) {

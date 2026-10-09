@@ -3,10 +3,11 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-// Generates the executive report PDF for the same [oneWeekAgo, endOfReport)
-// window WeeklyReportTrigger computes, and writes it plus a small metadata
+// Generates the executive report PDF for the same 7 whole UTC days
+// WeeklyReportTrigger reports on (resolveWeeklyReportWindow), and writes it plus a small metadata
 // file describing it. Run by the generate-usage-report-pdf GitHub Actions
-// workflow shortly before REPORT_SCHEDULE fires, so the two windows line up.
+// workflow shortly before REPORT_SCHEDULE fires on the same UTC day, so the
+// two windows are identical.
 // The workflow's remaining steps (blob upload, SAS generation, pointer
 // write) are plain `az` CLI calls, not part of this script.
 
@@ -14,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CosmosClient } from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
+import { resolveWeeklyReportWindow } from '../lib/activity-records.js';
 import { generateExecutiveReportPdf } from '../lib/pdf/generate-executive-report-pdf.js';
 import { buildExecutiveReportData } from '../lib/report-data.js';
 
@@ -30,13 +32,9 @@ if (!COSMOS_ENDPOINT) {
 }
 
 async function main() {
-  // Same lookback formula as WeeklyReportTrigger/index.js, so the PDF
-  // and that week's Slack KPI text describe the same Mon-Sun window.
-  const now = new Date();
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const endOfReport = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const startDate = oneWeekAgo.toISOString().split('T')[0];
-  const endDate = endOfReport.toISOString().split('T')[0];
+  // Same window as WeeklyReportTrigger/index.js, so the PDF and that
+  // week's Slack KPI text describe exactly the same records.
+  const { startISO, endISO, startDate, endDate } = resolveWeeklyReportWindow(new Date());
 
   const cosmosClient = COSMOS_ENDPOINT.includes('AccountKey=')
     ? new CosmosClient(COSMOS_ENDPOINT)
@@ -52,8 +50,8 @@ async function main() {
     feedbackContainer,
     usersContainer,
     deploymentType: DEPLOYMENT_TYPE,
-    startISO: oneWeekAgo.toISOString(),
-    endISO: endOfReport.toISOString(),
+    startISO,
+    endISO,
   });
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });

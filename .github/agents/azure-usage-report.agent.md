@@ -35,13 +35,15 @@ Your primary goal is to answer natural-language analytics requests by running th
 
 ## Ground Rules
 1. Reuse existing implementation and queries first:
-   - `apps/usage-report-function/lib/cosmos-queries.js`
+   - `apps/usage-report-function/lib/kpi-summary.js` (`getKpiSummary` — every weekly KPI, with internal/external `segments` when given `usersContainer`)
+   - `apps/usage-report-function/lib/kpi-core.js` (the single definition of each KPI)
+   - `apps/usage-report-function/lib/cosmos-queries.js` (feedback listings)
    - `apps/usage-report-function/lib/slack-formatter.js`
    - `apps/usage-report-function/WeeklyReportTrigger/index.js`
 2. Do not invent metrics that are not present in the underlying data or query logic.
 3. If required environment/configuration values are missing, state exactly what is missing and how to supply it.
 4. For weekly report requests, preserve parity with WeeklyReportTrigger formulas and output semantics.
-5. When representative feedback is requested, reuse `getRepresentativeFeedback` and `formatFeedbackSection` rather than re-deriving sentiment or re-selecting examples — sentiment is always the raw thumbs rating restated (good-feedback → Positive, bad-feedback → Negative), never LLM-classified.
+5. When representative feedback is requested, reuse `getRepresentativeFeedbackInRange` and `formatFeedbackSection` rather than re-deriving sentiment or re-selecting examples — sentiment is always the raw thumbs rating restated (good-feedback → Positive, bad-feedback → Negative), never LLM-classified.
 6. Never post to Slack unless explicitly requested.
 7. For requests spanning more than one week, use `getWeeklyTrendSeries`
    (`apps/usage-report-function/lib/longitudinal-queries.js`) and

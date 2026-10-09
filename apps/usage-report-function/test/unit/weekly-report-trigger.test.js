@@ -11,20 +11,11 @@ const MockCosmosClient = jest.fn();
 const MockDefaultAzureCredential = jest.fn();
 const mockAppTimer = jest.fn();
 const mockAxiosPost = jest.fn();
-const mockGetDistinctUsers = jest.fn();
-const mockGetSessionCount = jest.fn();
-const mockGetTotalInteractions = jest.fn();
-const mockGetErrorCount = jest.fn();
-const mockGetRateLimitedCount = jest.fn();
-const mockGetFeedbackBreakdown = jest.fn();
-const mockGetAvgInteractionsPerUser = jest.fn();
-const mockGetFeedbackResponseRate = jest.fn();
-const mockGetNewUsersCount = jest.fn();
-const mockGetRepresentativeFeedback = jest.fn();
+const mockGetKpiSummary = jest.fn();
+const mockGetRepresentativeFeedbackInRange = jest.fn();
 const mockGetSlackWebhookUrl = jest.fn();
 const mockGetLatestReportLink = jest.fn();
 const mockFormatWeeklyReport = jest.fn();
-const mockGetUserSegmentKpis = jest.fn();
 
 // -- Register all mocks before importing the module under test --
 
@@ -48,16 +39,10 @@ jest.unstable_mockModule('axios', () => ({
   },
 }));
 jest.unstable_mockModule('../../lib/cosmos-queries.js', () => ({
-  getDistinctUsers: mockGetDistinctUsers,
-  getSessionCount: mockGetSessionCount,
-  getTotalInteractions: mockGetTotalInteractions,
-  getErrorCount: mockGetErrorCount,
-  getRateLimitedCount: mockGetRateLimitedCount,
-  getFeedbackBreakdown: mockGetFeedbackBreakdown,
-  getAvgInteractionsPerUser: mockGetAvgInteractionsPerUser,
-  getFeedbackResponseRate: mockGetFeedbackResponseRate,
-  getNewUsersCount: mockGetNewUsersCount,
-  getRepresentativeFeedback: mockGetRepresentativeFeedback,
+  getRepresentativeFeedbackInRange: mockGetRepresentativeFeedbackInRange,
+}));
+jest.unstable_mockModule('../../lib/kpi-summary.js', () => ({
+  getKpiSummary: mockGetKpiSummary,
 }));
 jest.unstable_mockModule('../../lib/key-vault-client.js', () => ({
   getSlackWebhookUrl: mockGetSlackWebhookUrl,
@@ -67,9 +52,6 @@ jest.unstable_mockModule('../../lib/report-link.js', () => ({
 }));
 jest.unstable_mockModule('../../lib/slack-formatter.js', () => ({
   formatWeeklyReport: mockFormatWeeklyReport,
-}));
-jest.unstable_mockModule('../../lib/user-segments.js', () => ({
-  getUserSegmentKpis: mockGetUserSegmentKpis,
 }));
 
 // Set required env vars before the module loads and captures them
@@ -100,18 +82,48 @@ const [[cosmosClientConstructorArgs]] = MockCosmosClient.mock.calls;
 // -- Test helpers --
 
 const FIXED_NOW = new Date('2026-04-02T12:00:00.000Z');
-// 7 days before now
-const EXPECTED_ONE_WEEK_AGO_ISO = '2026-03-26T12:00:00.000Z';
-// 1 day before now (end of report period)
-const EXPECTED_END_DATE = '2026-04-01';
+// The 7 whole UTC days before the day the trigger runs
+const EXPECTED_START_ISO = '2026-03-26T00:00:00.000Z';
+const EXPECTED_END_ISO = '2026-04-02T00:00:00.000Z';
 const EXPECTED_START_DATE = '2026-03-26';
+const EXPECTED_END_DATE = '2026-04-01';
+
+const KPI_SUMMARY = {
+  uniqueUsers: 42,
+  newUsers: 15,
+  returningUsers: 27,
+  newUserPct: 35.7,
+  repeatRate: 64.3,
+  sessions: 118,
+  totalInteractions: 347,
+  avgInteractionsPerUser: 8.3,
+  errors: 8,
+  errorRate: 2.3,
+  rateLimited: 6,
+  goodFeedback: 29,
+  badFeedback: 7,
+  feedbackTotal: 36,
+  feedbackRatio: 80.6,
+  feedbackResponseRate: 9.8,
+  segments: null,
+};
+
+const REPRESENTATIVE_FEEDBACK = [
+  {
+    userMessage: 'How do I reset my password?',
+    botResponse: 'Go to settings.',
+    value: 'good-feedback',
+    reason: 'Clear and fast',
+    hasReason: true,
+  },
+];
 
 function makeLogger() {
   return Object.assign(jest.fn(), { error: jest.fn() });
 }
 
 function makeContext(logger) {
-  return { log: logger, error: jest.fn() };
+  return { log: logger, error: jest.fn(), warn: jest.fn() };
 }
 
 // -- Tests --
@@ -147,29 +159,8 @@ describe('WeeklyReportTrigger', () => {
       logger = makeLogger();
       context = makeContext(logger);
 
-      // Default happy-path query results
-      mockGetDistinctUsers.mockResolvedValue(42);
-      mockGetSessionCount.mockResolvedValue(118);
-      mockGetTotalInteractions.mockResolvedValue(347);
-      mockGetErrorCount.mockResolvedValue(8);
-      mockGetRateLimitedCount.mockResolvedValue(6);
-      mockGetFeedbackBreakdown.mockResolvedValue([
-        { feedbackValue: 'good-feedback', count: 29 },
-        { feedbackValue: 'bad-feedback', count: 7 },
-      ]);
-      mockGetAvgInteractionsPerUser.mockResolvedValue(8.3);
-      mockGetFeedbackResponseRate.mockResolvedValue(9.8);
-      mockGetNewUsersCount.mockResolvedValue(15);
-      mockGetRepresentativeFeedback.mockResolvedValue([
-        {
-          userMessage: 'How do I reset my password?',
-          botResponse: 'Go to settings.',
-          value: 'good-feedback',
-          reason: 'Clear and fast',
-          hasReason: true,
-        },
-      ]);
-      mockGetUserSegmentKpis.mockResolvedValue({ internal: {}, external: {}, unknown: {} });
+      mockGetKpiSummary.mockResolvedValue(KPI_SUMMARY);
+      mockGetRepresentativeFeedbackInRange.mockResolvedValue(REPRESENTATIVE_FEEDBACK);
 
       mockGetSlackWebhookUrl.mockResolvedValue('https://hooks.slack.com/test');
       mockGetLatestReportLink.mockResolvedValue(null);
@@ -186,126 +177,37 @@ describe('WeeklyReportTrigger', () => {
       expect(logger).toHaveBeenCalledWith('Weekly report function triggered');
     });
 
-    it('passes all 10 KPI queries to Promise.all', async () => {
+    it('summarizes KPIs once over the 7 whole UTC days before today, with segments', async () => {
       await handler({}, context);
-      expect(mockGetDistinctUsers).toHaveBeenCalledTimes(1);
-      expect(mockGetSessionCount).toHaveBeenCalledTimes(1);
-      expect(mockGetTotalInteractions).toHaveBeenCalledTimes(1);
-      expect(mockGetErrorCount).toHaveBeenCalledTimes(1);
-      expect(mockGetRateLimitedCount).toHaveBeenCalledTimes(1);
-      expect(mockGetFeedbackBreakdown).toHaveBeenCalledTimes(1);
-      expect(mockGetAvgInteractionsPerUser).toHaveBeenCalledTimes(1);
-      expect(mockGetFeedbackResponseRate).toHaveBeenCalledTimes(1);
-      expect(mockGetNewUsersCount).toHaveBeenCalledTimes(1);
-      expect(mockGetRepresentativeFeedback).toHaveBeenCalledTimes(1);
-      expect(mockGetUserSegmentKpis).toHaveBeenCalledWith(
+      expect(mockGetKpiSummary).toHaveBeenCalledTimes(1);
+      expect(mockGetKpiSummary).toHaveBeenCalledWith(
         interactionsContainer,
         feedbackContainer,
-        usersContainer,
         'production',
-        EXPECTED_ONE_WEEK_AGO_ISO,
-        FIXED_NOW.toISOString(),
+        EXPECTED_START_ISO,
+        EXPECTED_END_ISO,
+        { usersContainer, warn: expect.any(Function) },
       );
     });
 
-    it('queries with the correct deployment type and lookback window', async () => {
+    it('routes segment-lookup warnings to context.warn', async () => {
       await handler({}, context);
-      expect(mockGetDistinctUsers).toHaveBeenCalledWith(expect.anything(), 'production', EXPECTED_ONE_WEEK_AGO_ISO);
-      expect(mockGetSessionCount).toHaveBeenCalledWith(expect.anything(), 'production', EXPECTED_ONE_WEEK_AGO_ISO);
+      const [, , , , , { warn }] = mockGetKpiSummary.mock.calls[0];
+      warn('directory down');
+      expect(context.warn).toHaveBeenCalledWith('directory down');
     });
 
-    it('calculates errorRate as percentage of totalInteractions', async () => {
-      mockGetTotalInteractions.mockResolvedValue(200);
-      mockGetErrorCount.mockResolvedValue(10);
-
+    it('fetches representative feedback for the same window', async () => {
       await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.errorRate).toBeCloseTo(5.0);
+      expect(mockGetRepresentativeFeedbackInRange).toHaveBeenCalledWith(
+        feedbackContainer,
+        'production',
+        EXPECTED_START_ISO,
+        EXPECTED_END_ISO,
+      );
     });
 
-    it('calculates errorRate as 0 when there are no total interactions', async () => {
-      mockGetTotalInteractions.mockResolvedValue(0);
-      mockGetErrorCount.mockResolvedValue(0);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.errorRate).toBe(0);
-    });
-
-    it('calculates feedbackRatio as good / (good + bad) * 100', async () => {
-      mockGetFeedbackBreakdown.mockResolvedValue([
-        { feedbackValue: 'good-feedback', count: 3 },
-        { feedbackValue: 'bad-feedback', count: 1 },
-      ]);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.feedbackRatio).toBeCloseTo(75.0);
-    });
-
-    it('calculates feedbackRatio as 0 when there is no feedback', async () => {
-      mockGetFeedbackBreakdown.mockResolvedValue([]);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.feedbackRatio).toBe(0);
-    });
-
-    it('calculates newUserPercentage as newUsersCount / distinctUsers * 100', async () => {
-      mockGetDistinctUsers.mockResolvedValue(50);
-      mockGetNewUsersCount.mockResolvedValue(10);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.newUserPercentage).toBeCloseTo(20.0);
-    });
-
-    it('calculates newUserPercentage as 0 when there are no distinct users', async () => {
-      mockGetDistinctUsers.mockResolvedValue(0);
-      mockGetNewUsersCount.mockResolvedValue(0);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.newUserPercentage).toBe(0);
-    });
-
-    it('calculates returningUsersCount as distinctUsers minus newUsersCount', async () => {
-      mockGetDistinctUsers.mockResolvedValue(50);
-      mockGetNewUsersCount.mockResolvedValue(10);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.returningUsersCount).toBe(40);
-    });
-
-    it('calculates repeatRate as 100 minus newUserPercentage', async () => {
-      mockGetDistinctUsers.mockResolvedValue(50);
-      mockGetNewUsersCount.mockResolvedValue(10);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.repeatRate).toBeCloseTo(80.0);
-    });
-
-    it('calculates repeatRate as 0 when there are no distinct users', async () => {
-      mockGetDistinctUsers.mockResolvedValue(0);
-      mockGetNewUsersCount.mockResolvedValue(0);
-
-      await handler({}, context);
-
-      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.repeatRate).toBe(0);
-    });
-
-    it('assembles KPIs with correct date range', async () => {
+    it('labels the report with the first and last day of the queried window', async () => {
       await handler({}, context);
 
       const [kpis] = mockFormatWeeklyReport.mock.calls[0];
@@ -313,39 +215,34 @@ describe('WeeklyReportTrigger', () => {
       expect(kpis.endDate).toBe(EXPECTED_END_DATE);
     });
 
-    it('passes all KPI values to formatWeeklyReport', async () => {
+    it('uses the same whole-day window regardless of the time of day it runs', async () => {
+      jest.setSystemTime(new Date('2026-04-02T23:59:59.999Z'));
+      await handler({}, context);
+      expect(mockGetKpiSummary.mock.calls[0].slice(3, 5)).toEqual([EXPECTED_START_ISO, EXPECTED_END_ISO]);
+    });
+
+    it('passes the KPI summary through to formatWeeklyReport unchanged', async () => {
       await handler({}, context);
 
       const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis).toMatchObject({
-        distinctUsers: 42,
-        sessionCount: 118,
-        totalInteractions: 347,
-        errorCount: 8,
-        rateLimitedCount: 6,
-        goodFeedback: 29,
-        badFeedback: 7,
-        avgInteractionsPerUser: 8.3,
-        feedbackResponseRate: 9.8,
-        newUsersCount: 15,
-        returningUsersCount: 27,
-        environment: 'production',
-      });
+      expect(kpis).toMatchObject({ ...KPI_SUMMARY, environment: 'production' });
+    });
+
+    it('passes segment KPIs through to formatWeeklyReport when available', async () => {
+      const segments = { internal: { uniqueUsers: 1 }, external: { uniqueUsers: 2 }, unknown: { uniqueUsers: 0 } };
+      mockGetKpiSummary.mockResolvedValue({ ...KPI_SUMMARY, segments });
+
+      await handler({}, context);
+
+      const [kpis] = mockFormatWeeklyReport.mock.calls[0];
+      expect(kpis.segments).toBe(segments);
     });
 
     it('passes representativeFeedback through to formatWeeklyReport', async () => {
       await handler({}, context);
 
       const [kpis] = mockFormatWeeklyReport.mock.calls[0];
-      expect(kpis.representativeFeedback).toEqual([
-        {
-          userMessage: 'How do I reset my password?',
-          botResponse: 'Go to settings.',
-          value: 'good-feedback',
-          reason: 'Clear and fast',
-          hasReason: true,
-        },
-      ]);
+      expect(kpis.representativeFeedback).toEqual(REPRESENTATIVE_FEEDBACK);
     });
 
     it('fetches the latest report link with the computed deployment type and end date', async () => {
@@ -387,7 +284,7 @@ describe('WeeklyReportTrigger', () => {
     });
 
     it('catches errors and logs them without rethrowing', async () => {
-      mockGetDistinctUsers.mockRejectedValue(new Error('Cosmos unavailable'));
+      mockGetKpiSummary.mockRejectedValue(new Error('Cosmos unavailable'));
 
       await expect(handler({}, context)).resolves.toBeUndefined();
       expect(context.error).toHaveBeenCalledWith(expect.stringContaining('Cosmos unavailable'));

@@ -3,6 +3,9 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { ADOPTION_METRICS, RELIABILITY_METRICS } from './kpi-core.js';
+import { hasSegmentActivity, segmentColumns } from './user-segments.js';
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function truncate(text, maxLength = 150) {
@@ -45,59 +48,8 @@ export function formatFeedbackSection(feedbackItems) {
   return lines.join('\n');
 }
 
-function formatUsageMatrix(kpis, segments) {
-  const { internal, external, unknown } = segments;
-  const includeUnknown = [
-    unknown.uniqueUsers,
-    unknown.sessions,
-    unknown.totalInteractions,
-    unknown.errors,
-    unknown.rateLimited,
-    unknown.goodFeedback,
-    unknown.badFeedback,
-  ].some((count) => count > 0);
-  const columns = [
-    ['Internal', internal],
-    ['External', external],
-    ...(includeUnknown ? [['Unknown', unknown]] : []),
-    [
-      'Total',
-      {
-        uniqueUsers: kpis.distinctUsers,
-        newUsers: kpis.newUsersCount,
-        newUserPct: kpis.newUserPercentage,
-        returningUsers: kpis.returningUsersCount,
-        repeatRate: kpis.repeatRate,
-        sessions: kpis.sessionCount,
-        totalInteractions: kpis.totalInteractions,
-        errors: kpis.errorCount,
-        errorRate: kpis.errorRate,
-        rateLimited: kpis.rateLimitedCount,
-        goodFeedback: kpis.goodFeedback,
-        badFeedback: kpis.badFeedback,
-        feedbackRatio: kpis.feedbackRatio,
-        avgInteractionsPerUser: kpis.avgInteractionsPerUser,
-        feedbackResponseRate: kpis.feedbackResponseRate,
-      },
-    ],
-  ];
-  const rows = [
-    ['Unique users', (s) => s.uniqueUsers],
-    ['New users', (s) => s.newUsers],
-    ['New user %', (s) => `${s.newUserPct.toFixed(1)}%`],
-    ['Returning users', (s) => s.returningUsers],
-    ['Repeat rate', (s) => `${s.repeatRate.toFixed(1)}%`],
-    ['Sessions', (s) => s.sessions],
-    ['Interactions', (s) => s.totalInteractions],
-    ['Errors', (s) => s.errors],
-    ['Error rate', (s) => `${s.errorRate.toFixed(1)}%`],
-    ['Rate-limited', (s) => s.rateLimited],
-    ['Good feedback', (s) => s.goodFeedback],
-    ['Bad feedback', (s) => s.badFeedback],
-    ['Positive feedback', (s) => `${s.feedbackRatio.toFixed(1)}%`],
-    ['Avg interactions/user', (s) => s.avgInteractionsPerUser.toFixed(1)],
-    ['Feedback response', (s) => `${s.feedbackResponseRate.toFixed(1)}%`],
-  ];
+function formatUsageMatrix(kpis) {
+  const columns = segmentColumns(kpis.segments, kpis);
   const cell = (value, width) => String(value).padEnd(width);
   const header = cell('Metric', 24) + columns.map(([label]) => cell(label, 12)).join('');
   return [
@@ -105,84 +57,49 @@ function formatUsageMatrix(kpis, segments) {
     '```',
     header.trimEnd(),
     '-'.repeat(header.trimEnd().length),
-    ...rows.map(([label, value]) =>
-      (cell(label, 24) + columns.map(([, segment]) => cell(value(segment), 12)).join('')).trimEnd(),
+    ...[...ADOPTION_METRICS, ...RELIABILITY_METRICS].map(([label, value]) =>
+      (cell(label, 24) + columns.map(([, kpi]) => cell(value(kpi), 12)).join('')).trimEnd(),
     ),
     '```',
-    `_Internal: @ed-fi.org${includeUnknown ? '; Unknown: missing/invalid email' : ''}_`,
+    `_Internal: @ed-fi.org${hasSegmentActivity(kpis.segments.unknown) ? '; Unknown: missing/invalid email' : ''}_`,
   ];
 }
 
 /**
  * Formats a weekly usage report as a Slack message string.
  *
- * @param {Object} kpis
- * @param {number} kpis.distinctUsers
- * @param {number} kpis.sessionCount
- * @param {number} kpis.totalInteractions
- * @param {number} kpis.errorCount
- * @param {number} kpis.errorRate
- * @param {number} kpis.rateLimitedCount
- * @param {number} kpis.goodFeedback
- * @param {number} kpis.badFeedback
- * @param {number} kpis.feedbackRatio
- * @param {number} kpis.avgInteractionsPerUser
- * @param {number} kpis.feedbackResponseRate
- * @param {number} kpis.newUsersCount
- * @param {number} kpis.newUserPercentage
- * @param {number} kpis.returningUsersCount
- * @param {number} kpis.repeatRate
+ * @param {Object} kpis  a `getKpiSummary` result (see kpi-core.js for fields), plus:
+ * @param {Object|null} [kpis.segments]  per-segment KPIs; renders a segment matrix when present
  * @param {string} kpis.environment
  * @param {string} kpis.startDate  ISO date string (YYYY-MM-DD)
  * @param {string} kpis.endDate    ISO date string (YYYY-MM-DD)
+ * @param {Array<Object>} [kpis.representativeFeedback]
  * @param {string|null} [kpis.reportUrl]  Link to the full executive PDF for this week, if available
  * @returns {string}
  */
 export function formatWeeklyReport(kpis) {
-  const {
-    distinctUsers,
-    sessionCount,
-    totalInteractions,
-    errorCount,
-    errorRate,
-    rateLimitedCount,
-    goodFeedback,
-    badFeedback,
-    feedbackRatio,
-    avgInteractionsPerUser,
-    feedbackResponseRate,
-    newUsersCount,
-    newUserPercentage,
-    returningUsersCount,
-    repeatRate,
-    environment,
-    startDate,
-    endDate,
-    representativeFeedback,
-    reportUrl,
-    userSegments,
-  } = kpis;
+  const { environment, startDate, endDate, representativeFeedback, reportUrl, segments } = kpis;
 
   const weekLabel = formatWeekLabel(startDate, endDate);
 
   const lines = [`📊 *Fiona Usage Report* — Week of ${weekLabel}`, ''];
 
-  if (userSegments) {
-    lines.push(...formatUsageMatrix(kpis, userSegments));
+  if (segments) {
+    lines.push(...formatUsageMatrix(kpis));
   } else {
     lines.push(
-      `👤 Unique users:           ${distinctUsers} (🔁 ${returningUsersCount} returning, ${repeatRate.toFixed(1)}% repeat rate)`,
-      `🆕 New users:              ${newUsersCount} (${newUserPercentage.toFixed(1)}% of unique users)`,
-      `💬 Sessions:               ${sessionCount}`,
-      `📨 Total interactions:     ${totalInteractions}`,
-      `⛔ Errors:                 ${errorCount} (${errorRate.toFixed(1)}% error rate)`,
-      `🚫 Rate-limited:           ${rateLimitedCount}`,
+      `👤 Unique users:           ${kpis.uniqueUsers} (🔁 ${kpis.returningUsers} returning, ${kpis.repeatRate.toFixed(1)}% repeat rate)`,
+      `🆕 New users:              ${kpis.newUsers} (${kpis.newUserPct.toFixed(1)}% of unique users)`,
+      `💬 Sessions:               ${kpis.sessions}`,
+      `📨 Total interactions:     ${kpis.totalInteractions}`,
+      `⛔ Errors:                 ${kpis.errors} (${kpis.errorRate.toFixed(1)}% error rate)`,
+      `🚫 Rate-limited:           ${kpis.rateLimited}`,
       '',
-      `👍 Good feedback:          ${goodFeedback}`,
-      `👎 Bad feedback:           ${badFeedback}`,
-      `📈 Feedback ratio:         ${feedbackRatio.toFixed(1)}% positive`,
-      `📊 Avg interactions/user:  ${avgInteractionsPerUser.toFixed(1)}`,
-      `📝 Feedback response rate: ${feedbackResponseRate.toFixed(1)}%`,
+      `👍 Good feedback:          ${kpis.goodFeedback}`,
+      `👎 Bad feedback:           ${kpis.badFeedback}`,
+      `📈 Feedback ratio:         ${kpis.feedbackRatio.toFixed(1)}% positive`,
+      `📊 Avg interactions/user:  ${kpis.avgInteractionsPerUser.toFixed(1)}`,
+      `📝 Feedback response rate: ${kpis.feedbackResponseRate.toFixed(1)}%`,
     );
   }
   lines.push('', `_Environment: ${environment} | Generated by Fiona Analytics_`);

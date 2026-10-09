@@ -7,22 +7,12 @@ import { CosmosClient } from '@azure/cosmos';
 import { app } from '@azure/functions';
 import { DefaultAzureCredential } from '@azure/identity';
 import axios from 'axios';
-import {
-  getAvgInteractionsPerUser,
-  getDistinctUsers,
-  getErrorCount,
-  getFeedbackBreakdown,
-  getFeedbackResponseRate,
-  getNewUsersCount,
-  getRateLimitedCount,
-  getRepresentativeFeedback,
-  getSessionCount,
-  getTotalInteractions,
-} from '../lib/cosmos-queries.js';
+import { resolveWeeklyReportWindow } from '../lib/activity-records.js';
+import { getRepresentativeFeedbackInRange } from '../lib/cosmos-queries.js';
 import { getSlackWebhookUrl } from '../lib/key-vault-client.js';
+import { getKpiSummary } from '../lib/kpi-summary.js';
 import { getLatestReportLink } from '../lib/report-link.js';
 import { formatWeeklyReport } from '../lib/slack-formatter.js';
-import { getUserSegmentKpis } from '../lib/user-segments.js';
 
 // Configure axios instance with timeout and retry policy
 const axiosInstance = axios.create({
@@ -93,64 +83,22 @@ app.timer('WeeklyReportTrigger', {
     logger('Weekly report function triggered');
 
     try {
-      // Calculate lookback window (past 7 days)
-      const now = new Date();
-      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const oneWeekAgoISO = oneWeekAgo.toISOString();
+      // Every figure below covers the same 7 whole UTC days shown in the report label
+      const { startISO, endISO, startDate, endDate } = resolveWeeklyReportWindow(new Date());
 
-      // Query all KPIs in parallel
-      logger('Querying KPIs from Cosmos DB...');
-      const [
-        distinctUsers,
-        sessionCount,
-        totalInteractions,
-        errorCount,
-        rateLimitedCount,
-        feedbackBreakdown,
-        avgInteractionsPerUser,
-        feedbackResponseRate,
-        newUsersCount,
-        representativeFeedback,
-        userSegments,
-      ] = await Promise.all([
-        getDistinctUsers(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getSessionCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getTotalInteractions(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getErrorCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getRateLimitedCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getFeedbackBreakdown(feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getAvgInteractionsPerUser(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getFeedbackResponseRate(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getNewUsersCount(interactionsContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getRepresentativeFeedback(feedbackContainer, DEPLOYMENT_TYPE, oneWeekAgoISO),
-        getUserSegmentKpis(
-          interactionsContainer,
-          feedbackContainer,
+      logger(`Querying KPIs from Cosmos DB for [${startISO}, ${endISO})...`);
+      const [kpiSummary, representativeFeedback] = await Promise.all([
+        getKpiSummary(interactionsContainer, feedbackContainer, DEPLOYMENT_TYPE, startISO, endISO, {
           usersContainer,
-          DEPLOYMENT_TYPE,
-          oneWeekAgoISO,
-          now.toISOString(),
-        ),
+          warn: context.warn.bind(context),
+        }),
+        getRepresentativeFeedbackInRange(feedbackContainer, DEPLOYMENT_TYPE, startISO, endISO),
       ]);
 
       logger(
-        `Session Count: ${sessionCount}, Total Interactions: ${totalInteractions}, Distinct Users: ${distinctUsers}`,
+        `Sessions: ${kpiSummary.sessions}, Total Interactions: ${kpiSummary.totalInteractions}, Unique Users: ${kpiSummary.uniqueUsers}`,
       );
-      logger(`Error Count: ${errorCount}, Rate Limited Count: ${rateLimitedCount}`);
-
-      // Parse feedback counts
-      const goodFeedback = feedbackBreakdown.find((f) => f.feedbackValue === 'good-feedback')?.count ?? 0;
-      const badFeedback = feedbackBreakdown.find((f) => f.feedbackValue === 'bad-feedback')?.count ?? 0;
-      const feedbackRatio = goodFeedback + badFeedback > 0 ? (goodFeedback / (goodFeedback + badFeedback)) * 100 : 0;
-      const errorRate = totalInteractions > 0 ? (errorCount / totalInteractions) * 100 : 0;
-      const newUserPercentage = distinctUsers > 0 ? (newUsersCount / distinctUsers) * 100 : 0;
-      const returningUsersCount = distinctUsers - newUsersCount;
-      const repeatRate = distinctUsers > 0 ? 100 - newUserPercentage : 0;
-
-      // Build week label dates
-      const endOfReport = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const startDate = oneWeekAgo.toISOString().split('T')[0];
-      const endDate = endOfReport.toISOString().split('T')[0];
+      logger(`Errors: ${kpiSummary.errors}, Rate Limited: ${kpiSummary.rateLimited}`);
 
       const reportUrl = await getLatestReportLink(
         { deploymentType: DEPLOYMENT_TYPE, weekEnd: endDate },
@@ -158,26 +106,11 @@ app.timer('WeeklyReportTrigger', {
       );
 
       const kpis = {
-        distinctUsers,
-        sessionCount,
-        totalInteractions,
-        errorCount,
-        errorRate,
-        rateLimitedCount,
-        goodFeedback,
-        badFeedback,
-        feedbackRatio,
-        avgInteractionsPerUser,
-        feedbackResponseRate,
-        newUsersCount,
-        newUserPercentage,
-        returningUsersCount,
-        repeatRate,
+        ...kpiSummary,
         environment: DEPLOYMENT_TYPE,
         startDate,
         endDate,
         representativeFeedback,
-        userSegments,
         reportUrl,
       };
 

@@ -3,20 +3,20 @@ import { formatFeedbackSection, formatLongitudinalReport, formatWeeklyReport } f
 
 describe('formatWeeklyReport', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
@@ -48,7 +48,7 @@ describe('formatWeeklyReport', () => {
     };
     const message = formatWeeklyReport({
       ...baseKpis,
-      userSegments: { internal: segment, external: segment, unknown: segment },
+      segments: { internal: segment, external: segment, unknown: segment },
     });
     expect(message).toMatch(/Metric\s+Internal\s+External\s+Unknown\s+Total/);
     expect(message).toMatch(/Unique users\s+1\s+1\s+1\s+42/);
@@ -78,7 +78,7 @@ describe('formatWeeklyReport', () => {
     };
     const message = formatWeeklyReport({
       ...baseKpis,
-      userSegments: { internal: empty, external: empty, unknown: empty },
+      segments: { internal: empty, external: empty, unknown: empty },
     });
     expect(message).toMatch(/Metric\s+Internal\s+External\s+Total/);
     expect(message).not.toMatch(/Metric\s+Internal\s+External\s+Unknown/);
@@ -138,20 +138,20 @@ describe('formatWeeklyReport', () => {
 
   it('formats zero values without errors', () => {
     const zeroKpis = {
-      distinctUsers: 0,
-      sessionCount: 0,
+      uniqueUsers: 0,
+      sessions: 0,
       totalInteractions: 0,
-      errorCount: 0,
+      errors: 0,
       errorRate: 0,
-      rateLimitedCount: 0,
+      rateLimited: 0,
       goodFeedback: 0,
       badFeedback: 0,
       feedbackRatio: 0,
       avgInteractionsPerUser: 0,
       feedbackResponseRate: 0,
-      newUsersCount: 0,
-      newUserPercentage: 0,
-      returningUsersCount: 0,
+      newUsers: 0,
+      newUserPct: 0,
+      returningUsers: 0,
       repeatRate: 0,
       environment: 'insiders',
       startDate: '2026-03-10',
@@ -268,20 +268,20 @@ describe('formatFeedbackSection', () => {
 
 describe('formatWeeklyReport with representativeFeedback', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
@@ -488,20 +488,20 @@ describe('formatFeedbackSection', () => {
 
 describe('formatWeeklyReport with representativeFeedback', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
