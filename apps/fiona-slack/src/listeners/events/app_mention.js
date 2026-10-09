@@ -86,7 +86,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (!text) {
         markInteractionRecorded();
         await threadedSay(
-          "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi standards, documentation, or implementations.",
+          "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about the Ed-Fi Data Standard, Ed-Fi documentation, or Ed-Fi implementations.",
         );
         return;
       }

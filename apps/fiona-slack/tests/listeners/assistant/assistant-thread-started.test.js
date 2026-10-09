@@ -34,6 +34,9 @@ describe('assistantThreadStarted', () => {
     const [greeting] = mockSay.mock.calls[0];
     expect(typeof greeting).toBe('string');
     expect(greeting.length).toBeGreaterThan(0);
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(greeting).toContain('the Ed-Fi Data Standard');
+    expect(greeting).not.toMatch(/about Ed-Fi,/);
   });
 
   it('greeting includes a discovery hint directing users to type "help"', async () => {

@@ -997,7 +997,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
-    expect(result).toHaveProperty('systemPromptVersion', 'v3');
+    expect(result).toHaveProperty('systemPromptVersion', 'v4');
   });
 
   it('instructs the model to cite result numbers and not to write its own source list', async () => {
@@ -1051,7 +1051,7 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toContain('https://www.ed-fi.org/contact/');
     // Scope: Ed-Fi implementation coding is in, general coding and trivia are out,
     // and out-of-scope questions are declined as out of scope, not as "not found".
-    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi/i);
+    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi technology/i);
     expect(system).toMatch(/general programming/i);
     expect(system).toMatch(/outside what you can help with/i);
     // Measured: a generic SQL question was answered by recasting it onto Ed-Fi's Admin database.
@@ -1062,5 +1062,59 @@ describe('callLLM returns botText alongside metadata', () => {
     // Both contradicted the rules above: uncited "general knowledge", and a remit wider than Ed-Fi.
     expect(system).not.toMatch(/general knowledge\./i);
     expect(system).not.toMatch(/education data standards, APIs, implementation guidance, and related tools/);
+  });
+
+  it('instructs the model to follow the Ed-Fi terminology guidelines, and follows them itself', async () => {
+    // SME review 2026-08-26 (Q-013 to Q-016): Fiona used "Ed-Fi" on its own, e.g.
+    // "Ed-Fi specifically says" where the guidelines call for "the Ed-Fi Data Standard".
+    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield { type: 'response.completed', response: { status: 'completed' } };
+      })(),
+    );
+
+    await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+    });
+
+    const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    expect(system).toMatch(/never use "Ed-Fi" on its own/i);
+    expect(system).toContain('the Ed-Fi Data Standard');
+    expect(system).toContain('the Ed-Fi Alliance');
+    expect(system).toContain('"the Ed-Fi Data Standard specifically says"');
+
+    // A prompt that uses bare "Ed-Fi" teaches the habit it forbids. Quoted
+    // examples are exempt, because the rule has to show what not to write.
+    const unquoted = system.replace(/"[^"]*"/g, '""');
+    const bareUses = [
+      ...unquoted.matchAll(
+        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|APIs?|technology|documentation|community|implementations?|code base|questions?|tools|specifications|licensing|AI)\b)/g,
+      ),
+    ].map((match) => unquoted.slice(Math.max(0, match.index - 30), match.index + 30));
+    expect(bareUses).toEqual([]);
+  });
+
+  it('asks the model to note open-source licensing only when a cited source says so', async () => {
+    // SME review 2026-08-26 (Q-001): the answer did not note that the code is open source.
+    // Grounded on purpose: licensing is a high-risk topic (AI-231), so the prompt asserts nothing itself.
+    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield { type: 'response.completed', response: { status: 'completed' } };
+      })(),
+    );
+
+    await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+    });
+
+    const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    expect(system).toMatch(/when a cited (?:search )?result says .{0,60}open source/i);
+    expect(system).not.toMatch(/Ed-Fi (?:technology|code) is open[- ]source/i);
   });
 });

@@ -149,6 +149,8 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -166,6 +168,8 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -183,6 +187,8 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -200,6 +206,8 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -217,6 +225,8 @@ describe('message (assistant thread handler)', () => {
 
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
+    // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
+    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
     expect(callLLM).not.toHaveBeenCalled();
   });
 

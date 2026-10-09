@@ -9,7 +9,7 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi (see who can see it below)',
+  'ask <question>          Ask a question about Ed-Fi technology (see who can see it below)',
   'search <query>          Search Ed-Fi documentation',
 ];
 
@@ -38,7 +38,7 @@ export function buildHelpText() {
   const escalationEnabled = isEscalationEnabled();
   if (escalationEnabled) commands.push(HELP_ESCALATE_LINE);
   return `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
+Fiona helps you navigate Ed-Fi documentation, the Ed-Fi Data Standard, and Ed-Fi community resources using natural language.
 
 *Available commands:*
 \`\`\`
