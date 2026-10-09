@@ -266,6 +266,60 @@ describe('feedbackActionCallback', () => {
       mockBody.message.text = 'The Ed-Fi Data Standard is a specification…';
     });
 
+    // AI-248. The question is read from the answer's "You asked:" block.
+    it('stores the question shown in the "You asked:" line', async () => {
+      mockBody.message.blocks = [
+        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }] },
+        { type: 'markdown', text: mockBody.message.text },
+      ];
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(meta.question).toBe('What is Ed-Fi?');
+      expect(meta.botResponse).toBe('The Ed-Fi Data Standard is a specification…');
+    });
+
+    it('stores no question for an answer without the line (streamed, or posted before AI-248)', async () => {
+      mockBody.message.blocks = [{ type: 'markdown', text: mockBody.message.text }];
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      expect(JSON.parse(view.private_metadata)).not.toHaveProperty('question');
+    });
+
+    it('keeps the question when an escape-heavy answer has to be trimmed', async () => {
+      mockBody.message.text = '"'.repeat(5000);
+      mockBody.message.blocks = [
+        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: What is Ed-Fi?' }] },
+      ];
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      expect(view.private_metadata.length).toBeLessThanOrEqual(3000);
+      expect(JSON.parse(view.private_metadata).question).toBe('What is Ed-Fi?');
+    });
+
+    // The question gets the smaller share of private_metadata, so a long,
+    // escape-heavy question cannot squeeze out the only copy of the answer.
+    it('caps the stored question so the answer keeps its room', async () => {
+      mockBody.message.text = 'a'.repeat(1400);
+      mockBody.message.blocks = [
+        { type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: `You asked: ${'"'.repeat(988)}` }] },
+      ];
+
+      await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
+
+      const [{ view }] = mockClient.views.open.mock.calls[0];
+      const meta = JSON.parse(view.private_metadata);
+      expect(view.private_metadata.length).toBeLessThanOrEqual(3000);
+      expect(meta.question).toBe(`${'"'.repeat(499)}…`);
+      expect(meta.botResponse).toBe('a'.repeat(1400));
+    });
+
     it('carries the ask response type into the modal', async () => {
       await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 

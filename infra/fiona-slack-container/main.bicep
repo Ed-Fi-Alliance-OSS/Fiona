@@ -200,13 +200,13 @@ resource interactionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
             { path: '/status', order: 'ascending' }
             { path: '/timestamp', order: 'descending' }
           ]
-          // Analytics queries filter on timestamp + status + rateLimited together
+          // Usage-report prior-history lookups filter on timestamp + status + rateLimited together
           [
             { path: '/timestamp', order: 'descending' }
             { path: '/status', order: 'ascending' }
             { path: '/rateLimited', order: 'ascending' }
           ]
-          // getRateLimitedCount filters on timestamp + rateLimited without status
+          // Retained for ad hoc analytics filtering on timestamp + rateLimited without status
           [
             { path: '/timestamp', order: 'descending' }
             { path: '/rateLimited', order: 'ascending' }

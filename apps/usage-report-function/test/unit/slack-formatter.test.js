@@ -1,22 +1,28 @@
 import { describe, expect, it } from '@jest/globals';
-import { formatFeedbackSection, formatLongitudinalReport, formatWeeklyReport } from '../../lib/slack-formatter.js';
+import { SEGMENTS_UNAVAILABLE_NOTE, segmentFootnote } from '../../lib/report-presentation.js';
+import {
+  formatFeedbackSection,
+  formatLongitudinalReport,
+  formatWeeklyReport,
+  slackSafeText,
+} from '../../lib/slack-formatter.js';
 
 describe('formatWeeklyReport', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
@@ -28,9 +34,139 @@ describe('formatWeeklyReport', () => {
     expect(message).toContain('Fiona Usage Report');
   });
 
+  it('compares internal and external KPIs and shows unclassified activity separately', () => {
+    const segment = {
+      uniqueUsers: 1,
+      newUsers: 1,
+      newUserPct: 100,
+      returningUsers: 0,
+      repeatRate: 0,
+      sessions: 2,
+      totalInteractions: 4,
+      errors: 1,
+      errorRate: 25,
+      rateLimited: 0,
+      goodFeedback: 1,
+      badFeedback: 0,
+      feedbackRatio: 100,
+      avgInteractionsPerUser: 3,
+      feedbackResponseRate: 33.33,
+    };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      segments: { internal: segment, external: segment, unknown: segment },
+    });
+    expect(message).toMatch(/Metric\s+Total\s+Internal\s+External\s+Unknown/);
+    expect(message).toMatch(/Unique users\s+42\s+1\s+1\s+1/);
+    expect(message).toMatch(/Interactions\s+347\s+4\s+4\s+4/);
+    expect(message).toMatch(/Error rate\s+2\.3%\s+25\.0%\s+25\.0%\s+25\.0%/);
+    expect(message).toMatch(/Feedback response\s+9\.8%\s+33\.3%\s+33\.3%\s+33\.3%/);
+    expect(message).toMatch(/Avg per user\s+8\.3\s+3\.0/);
+    expect(message).toContain(`_${segmentFootnote(true)} — = no data._`);
+    expect(message).not.toContain('Internal (@ed-fi.org):');
+  });
+
+  it('lays the matrix out in an 18-character label column and 9-character value columns', () => {
+    const segment = { ...baseKpis, uniqueUsers: 7 };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      segments: {
+        internal: segment,
+        external: segment,
+        unknown: {
+          ...segment,
+          uniqueUsers: 0,
+          totalInteractions: 0,
+          goodFeedback: 0,
+          badFeedback: 0,
+          feedbackTotal: 0,
+        },
+      },
+    });
+    const lines = message.split('\n');
+    const header = lines.find((line) => line.startsWith('Metric'));
+    expect(header).toBe(`${'Metric'.padEnd(18)}${'Total'.padEnd(9)}${'Internal'.padEnd(9)}External`);
+    const usersRow = lines.find((line) => line.startsWith('Unique users'));
+    expect(usersRow).toBe(`${'Unique users'.padEnd(18)}${'42'.padEnd(9)}${'7'.padEnd(9)}7`);
+    expect(
+      Math.max(...lines.filter((l) => /^(Metric|Unique|Avg|Feedback response)/.test(l)).map((l) => l.length)),
+    ).toBeLessThanOrEqual(18 + 4 * 9);
+  });
+
+  it('renders null rates as an em dash in the segment matrix', () => {
+    const noRatings = {
+      uniqueUsers: 2,
+      newUsers: 0,
+      newUserPct: 0,
+      returningUsers: 2,
+      repeatRate: 100,
+      sessions: 2,
+      totalInteractions: 3,
+      avgInteractionsPerUser: 1.5,
+      errors: 0,
+      errorRate: 0,
+      rateLimited: 0,
+      goodFeedback: 0,
+      badFeedback: 0,
+      feedbackTotal: 0,
+      feedbackRatio: null,
+      feedbackResponseRate: 0,
+    };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      segments: {
+        internal: noRatings,
+        external: noRatings,
+        unknown: { ...noRatings, uniqueUsers: 0, totalInteractions: 0 },
+      },
+    });
+    expect(message).toMatch(/Positive feedback\s+80\.6%\s+—\s+—/);
+    expect(message).not.toContain('null');
+    expect(message).toContain(`_${segmentFootnote(false)} — = no data._`);
+  });
+
+  it('adds a visible note when segments are unavailable', () => {
+    const message = formatWeeklyReport({ ...baseKpis, segments: null, segmentsUnavailable: true });
+    expect(message).toContain(`⚠️ _${SEGMENTS_UNAVAILABLE_NOTE}_`);
+    expect(message).toContain('Unique users:           42');
+    expect(message).not.toContain('Usage by user segment');
+  });
+
+  it('omits the unavailable note when segments were not requested', () => {
+    const message = formatWeeklyReport(baseKpis);
+    expect(message).not.toContain(SEGMENTS_UNAVAILABLE_NOTE);
+  });
+
+  it('uses just Internal, External and Total columns when no activity is unclassified', () => {
+    const empty = {
+      uniqueUsers: 0,
+      newUsers: 0,
+      newUserPct: 0,
+      returningUsers: 0,
+      repeatRate: 0,
+      sessions: 0,
+      totalInteractions: 0,
+      errors: 0,
+      errorRate: 0,
+      rateLimited: 0,
+      goodFeedback: 0,
+      badFeedback: 0,
+      feedbackRatio: 0,
+      avgInteractionsPerUser: 0,
+      feedbackResponseRate: 0,
+    };
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      segments: { internal: empty, external: empty, unknown: empty },
+    });
+    expect(message).toMatch(/Metric\s+Total\s+Internal\s+External\s*$/m);
+    expect(message).not.toMatch(/Metric.*Unknown/);
+    expect(message).toMatch(/New users\s+15\s+0\s+0/);
+  });
+
   it('formats the week label correctly', () => {
     const message = formatWeeklyReport(baseKpis);
-    expect(message).toContain('Week of Mar 10–16, 2026');
+    expect(message).toContain('Week of Mar 10–16, 2026 (UTC)');
   });
 
   it('includes all KPI values', () => {
@@ -81,20 +217,20 @@ describe('formatWeeklyReport', () => {
 
   it('formats zero values without errors', () => {
     const zeroKpis = {
-      distinctUsers: 0,
-      sessionCount: 0,
+      uniqueUsers: 0,
+      sessions: 0,
       totalInteractions: 0,
-      errorCount: 0,
+      errors: 0,
       errorRate: 0,
-      rateLimitedCount: 0,
+      rateLimited: 0,
       goodFeedback: 0,
       badFeedback: 0,
       feedbackRatio: 0,
       avgInteractionsPerUser: 0,
       feedbackResponseRate: 0,
-      newUsersCount: 0,
-      newUserPercentage: 0,
-      returningUsersCount: 0,
+      newUsers: 0,
+      newUserPct: 0,
+      returningUsers: 0,
       repeatRate: 0,
       environment: 'insiders',
       startDate: '2026-03-10',
@@ -103,6 +239,56 @@ describe('formatWeeklyReport', () => {
     const message = formatWeeklyReport(zeroKpis);
     expect(message).toContain('0.0%');
     expect(message).toContain('insiders');
+  });
+
+  it('renders null rates as an em dash in the unsegmented format', () => {
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      uniqueUsers: 0,
+      newUsers: 0,
+      returningUsers: 0,
+      newUserPct: null,
+      repeatRate: null,
+      totalInteractions: 0,
+      errorRate: null,
+      feedbackRatio: null,
+      avgInteractionsPerUser: null,
+      feedbackResponseRate: null,
+    });
+    expect(message).toContain('0 (🔁 0 returning, — repeat rate)');
+    expect(message).toContain('(— of unique users)');
+    expect(message).toContain('(— error rate)');
+    expect(message).toContain('Feedback ratio:         — positive');
+    expect(message).toContain('Avg interactions/user:  —');
+    expect(message).toContain('Feedback response rate: —');
+    expect(message).not.toContain('null');
+  });
+
+  it('caps the message length by dropping trailing feedback items', () => {
+    const long = 'y'.repeat(400);
+    const representativeFeedback = Array.from({ length: 12 }, (_, i) => ({
+      userMessage: `${i}-${long}`,
+      botResponse: long,
+      value: 'good-feedback',
+      reason: long,
+      hasReason: true,
+    }));
+    const message = formatWeeklyReport({ ...baseKpis, representativeFeedback });
+    expect(message.length).toBeLessThanOrEqual(3900);
+    expect(message).toContain('1. 👍 Positive');
+    expect(message).not.toContain('12. 👍 Positive');
+  });
+
+  it('keeps every feedback item when the message is short enough', () => {
+    const representativeFeedback = [1, 2, 3].map((n) => ({
+      userMessage: `Q${n}`,
+      botResponse: `A${n}`,
+      value: 'bad-feedback',
+      reason: null,
+      hasReason: false,
+    }));
+    const message = formatWeeklyReport({ ...baseKpis, representativeFeedback });
+    expect(message).toContain('3. 👎 Negative');
   });
 
   it('handles month boundary correctly when start and end months differ', () => {
@@ -188,12 +374,12 @@ describe('formatFeedbackSection', () => {
     expect(section).toContain('Reason: (no reason provided)');
   });
 
-  it('truncates question, response, and reason to 150 characters', () => {
+  it('truncates question, response, and reason to 110 characters', () => {
     const long = 'x'.repeat(200);
     const section = formatFeedbackSection([
       { userMessage: long, botResponse: long, value: 'good-feedback', reason: long, hasReason: true },
     ]);
-    const truncated = `${'x'.repeat(150)}…`;
+    const truncated = `${'x'.repeat(110)}…`;
     expect(section).toContain(`Q: ${truncated}`);
     expect(section).toContain(`A: ${truncated}`);
     expect(section).toContain(`Reason: ${truncated}`);
@@ -211,20 +397,20 @@ describe('formatFeedbackSection', () => {
 
 describe('formatWeeklyReport with representativeFeedback', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
@@ -326,7 +512,7 @@ describe('formatLongitudinalReport', () => {
   it('includes a header with the date range and environment', () => {
     const message = formatLongitudinalReport([weekA, weekB], options);
     expect(message).toContain('Longitudinal Usage Trends');
-    expect(message).toContain('Apr 13–26, 2026');
+    expect(message).toContain('Apr 13–26, 2026 (UTC)');
     expect(message).toContain('production');
   });
 
@@ -358,6 +544,27 @@ describe('formatLongitudinalReport', () => {
     expect(weekCBlock).toContain('N/A% users');
     expect(weekCBlock).toContain('+66.7% interactions');
     expect(weekCBlock).toContain('-10.0pp error rate');
+  });
+
+  it('renders null rates as an em dash', () => {
+    const emptyWeek = {
+      ...weekA,
+      uniqueUsers: 0,
+      newUsers: 0,
+      returningUsers: 0,
+      repeatRate: null,
+      errorRate: null,
+      feedbackRatio: null,
+      avgInteractionsPerUser: null,
+      feedbackResponseRate: null,
+    };
+    const message = formatLongitudinalReport([emptyWeek], options);
+    expect(message).toContain('— repeat rate');
+    expect(message).toContain('(— error rate)');
+    expect(message).toContain('(— positive)');
+    expect(message).toContain('Avg interactions/user: —');
+    expect(message).toContain('Feedback response rate: —');
+    expect(message).not.toContain('null');
   });
 
   it('shows a no-data message when the series is empty', () => {
@@ -408,12 +615,12 @@ describe('formatFeedbackSection', () => {
     expect(section).toContain('Reason: (no reason provided)');
   });
 
-  it('truncates question, response, and reason to 150 characters', () => {
+  it('truncates question, response, and reason to 110 characters', () => {
     const long = 'x'.repeat(200);
     const section = formatFeedbackSection([
       { userMessage: long, botResponse: long, value: 'good-feedback', reason: long, hasReason: true },
     ]);
-    const truncated = `${'x'.repeat(150)}…`;
+    const truncated = `${'x'.repeat(110)}…`;
     expect(section).toContain(`Q: ${truncated}`);
     expect(section).toContain(`A: ${truncated}`);
     expect(section).toContain(`Reason: ${truncated}`);
@@ -431,20 +638,20 @@ describe('formatFeedbackSection', () => {
 
 describe('formatWeeklyReport with representativeFeedback', () => {
   const baseKpis = {
-    distinctUsers: 42,
-    sessionCount: 118,
+    uniqueUsers: 42,
+    sessions: 118,
     totalInteractions: 347,
-    errorCount: 8,
+    errors: 8,
     errorRate: 2.3,
-    rateLimitedCount: 6,
+    rateLimited: 6,
     goodFeedback: 29,
     badFeedback: 7,
     feedbackRatio: 80.6,
     avgInteractionsPerUser: 8.3,
     feedbackResponseRate: 9.8,
-    newUsersCount: 15,
-    newUserPercentage: 35.7,
-    returningUsersCount: 27,
+    newUsers: 15,
+    newUserPct: 35.7,
+    returningUsers: 27,
     repeatRate: 64.3,
     environment: 'production',
     startDate: '2026-03-10',
@@ -471,5 +678,126 @@ describe('formatWeeklyReport with representativeFeedback', () => {
   it('shows the no-feedback message when representativeFeedback is empty', () => {
     const message = formatWeeklyReport({ ...baseKpis, representativeFeedback: [] });
     expect(message).toContain('No feedback recorded for this period.');
+  });
+});
+
+describe('slackSafeText', () => {
+  it.each([
+    ['<!channel> please read', '&lt;!channel&gt; please read'],
+    ['<!here>', '&lt;!here&gt;'],
+    ['ask <@U123ABC>', 'ask &lt;@U123ABC&gt;'],
+    ['<!subteam^S123>', '&lt;!subteam^S123&gt;'],
+    ['<https://evil.example|Click here>', '&lt;https://evil.example|Click here&gt;'],
+    ['Q&A', 'Q&amp;A'],
+    ['already &lt; escaped', 'already &amp;lt; escaped'],
+  ])('neutralizes Slack control sequences in %j', (input, expected) => {
+    expect(slackSafeText(input)).toBe(expected);
+  });
+
+  it('collapses line breaks so stored text cannot fake extra report lines', () => {
+    expect(slackSafeText('first\n2. 👍 Positive\r\n   Q: spoofed')).toBe('first 2. 👍 Positive Q: spoofed');
+  });
+
+  it('truncates before escaping so an entity is never cut in half', () => {
+    const result = slackSafeText(`${'a'.repeat(108)}<<<<`);
+    expect(result).toBe(`${'a'.repeat(108)}&lt;&lt;…`);
+  });
+
+  it('returns an empty string for missing or non-string values', () => {
+    expect(slackSafeText(null)).toBe('');
+    expect(slackSafeText(undefined)).toBe('');
+    expect(slackSafeText(42)).toBe('');
+  });
+});
+
+describe('formatWeeklyReport escapes stored feedback text', () => {
+  it('never emits a raw Slack mention or link from the question, answer or reason', () => {
+    const message = formatFeedbackSection([
+      {
+        value: 'bad-feedback',
+        userMessage: '<!channel> urgent',
+        botResponse: 'see <https://evil.example|docs> or ask <@U999>',
+        reason: '<!here> wrong & unhelpful',
+        hasReason: true,
+      },
+    ]);
+    expect(message).not.toMatch(/<[!@#]|<https?:/);
+    expect(message).toContain('Q: &lt;!channel&gt; urgent');
+    expect(message).toContain('A: see &lt;https://evil.example|docs&gt; or ask &lt;@U999&gt;');
+    expect(message).toContain('Reason: &lt;!here&gt; wrong &amp; unhelpful');
+  });
+});
+
+describe('formatWeeklyReport length cap', () => {
+  const baseKpis = {
+    uniqueUsers: 1,
+    newUsers: 0,
+    newUserPct: 0,
+    returningUsers: 1,
+    repeatRate: 100,
+    sessions: 1,
+    totalInteractions: 1,
+    errors: 0,
+    errorRate: 0,
+    rateLimited: 0,
+    goodFeedback: 1,
+    badFeedback: 0,
+    feedbackRatio: 100,
+    avgInteractionsPerUser: 1,
+    feedbackResponseRate: 100,
+    environment: 'production',
+    startDate: '2026-10-02',
+    endDate: '2026-10-08',
+    segments: null,
+  };
+  const feedbackItem = {
+    value: 'good-feedback',
+    userMessage: 'question',
+    botResponse: 'answer',
+    reason: 'reason',
+    hasReason: true,
+  };
+
+  it('says feedback was omitted, not that none was recorded, when every item has to be dropped', () => {
+    const longItem = { ...feedbackItem, userMessage: 'q'.repeat(200), botResponse: 'a'.repeat(200) };
+    // Measure the head with a 1-character URL, then size the real URL so the head is
+    // 3,700 characters: the link still fits (head + 200 <= 3,900) but one item does not.
+    const probe = formatWeeklyReport({ ...baseKpis, reportUrl: 'U', representativeFeedback: [] });
+    const headLength = probe.indexOf('\n\n📋');
+    const prefix = 'https://example.com/';
+    const reportUrl = `${prefix}${'x'.repeat(3701 - headLength - prefix.length)}`;
+
+    const message = formatWeeklyReport({ ...baseKpis, reportUrl, representativeFeedback: [longItem] });
+
+    expect(message.indexOf('\n\n📋')).toBe(3700);
+    expect(message.length).toBeLessThanOrEqual(3900);
+    expect(message).toContain(reportUrl);
+    expect(message).toContain("Omitted to fit Slack's message limit");
+    expect(message).not.toContain('No feedback recorded for this period.');
+  });
+
+  it('still reports no feedback when there genuinely was none', () => {
+    const message = formatWeeklyReport({ ...baseKpis, reportUrl: null, representativeFeedback: [] });
+    expect(message).toContain('No feedback recorded for this period.');
+  });
+
+  it('leaves out an over-long report link instead of cutting the message mid-markup', () => {
+    const reportUrl = `https://example.com/${'x'.repeat(5000)}`;
+    const message = formatWeeklyReport({
+      ...baseKpis,
+      segments: {
+        internal: { ...baseKpis, segments: undefined },
+        external: { ...baseKpis, segments: undefined },
+        unknown: { ...baseKpis, segments: undefined },
+      },
+      reportUrl,
+      representativeFeedback: [feedbackItem],
+    });
+
+    expect(message).toContain('link too long to include');
+    expect(message).not.toContain(reportUrl);
+    expect(message.length).toBeLessThanOrEqual(3900);
+    expect(message.match(/```/g)).toHaveLength(2);
+    expect(message).toContain('📋 *Representative Feedback*');
   });
 });

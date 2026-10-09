@@ -9,11 +9,14 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi (see who can see it below)',
+  'ask <question>          Ask a question about Ed-Fi',
   'search <query>          Search Ed-Fi documentation',
 ];
 
 const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
+const HELP_ESCALATE_LINE = 'escalate                Escalate your conversation to a human';
+const HELP_ESCALATE_HINT =
+  '*Need a human?* Use `/fiona escalate` (or type `escalate` in a DM/thread) to hand your conversation to the team.\n';
 
 /**
  * The help message, built per call because the command list depends on which
@@ -26,11 +29,14 @@ const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket
  * TICKET_NOT_CONFIGURED_TEXT, which is a recoverable operator error rather than
  * a deliberate withdrawal.
  *
- * Escalation is not listed either way — it never was.
+ * Escalation follows the same rule on `isEscalationEnabled`, and also adds the
+ * "Need a human?" hint below the list (AI-252).
  */
 export function buildHelpText() {
   const commands = [...HELP_COMMAND_LINES];
   if (isTicketingFeatureEnabled()) commands.push(HELP_TICKET_LINE);
+  const escalationEnabled = isEscalationEnabled();
+  if (escalationEnabled) commands.push(HELP_ESCALATE_LINE);
   return `*Fiona — your Ed-Fi AI assistant* :wave:
 Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
 
@@ -38,7 +44,7 @@ Fiona helps you navigate Ed-Fi documentation, standards, and community resources
 \`\`\`
 ${commands.join('\n')}
 \`\`\`
-
+${escalationEnabled ? HELP_ESCALATE_HINT : ''}
 *How to reach Fiona:*
 • *Slash command* (\`/fiona …\`) — in any channel
 • *@-mention* (\`@fiona …\`) — in a channel or thread
@@ -151,6 +157,18 @@ export function buildCreateTicketBlocks(ticketType, channelId, threadTs) {
 }
 
 /**
+ * Every keyword parseCommandKeyword can return. The parser returns only these
+ * constants, so command-dispatch.test.js can check that each one is routed.
+ */
+export const COMMAND_KEYWORDS = Object.freeze({
+  HELP: 'help',
+  ESCALATE: 'escalate',
+  ASK: 'ask',
+  SEARCH: 'search',
+  FILE_TICKET: 'file_ticket',
+});
+
+/**
  * Parses a stripped (mention-free) message text for a Fiona command keyword.
  *
  * Disambiguation rules:
@@ -181,7 +199,7 @@ export function parseCommandKeyword(text) {
   // LLM would answer it in public, on the one keyword that promises a private
   // answer. A bare `search` stays an ordinary question (see the AI-179 test plan).
   if (bodyLower === 'help' || bodyLower === 'ask') {
-    return { keyword: 'help', rawArgs: '' };
+    return { keyword: COMMAND_KEYWORDS.HELP, rawArgs: '' };
   }
 
   // A flagged-off feature simply fails to match here, so the message falls
@@ -189,10 +207,10 @@ export function parseCommandKeyword(text) {
   // as an ordinary question — which is what "the feature disappears" means
   // (AI-217). Nothing between here and that return can match a bare `escalate`.
   if (isEscalationEnabled() && bodyLower === 'escalate') {
-    return { keyword: 'escalate', rawArgs: '' };
+    return { keyword: COMMAND_KEYWORDS.ESCALATE, rawArgs: '' };
   }
 
-  for (const kw of ['ask', 'search']) {
+  for (const kw of [COMMAND_KEYWORDS.ASK, COMMAND_KEYWORDS.SEARCH]) {
     if (bodyLower.startsWith(`${kw} `)) {
       const rawArgs = body.slice(kw.length + 1).trim();
       if (rawArgs.length > 0) {
@@ -206,10 +224,76 @@ export function parseCommandKeyword(text) {
   // with TICKET_NOT_CONFIGURED_TEXT; only the flag being off makes the phrases
   // fall through to the LLM. Flag-first, matching the escalate gate above.
   if (isTicketingFeatureEnabled() && TICKET_PHRASES.has(bodyLower)) {
-    return { keyword: 'file_ticket', rawArgs: TICKET_PHRASES.get(bodyLower) };
+    return { keyword: COMMAND_KEYWORDS.FILE_TICKET, rawArgs: TICKET_PHRASES.get(bodyLower) };
   }
 
   return null;
+}
+
+/**
+ * A Slack message's text with every mention token (users, channels, groups,
+ * `<!here>`) removed: the form used to match a command keyword and, for an
+ * ordinary question, the text sent to the LLM.
+ *
+ * @param {string|undefined} rawText - The message text as Slack sent it.
+ * @returns {string}
+ */
+export function stripMentions(rawText) {
+  return (rawText || '').replace(/<[@#!][^>]+>/g, '').trim();
+}
+
+/**
+ * The text of an `ask` message with the mentions ahead of the keyword removed
+ * (the invocation, and anything else typed before `ask`) and every other
+ * mention replaced by a neutral marker, so the question still reads as a
+ * sentence. The question is shown back to the user ("You asked:"), stored with
+ * feedback and captured, so no user or channel id is kept.
+ *
+ * A special token with a readable label (`<!date^…|Oct 9>`) keeps the label;
+ * one without is dropped, along with the space before it. Nothing else in the
+ * question is touched, so the indentation of a pasted snippet survives.
+ */
+function askTextWithMentionMarkers(text) {
+  return text
+    .replace(/^(?:\s*<[@#!][^>]+>)+/, '')
+    .replace(/<(?:@|!subteam\^)[^>]+>/g, '@someone')
+    .replace(/<#[^>]+>/g, '#a-channel')
+    .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
+    .replace(/<![^>|]+\|([^>]+)>/g, '$1')
+    .replace(/ *<![^>]+>/g, '')
+    .trim();
+}
+
+/**
+ * Parses a command keyword from a Slack message's raw text (an @-mention or an
+ * assistant-panel message). Mention tokens are removed before matching, so a
+ * question made only of mentions (`@fiona ask @someone`) is a bare `ask` and
+ * gets help. An `ask` question keeps a marker where each mention was (see
+ * askTextWithMentionMarkers), the same on every surface.
+ *
+ * Fiona's own mention is not a marker: wherever it appears (`ask @fiona what
+ * is …`) it is removed, as the invocation at the start is, so the question does
+ * not name "@someone" who is not involved.
+ *
+ * The keyword is matched twice, once with every mention removed and once with
+ * markers. The two can disagree only when a mention sits inside the keyword
+ * itself (`fiona <@U1> ask …`). The keyword decision then follows the
+ * mention-free text, and the question is taken from it too, with those
+ * mentions dropped rather than marked.
+ *
+ * @param {string} rawText - The message text as Slack sent it.
+ * @param {{ botUserId?: string }} [options] - Fiona's own user id, when known.
+ * @returns {{ keyword: string, rawArgs: string }|null}
+ */
+export function parseMessageCommand(rawText, { botUserId } = {}) {
+  const text = stripMentions(rawText);
+  const cmd = text ? parseCommandKeyword(text) : null;
+  if (cmd?.keyword !== 'ask') return cmd;
+  const withoutSelf = botUserId
+    ? rawText.replace(new RegExp(String.raw` *<@${botUserId}(?:\|[^>]*)?>`, 'g'), '')
+    : rawText;
+  const marked = parseCommandKeyword(askTextWithMentionMarkers(withoutSelf));
+  return marked?.keyword === 'ask' ? marked : cmd;
 }
 
 /**
@@ -226,9 +310,11 @@ export async function routeCommandViaSay(say, logger, cmd, options = {}) {
     return;
   }
   // `help` and anything command-dispatch did not claim: the help text is the
-  // safe answer, and it is what an unrecognised sub-command already gets.
+  // safe answer, and it is what an unrecognised sub-command already gets. An
+  // unrouted keyword is a wiring bug (command-dispatch.test.js checks every
+  // keyword the parser can return), so it is logged as an error.
   if (cmd.keyword !== 'help') {
-    logger?.warn?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
+    logger?.error?.(`Unrouted command keyword "${cmd.keyword}"; answering with help`);
   }
   await handleHelpViaSay(say, logger);
 }
@@ -280,8 +366,8 @@ export async function buildSearchResponse(query, logger, interactionType = null)
 }
 
 /**
- * Sends the help response via say() — visible to all thread/channel participants.
- * Used in contexts where slash-command ack() is not available (threads, agent panel).
+ * Sends help via say(). Used by the agent panel, which is already private, and
+ * by the routeCommandViaSay fallthrough; @-mentions use handleHelpEphemeral.
  *
  * @param {Function} say
  * @param {import('@slack/logger').Logger} logger
@@ -290,8 +376,60 @@ export async function handleHelpViaSay(say, logger) {
   try {
     await say(buildHelpText());
   } catch (err) {
-    logger?.error?.(`Failed to send help response: ${err.name}`);
+    logger?.error?.(`Failed to send help response: ${err.name}: ${err.message}`);
   }
+}
+
+/**
+ * The postEphemeral addressing for a reply to one user, shared by every
+ * ephemeral keyword answer (help, search, ask).
+ *
+ * `thread_ts` is set only when the message is inside an existing thread: Slack
+ * shows an ephemeral in a thread only if that thread already exists, so a
+ * top-level message's own ts would show the user nothing at all.
+ *
+ * @param {{ channelId: string, userId: string, threadTs?: string|null, messageTs: string }} ids
+ * @returns {{ channel: string, user: string, thread_ts?: string }}
+ */
+export function ephemeralTarget({ channelId, userId, threadTs, messageTs }) {
+  return {
+    channel: channelId,
+    user: userId,
+    ...(threadTs && threadTs !== messageTs ? { thread_ts: threadTs } : {}),
+  };
+}
+
+/**
+ * Posts an ephemeral and reports the outcome instead of throwing, so the caller
+ * can record a failed delivery rather than count it as a success.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @param {Object} message - `text` and optionally `blocks` and unfurl flags.
+ * @param {string} label - Names the response in the failure log line.
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+export async function postEphemeralSafely(client, logger, target, message, label) {
+  try {
+    await client.chat.postEphemeral({ ...target, ...message });
+    return { errorType: null };
+  } catch (err) {
+    logger?.error?.(`Failed to send ephemeral ${label} response: ${err.name}: ${err.message}`);
+    return { errorType: 'post_failed' };
+  }
+}
+
+/**
+ * Sends the help response ephemerally, visible only to the invoking user.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+export async function handleHelpEphemeral(client, logger, target) {
+  return postEphemeralSafely(client, logger, target, { text: buildHelpText() }, 'help');
 }
 
 /**
@@ -312,20 +450,20 @@ export async function handleSearchViaSay(say, logger, query, { interactionType =
   }
 }
 
-export async function handleSearchEphemeral(
-  client,
-  logger,
-  { userId, channelId, threadTs, query, interactionType = null },
-) {
-  try {
-    const { response } = await buildSearchResponse(query, logger, interactionType);
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      ...(threadTs ? { thread_ts: threadTs } : {}),
-      ...response,
-    });
-  } catch (err) {
-    logger?.error?.(`Failed to send ephemeral search response: ${err.name}: ${err.message}`);
-  }
+/**
+ * Performs a source search and sends the results ephemerally.
+ *
+ * A failed post outranks a failed search in the returned `errorType`: if the
+ * post fails, the user saw nothing at all, not even the search error notice.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {import('@slack/logger').Logger} logger
+ * @param {ReturnType<typeof ephemeralTarget>} target
+ * @param {{ query: string, interactionType?: string|null }} search
+ * @returns {Promise<{ errorType: string|null }>}
+ */
+export async function handleSearchEphemeral(client, logger, target, { query, interactionType = null }) {
+  const { response, errorType: searchErrorType } = await buildSearchResponse(query, logger, interactionType);
+  const { errorType: postErrorType } = await postEphemeralSafely(client, logger, target, response, 'search');
+  return { errorType: postErrorType ?? searchErrorType };
 }

@@ -12,6 +12,7 @@ import {
   LLM_MODEL,
   SYSTEM_PROMPT_VERSION,
 } from '../../agent/llm-caller.js';
+import { createAskQuestionBlock } from '../views/ask_question_block.js';
 import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_block.js';
 import { createSourcesBlocks } from '../views/sources_block.js';
 
@@ -36,7 +37,7 @@ const ERROR_TEXT_BY_TYPE = {
 // `[[n]](url)`), which section/mrkdwn blocks show as literal text. Slack's
 // `markdown` block renders it, but caps all markdown blocks in one message at
 // 12,000 characters in total.
-const MARKDOWN_BLOCK_LIMIT = 12000;
+const MARKDOWN_MESSAGE_CHAR_BUDGET = 12000;
 const SHORTENED_NOTICE =
   '_This answer was too long for Slack and was shortened. A narrower question may get a complete answer._';
 // Room for the closing fence (a newline plus the opening marker) when the cut
@@ -89,10 +90,10 @@ function openFenceMarker(text) {
  * @returns {{ text: string, shortened: boolean }}
  */
 export function fitMarkdownBlock(text) {
-  if (text.length <= MARKDOWN_BLOCK_LIMIT) return { text, shortened: false };
+  if (text.length <= MARKDOWN_MESSAGE_CHAR_BUDGET) return { text, shortened: false };
 
   // The 2 is the blank line between the kept text and the notice.
-  const budget = MARKDOWN_BLOCK_LIMIT - CLOSING_FENCE_RESERVE - SHORTENED_NOTICE.length - 2;
+  const budget = MARKDOWN_MESSAGE_CHAR_BUDGET - CLOSING_FENCE_RESERVE - SHORTENED_NOTICE.length - 2;
   const window = text.slice(0, budget);
   const lineBreak = window.lastIndexOf('\n');
   const breakAt = lineBreak > 0 ? lineBreak : window.lastIndexOf(' ');
@@ -102,9 +103,12 @@ export function fitMarkdownBlock(text) {
   return { text: `${kept}\n\n${SHORTENED_NOTICE}`, shortened: true };
 }
 
-function buildAskBlocks(bodyBlock, interactionType, sourcesBlocks = []) {
+// The question goes first: an ephemeral answer is not threaded under it, and the
+// feedback handler reads it back from this block (see ask_question_block.js).
+function buildAskBlocks({ question, linkMarkup, body, interactionType, sourcesBlocks = [] }) {
   return [
-    bodyBlock,
+    createAskQuestionBlock(question, { linkMarkup }),
+    body,
     ...sourcesBlocks,
     { type: 'divider' },
     createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType }),
@@ -148,7 +152,7 @@ function isEmptyAnswer(botText) {
 }
 
 /**
- * Runs the LLM and settles the citation metadata envelope.
+ * Runs the LLM and waits for the citation metadata to settle.
  *
  * @param {{ append: Function }} sink - A chat streamer, or the collector above.
  */
@@ -162,6 +166,47 @@ async function generateAnswer(sink, question, logger) {
   logCitationTelemetry(logger, metadata);
 
   return { metadata, botText, systemPromptVersion, prompts };
+}
+
+/**
+ * Builds the Sources block and finalizes the envelope, in the only order that
+ * works: `createSourcesBlocks` renders only while the envelope is still
+ * READY_TO_FINALIZE, so building it after finalizing silently yields nothing.
+ * Every ask path settles citations here, so the order cannot drift.
+ */
+function settleCitations(metadata) {
+  const sourcesBlocks = createSourcesBlocks(metadata);
+  finalizeMetadataEnvelope(metadata);
+  return sourcesBlocks;
+}
+
+/** True, and logged, when an ask question is over MAX_QUESTION_LENGTH. */
+export function isQuestionTooLong(question, logger) {
+  if (question.length <= MAX_QUESTION_LENGTH) return false;
+  logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
+  return true;
+}
+
+/**
+ * The steps every ask path takes once the LLM has answered: settle the
+ * citations, classify an empty answer, and prepare the capture record.
+ *
+ * Capture is returned, not run, so each path can run it only once the answer
+ * has actually reached the user.
+ *
+ * @returns {{ empty: boolean, sourcesBlocks: Array, capture: () => Promise<void> }}
+ */
+function completeAsk(answer, context) {
+  const sourcesBlocks = settleCitations(answer.metadata);
+  const empty = isEmptyAnswer(answer.botText);
+  if (empty) {
+    context.logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
+  }
+  return {
+    empty,
+    sourcesBlocks,
+    capture: empty ? noCapture : () => captureAsk({ ...context, ...answer }),
+  };
 }
 
 async function captureAsk({
@@ -216,6 +261,9 @@ async function captureAsk({
  * answer has actually been delivered, so an answer that never reached the user
  * is not stored as a successful conversation.
  *
+ * `linkMarkup` says whether the question can carry Slack's `<url>` markup. Slash
+ * text cannot, so the slash command passes false (see ask_question_block.js).
+ *
  * @returns {Promise<{ response: Object, errorType: string|null, capture: () => Promise<void> }>}
  */
 export async function buildAskResponse({
@@ -227,32 +275,23 @@ export async function buildAskResponse({
   channelId,
   threadTs = null,
   messageTs,
+  linkMarkup = true,
 }) {
-  if (question.length > MAX_QUESTION_LENGTH) {
-    logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
-    return buildAskErrorResponse('question_too_long');
-  }
+  if (isQuestionTooLong(question, logger)) return buildAskErrorResponse('question_too_long');
 
-  const collector = createTextCollector();
-  let result;
+  let answer;
   try {
-    result = await generateAnswer(collector, question, logger);
+    answer = await generateAnswer(createTextCollector(), question, logger);
   } catch (err) {
     logger?.error?.(`Failed to answer ask question: ${describeError(err)}`);
     return buildAskErrorResponse('llm_failed');
   }
 
-  const { metadata, botText, systemPromptVersion, prompts } = result;
-  // Built before finalizing: the Sources block renders only while the envelope
-  // is still READY_TO_FINALIZE.
-  const sourcesBlocks = createSourcesBlocks(metadata);
-  finalizeMetadataEnvelope(metadata);
+  const context = { userId, teamId, channelId, threadTs, messageTs, interactionType, question, logger };
+  const { empty, sourcesBlocks, capture } = completeAsk(answer, context);
+  if (empty) return buildAskErrorResponse('llm_empty');
 
-  if (isEmptyAnswer(botText)) {
-    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
-    return buildAskErrorResponse('llm_empty');
-  }
-
+  const { botText } = answer;
   const body = fitMarkdownBlock(botText);
   if (body.shortened) {
     logger?.warn?.(
@@ -263,26 +302,18 @@ export async function buildAskResponse({
   return {
     response: {
       text: botText,
-      blocks: buildAskBlocks({ type: 'markdown', text: body.text }, interactionType, sourcesBlocks),
+      blocks: buildAskBlocks({
+        question,
+        linkMarkup,
+        body: { type: 'markdown', text: body.text },
+        interactionType,
+        sourcesBlocks,
+      }),
       unfurl_links: false,
       unfurl_media: false,
     },
     errorType: null,
-    capture: () =>
-      captureAsk({
-        userId,
-        teamId,
-        channelId,
-        threadTs,
-        messageTs,
-        interactionType,
-        question,
-        botText,
-        prompts,
-        metadata,
-        systemPromptVersion,
-        logger,
-      }),
+    capture,
   };
 }
 
@@ -319,48 +350,29 @@ export async function streamAskResponse({
     ...(threadTs ? { thread_ts: threadTs } : {}),
   });
 
-  if (question.length > MAX_QUESTION_LENGTH) {
-    logger?.warn?.(`[ask] question of ${question.length} characters exceeds the ${MAX_QUESTION_LENGTH} limit`);
+  if (isQuestionTooLong(question, logger)) {
     await streamer.append({ markdown_text: ASK_TOO_LONG_TEXT });
     await streamer.stop();
     return { errorType: 'question_too_long' };
   }
 
-  const { metadata, botText, systemPromptVersion, prompts } = await generateAnswer(streamer, question, logger);
+  const answer = await generateAnswer(streamer, question, logger);
+  // Settled before stop(), so a failed stop() cannot leave the envelope open.
+  const context = { userId, teamId, channelId, threadTs, messageTs, interactionType, question, logger };
+  const { empty, sourcesBlocks, capture } = completeAsk(answer, context);
 
   // Nothing was appended when the answer came back empty, so the stream would
   // otherwise stop on an empty message.
-  if (isEmptyAnswer(botText)) {
-    logger?.error?.('Ask question produced an empty answer; treating it as a failed generation');
-    finalizeMetadataEnvelope(metadata);
+  if (empty) {
     await streamer.append({ markdown_text: ASK_EMPTY_TEXT });
     await streamer.stop();
     return { errorType: 'llm_empty' };
   }
 
-  // Built before finalizing: the Sources block renders only while the envelope
-  // is still READY_TO_FINALIZE. Finalizing before stop() means a failed stop()
-  // cannot leave the envelope unsettled.
-  const sourcesBlocks = createSourcesBlocks(metadata);
-  finalizeMetadataEnvelope(metadata);
   await streamer.stop({
     blocks: [...sourcesBlocks, createFeedbackBlock({ responseType: FEEDBACK_RESPONSE_TYPES.ASK, interactionType })],
   });
-
-  await captureAsk({
-    userId,
-    teamId,
-    channelId,
-    threadTs,
-    messageTs,
-    interactionType,
-    question,
-    botText,
-    prompts,
-    metadata,
-    systemPromptVersion,
-    logger,
-  });
+  await capture();
 
   return { errorType: null };
 }

@@ -30,19 +30,43 @@ describe('generateExecutiveReportPdf', () => {
       kpiSummary: {
         totalInteractions: 296,
         uniqueUsers: 30,
-        totalSessions: 72,
+        sessions: 72,
         avgInteractionsPerUser: 9.9,
-        errorCount: 7,
+        errors: 7,
         errorRate: 2.4,
-        rateLimitedEvents: 0,
+        rateLimited: 0,
         goodFeedback: 33,
         badFeedback: 7,
         feedbackTotal: 40,
-        positiveFeedbackPct: 82.5,
+        feedbackRatio: 82.5,
+        feedbackResponseRate: 13.5,
         newUsers: 6,
         returningUsers: 24,
         newUserPct: 20,
+        repeatRate: 80,
       },
+      userSegments: Object.fromEntries(
+        ['internal', 'external', 'unknown'].map((segment) => [
+          segment,
+          {
+            uniqueUsers: 1,
+            newUsers: 1,
+            newUserPct: 100,
+            returningUsers: 0,
+            repeatRate: 0,
+            sessions: 1,
+            totalInteractions: 2,
+            avgInteractionsPerUser: 2,
+            errors: 0,
+            errorRate: 0,
+            rateLimited: 0,
+            goodFeedback: 1,
+            badFeedback: 0,
+            feedbackRatio: 100,
+            feedbackResponseRate: 50,
+          },
+        ]),
+      ),
       weeklyTrend: [
         {
           weekStart: '2026-04-13',
@@ -141,6 +165,23 @@ describe('generateExecutiveReportPdf', () => {
         },
       ],
     };
+
+    reportData.trendWeekly = reportData.trendWeekly.map((week) => ({
+      ...week,
+      segments: Object.fromEntries(
+        ['internal', 'external', 'unknown'].map((key) => [
+          key,
+          {
+            uniqueUsers: 1,
+            totalInteractions: 2,
+            newUsers: 0,
+            errorRate: 0,
+            goodFeedback: 0,
+            badFeedback: 0,
+          },
+        ]),
+      ),
+    }));
 
     const result = await generateExecutiveReportPdf(reportData, tmpFile);
 
