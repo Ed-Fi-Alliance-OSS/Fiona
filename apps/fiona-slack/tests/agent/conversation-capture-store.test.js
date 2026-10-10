@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockUpsert = jest.fn().mockResolvedValue({});
 const mockContainerObj = { items: { upsert: mockUpsert } };
@@ -179,9 +179,7 @@ describe('conversation-capture-store - Cosmos configured via connection string',
     const logger = { warn: jest.fn() };
     await captureConversation({ ...VALID_CAPTURE, userId: undefined, logger });
     expect(mockUpsert).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Missing required fields for capturing conversation: userId',
-    );
+    expect(logger.warn).toHaveBeenCalledWith('Missing required fields for capturing conversation: userId');
   });
 
   it('retries once for retryable 429 responses and then succeeds', async () => {
@@ -252,8 +250,6 @@ describe('conversation-capture-store - production auth guard', () => {
     await captureConversation({ ...VALID_CAPTURE, logger });
 
     expect(mockUpsert).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('does not support COSMOS_KEY auth in production'),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('does not support COSMOS_KEY auth in production'));
   });
 });

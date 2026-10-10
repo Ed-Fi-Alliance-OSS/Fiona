@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockBuildTicketModal = jest.fn(() => ({ type: 'modal', callback_id: 'ticket_modal' }));
 const mockReadTicketType = jest.fn(() => 'feature');
@@ -49,9 +49,7 @@ describe('ticketTypeActionCallback', () => {
     await ticketTypeActionCallback(args);
 
     expect(args.ack).toHaveBeenCalledTimes(1);
-    expect(args.ack.mock.invocationCallOrder[0]).toBeLessThan(
-      args.client.views.update.mock.invocationCallOrder[0],
-    );
+    expect(args.ack.mock.invocationCallOrder[0]).toBeLessThan(args.client.views.update.mock.invocationCallOrder[0]);
   });
 
   // views.update rejects without both of these; hash is what makes the update

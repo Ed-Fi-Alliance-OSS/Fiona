@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const { feedbackActionCallback } = await import('../../../src/listeners/actions/feedback.js');
 
@@ -72,9 +72,7 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.views.open).toHaveBeenCalledWith(
-      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
-    );
+    expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'T123.456.abc' }));
   });
 
   it('opens modal with trigger_id for bad-feedback', async () => {
@@ -82,9 +80,7 @@ describe('feedbackActionCallback', () => {
 
     await feedbackActionCallback({ ack: mockAck, body: mockBody, client: mockClient, logger: mockLogger });
 
-    expect(mockClient.views.open).toHaveBeenCalledWith(
-      expect.objectContaining({ trigger_id: 'T123.456.abc' }),
-    );
+    expect(mockClient.views.open).toHaveBeenCalledWith(expect.objectContaining({ trigger_id: 'T123.456.abc' }));
   });
 
   it('modal callback_id is feedback_reason', async () => {

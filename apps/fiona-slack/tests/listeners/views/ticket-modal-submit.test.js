@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockSubmitTicket = jest.fn();
 jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({ submitTicket: mockSubmitTicket }));
@@ -38,7 +38,13 @@ function makeArgs({ ticketType = 'bug' } = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   delete process.env.GH_ISSUE_PRIORITY_OPTION_NAMES;
-  mockSubmitTicket.mockResolvedValue({ ok: true, mode: 'created', key: '#9', url: 'https://github.com/o/r/issues/9', errorType: null });
+  mockSubmitTicket.mockResolvedValue({
+    ok: true,
+    mode: 'created',
+    key: '#9',
+    url: 'https://github.com/o/r/issues/9',
+    errorType: null,
+  });
 });
 
 describe('ticketModalSubmitCallback', () => {
@@ -61,14 +67,26 @@ describe('ticketModalSubmitCallback', () => {
   });
 
   it('DMs the error copy when creation fails', async () => {
-    mockSubmitTicket.mockResolvedValue({ ok: false, mode: 'error', key: null, url: null, errorType: 'github_create_failed' });
+    mockSubmitTicket.mockResolvedValue({
+      ok: false,
+      mode: 'error',
+      key: null,
+      url: null,
+      errorType: 'github_create_failed',
+    });
     const args = makeArgs();
     await ticketModalSubmitCallback(args);
     expect(args.client.chat.postMessage.mock.calls[0][0].text).toMatch(/could not create/i);
   });
 
   it('DMs the not-configured copy when disabled', async () => {
-    mockSubmitTicket.mockResolvedValue({ ok: false, mode: 'not_configured', key: null, url: null, errorType: 'github_not_configured' });
+    mockSubmitTicket.mockResolvedValue({
+      ok: false,
+      mode: 'not_configured',
+      key: null,
+      url: null,
+      errorType: 'github_not_configured',
+    });
     const args = makeArgs();
     await ticketModalSubmitCallback(args);
     expect(args.client.chat.postMessage.mock.calls[0][0].text).toMatch(/not available/i);

@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockCreateTicketNow = jest.fn();
 jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({ createTicketNow: mockCreateTicketNow }));
@@ -42,7 +42,12 @@ function makeArgs() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCreateTicketNow.mockResolvedValue({ ok: true, key: '#500', url: 'https://github.com/o/r/issues/500', errorType: null });
+  mockCreateTicketNow.mockResolvedValue({
+    ok: true,
+    key: '#500',
+    url: 'https://github.com/o/r/issues/500',
+    errorType: null,
+  });
 });
 
 describe('ticketApproveActionCallback', () => {
@@ -68,38 +73,43 @@ describe('ticketApproveActionCallback', () => {
 describe('ticketApproveActionCallback — failure copy', () => {
   const updatedText = (args) => args.client.chat.update.mock.calls[0][0].text;
 
-  const fail = (errorType) =>
-    mockCreateTicketNow.mockResolvedValue({ ok: false, key: null, url: null, errorType });
+  const fail = (errorType) => mockCreateTicketNow.mockResolvedValue({ ok: false, key: null, url: null, errorType });
 
-  it.each(['feature_disabled', 'github_auth_failed', 'github_create_failed', 'something_unexpected'])(
-    'never leaks the raw errorType "%s" to the approver',
-    async (errorType) => {
-      fail(errorType);
-      const args = makeArgs();
-      await ticketApproveActionCallback(args);
-      expect(updatedText(args)).not.toContain(errorType);
-    },
-  );
+  it.each([
+    'feature_disabled',
+    'github_auth_failed',
+    'github_create_failed',
+    'something_unexpected',
+  ])('never leaks the raw errorType "%s" to the approver', async (errorType) => {
+    fail(errorType);
+    const args = makeArgs();
+    await ticketApproveActionCallback(args);
+    expect(updatedText(args)).not.toContain(errorType);
+  });
 
-  it.each(['feature_disabled', 'github_auth_failed', 'github_create_failed', 'something_unexpected'])(
-    'does not invite a retry for "%s" — the buttons are already gone',
-    async (errorType) => {
-      fail(errorType);
-      const args = makeArgs();
-      await ticketApproveActionCallback(args);
-      expect(updatedText(args)).not.toMatch(/try again/i);
-    },
-  );
+  it.each([
+    'feature_disabled',
+    'github_auth_failed',
+    'github_create_failed',
+    'something_unexpected',
+  ])('does not invite a retry for "%s" — the buttons are already gone', async (errorType) => {
+    fail(errorType);
+    const args = makeArgs();
+    await ticketApproveActionCallback(args);
+    expect(updatedText(args)).not.toMatch(/try again/i);
+  });
 
-  it.each(['feature_disabled', 'github_auth_failed', 'github_create_failed', 'something_unexpected'])(
-    'states that nothing was created for "%s"',
-    async (errorType) => {
-      fail(errorType);
-      const args = makeArgs();
-      await ticketApproveActionCallback(args);
-      expect(updatedText(args)).toMatch(/nothing was created/i);
-    },
-  );
+  it.each([
+    'feature_disabled',
+    'github_auth_failed',
+    'github_create_failed',
+    'something_unexpected',
+  ])('states that nothing was created for "%s"', async (errorType) => {
+    fail(errorType);
+    const args = makeArgs();
+    await ticketApproveActionCallback(args);
+    expect(updatedText(args)).toMatch(/nothing was created/i);
+  });
 
   it('says the feature is disabled, not that something went wrong, for feature_disabled', async () => {
     fail('feature_disabled');

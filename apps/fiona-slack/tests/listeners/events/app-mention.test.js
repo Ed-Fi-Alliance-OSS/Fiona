@@ -447,7 +447,12 @@ describe('appMentionCallback', () => {
     beforeEach(() => {
       captureConversation.mockClear();
       callLLM.mockResolvedValue({
-        metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://a.com' }], source_index_map: {}, provider: 'perplexity' },
+        metadata: {
+          finalize_state: 'ready_to_finalize',
+          sources: [{ url: 'https://a.com' }],
+          source_index_map: {},
+          provider: 'perplexity',
+        },
         botText: 'Bot answer here.',
         systemPromptVersion: 'v1',
       });

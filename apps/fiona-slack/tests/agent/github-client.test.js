@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockPost = jest.fn();
 jest.unstable_mockModule('axios', () => ({ default: { post: mockPost } }));
@@ -112,9 +112,7 @@ describe('createIssue', () => {
   it('sets Priority as a single-select option id, resolved by name', async () => {
     await createIssue({ title: 't', bodyText: 'b', priorityName: 'Urgent' }, logger);
 
-    expect(mutationInput().issueFields).toEqual([
-      { fieldId: 'IFSS_priority', singleSelectOptionId: 'IFSSO_urgent' },
-    ]);
+    expect(mutationInput().issueFields).toEqual([{ fieldId: 'IFSS_priority', singleSelectOptionId: 'IFSSO_urgent' }]);
   });
 
   it('sends the Slack User text value and the Priority option together', async () => {
