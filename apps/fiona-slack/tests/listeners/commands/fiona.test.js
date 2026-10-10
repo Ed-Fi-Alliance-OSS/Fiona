@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { createFinalizeMetadataEnvelopeMock, METADATA_LIFECYCLE_STATE } from '../../helpers/llm-caller-mock.js';
 
 // Mock interaction-store before importing the module under test.
 const mockRecordInteraction = jest.fn().mockResolvedValue(undefined);
@@ -16,20 +17,14 @@ jest.unstable_mockModule('../../../src/agent/interaction-store.js', () => ({
 const mockCallLLM = jest
   .fn()
   .mockResolvedValue({ metadata: null, botText: 'test response', systemPromptVersion: 'v1' });
-const mockFinalizeMetadataEnvelope = jest.fn();
+const mockFinalizeMetadataEnvelope = createFinalizeMetadataEnvelopeMock();
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: mockCallLLM,
   finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   LLM_MODEL: 'test-model',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
-  MetadataLifecycleState: {
-    STREAMING_TEXT: 'streaming_text',
-    COLLECTING_METADATA: 'collecting_metadata',
-    READY_TO_FINALIZE: 'ready_to_finalize',
-    FINALIZED: 'finalized',
-    DEGRADED_NO_METADATA: 'degraded_no_metadata',
-  },
+  MetadataLifecycleState: METADATA_LIFECYCLE_STATE,
 }));
 
 const mockLogCitationTelemetry = jest.fn();
@@ -77,6 +72,16 @@ const { fionaCommandCallback } = await import('../../../src/listeners/commands/f
 
 // Flush microtasks and the setImmediate queue so fire-and-forget Promises settle before assertions.
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
+// Spends a user's whole budget on the real limiter, whatever the configured
+// limit is, so a test never depends on a hard-coded request count.
+const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
+function exhaustRateLimit(userId) {
+  for (let i = 0; i < 10000; i++) {
+    if (!checkRateLimit(userId).allowed) return;
+  }
+  throw new Error('rate limit never engaged; is RATE_LIMIT_MAX_REQUESTS 0?');
+}
 
 // The AI-217 flags default to off. Suites needing a feature on set it in their
 // own beforeEach; clearing here keeps suite ordering from being load-bearing.
@@ -237,7 +242,7 @@ describe('fionaCommandCallback', () => {
       expect(mockAck).toHaveBeenCalledWith(expect.stringContaining('Available commands'));
     });
 
-    it('does not call callLLM when the question is empty', async () => {
+    it('does not ask the LLM when the question is empty', async () => {
       await fionaCommandCallback({
         command: mockCommand,
         ack: mockAck,
@@ -303,6 +308,20 @@ describe('fionaCommandCallback', () => {
       expect(mockRespond).toHaveBeenCalledWith(
         expect.objectContaining({ response_type: 'ephemeral', replace_original: true, text: 'test response' }),
       );
+    });
+
+    // Slash text keeps a literal `<…>`: should_escape is false, so it is not
+    // Slack link markup and must not be unwrapped.
+    it.each([
+      ['raw angle brackets', 'ask Is <Descriptor> ok?', 'Is <Descriptor> ok?'],
+      ['escaped angle brackets', 'ask Is &lt;Descriptor&gt; A &amp; B?', 'Is <Descriptor> A & B?'],
+    ])('shows a question with %s as typed in the "You asked:" line', async (_label, text, shown) => {
+      mockCommand.text = text;
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+      const { blocks } = mockRespond.mock.calls.at(-1)[0];
+      expect(blocks[0].elements[0].text).toBe(`You asked: ${shown}`);
     });
 
     it('captures the conversation only after the answer is delivered', async () => {
@@ -385,6 +404,27 @@ describe('fionaCommandCallback', () => {
           }),
         ).resolves.toBeUndefined();
       });
+
+      it('sends the notice through chat.postEphemeral when respond() fails again', async () => {
+        mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+        mockClient.chat = { postEphemeral: jest.fn().mockResolvedValue(undefined) };
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+        expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith({
+          channel: mockCommand.channel_id,
+          user: mockCommand.user_id,
+          text: expect.stringContaining("couldn't deliver"),
+        });
+      });
+
+      it('does not use chat.postEphemeral when the notice gets through', async () => {
+        mockClient.chat = { postEphemeral: jest.fn().mockResolvedValue(undefined) };
+
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+        expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
+      });
     });
 
     it('records llm_empty telemetry and sends the empty-answer copy end to end', async () => {
@@ -404,6 +444,52 @@ describe('fionaCommandCallback', () => {
       );
       expect(mockRecordInteraction).toHaveBeenCalledWith(
         expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'llm_empty' }),
+      );
+      expect(mockCaptureConversation).not.toHaveBeenCalled();
+    });
+
+    it('declines an over-long question before spending the rate limit', async () => {
+      exhaustRateLimit(mockCommand.user_id);
+      mockCommand.text = `ask ${'x'.repeat(3001)}`;
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ replace_original: true, text: expect.stringContaining('too long') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', errorType: 'question_too_long', rateLimited: false }),
+      );
+    });
+
+    it('does not spend the rate limit on an over-long question', async () => {
+      const { checkRateLimit: peek } = await import('../../../src/agent/rate-limiter.js');
+      mockCommand.text = `ask ${'x'.repeat(3001)}`;
+
+      for (let i = 0; i < 30; i++) {
+        await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      }
+
+      expect(peek(mockCommand.user_id).allowed).toBe(true);
+    });
+
+    // AI-250. A bug while building the answer is not a delivery failure.
+    it('records ask_failed, not respond_failed, when building the answer throws', async () => {
+      // A non-string botText passes the LLM call and throws later, while the
+      // answer is being completed — outside the LLM-failure handling.
+      mockCallLLM.mockImplementationOnce(async () => ({ metadata: null, botText: 42, systemPromptVersion: 'v1' }));
+
+      await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ replace_original: true, text: expect.stringContaining('could not answer') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'slash_ask', status: 'error', errorType: 'ask_failed' }),
       );
       expect(mockCaptureConversation).not.toHaveBeenCalled();
     });
@@ -453,7 +539,7 @@ describe('fionaCommandCallback', () => {
       expect(mockClient.chatStream).not.toHaveBeenCalled();
     });
 
-    it('calls callLLM with the question as a standalone prompt', async () => {
+    it('sends the question to the LLM on its own, without thread context', async () => {
       await fionaCommandCallback({
         command: mockCommand,
         ack: mockAck,
@@ -476,7 +562,8 @@ describe('fionaCommandCallback', () => {
       });
       const [{ blocks }] = mockRespond.mock.calls[0];
       expect(blocks.at(-1).block_id).toBe('feedback|ask|slash_ask');
-      expect(blocks[0]).toEqual({ type: 'markdown', text: 'test response' });
+      expect(blocks[0].block_id).toBe('ask_question');
+      expect(blocks[1]).toEqual({ type: 'markdown', text: 'test response' });
     });
 
     it('captures the conversation with entryPoint slash_ask', async () => {
@@ -510,7 +597,7 @@ describe('fionaCommandCallback', () => {
       );
     });
 
-    it('sends an ephemeral error and records error telemetry when callLLM throws', async () => {
+    it('sends an ephemeral error and records error telemetry when the LLM fails', async () => {
       mockCallLLM.mockRejectedValueOnce(new Error('LLM failure'));
       await fionaCommandCallback({
         command: mockCommand,
@@ -541,8 +628,7 @@ describe('fionaCommandCallback', () => {
     });
 
     it('sends an ephemeral rate-limit message and records rate-limited telemetry', async () => {
-      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-      for (let i = 0; i < 25; i++) checkRateLimit('U_RL_ASK');
+      exhaustRateLimit('U_RL_ASK');
       mockCommand.user_id = 'U_RL_ASK';
       await fionaCommandCallback({
         command: mockCommand,
@@ -674,7 +760,7 @@ describe('fionaCommandCallback', () => {
         );
       });
 
-      it('records status error with errorType search_failed when searchForSources fails', async () => {
+      it('records status error with errorType search_failed when the search fails', async () => {
         mockSearchForSources.mockRejectedValueOnce(new Error('Perplexity down'));
 
         await fionaCommandCallback({ command: mockCommand, ack: mockAck, respond: mockRespond, logger: mockLogger });
@@ -760,8 +846,7 @@ describe('fionaCommandCallback', () => {
 
     describe('search rate limiting', () => {
       it('responds with rate limit message when rate limited', async () => {
-        const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-        for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH');
+        exhaustRateLimit('U_RL_SEARCH');
         const cmd = { ...mockCommand, text: 'search Ed-Fi', user_id: 'U_RL_SEARCH' };
         await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
         expect(mockRespond).toHaveBeenCalledWith(
@@ -770,8 +855,7 @@ describe('fionaCommandCallback', () => {
       });
 
       it('records slash_search with rateLimited true when rate limited', async () => {
-        const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-        for (let i = 0; i < 25; i++) checkRateLimit('U_RL_SEARCH2');
+        exhaustRateLimit('U_RL_SEARCH2');
         const cmd = { ...mockCommand, text: 'search Ed-Fi', user_id: 'U_RL_SEARCH2' };
         await fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, logger: mockLogger });
         await flushMicrotasks();
@@ -946,6 +1030,17 @@ describe('fionaCommandCallback', () => {
       );
     });
 
+    it('logs, rather than throws, when the confirmation cannot be delivered', async () => {
+      mockRespond.mockRejectedValue(Object.assign(new Error('expired_url'), { name: 'HTTPError', status: 404 }));
+      const ack = jest.fn().mockResolvedValue(undefined);
+
+      await expect(
+        fionaCommandCallback({ command: cmd(), ack, respond: mockRespond, client: mockClient, logger: mockLogger }),
+      ).resolves.toBeUndefined();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond to /fiona escalate'));
+    });
+
     it('sends an ephemeral error when postEscalation fails', async () => {
       mockPostEscalation.mockResolvedValue({ ok: false, errorType: 'post_failed' });
       const ack = jest.fn().mockResolvedValue(undefined);
@@ -957,8 +1052,7 @@ describe('fionaCommandCallback', () => {
 
     it('does not call postEscalation and warns the user when rate limited', async () => {
       // Exhaust the limiter for this user (default RATE_LIMIT_MAX_REQUESTS=20).
-      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-      for (let i = 0; i < 25; i++) checkRateLimit('U_RL');
+      exhaustRateLimit('U_RL');
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ user_id: 'U_RL' }),
@@ -1097,8 +1191,7 @@ describe('fionaCommandCallback', () => {
     });
 
     it('does not open a modal and shows the rate-limit message when rate limited', async () => {
-      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL');
+      exhaustRateLimit('U_TICKET_RL');
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'bug', user_id: 'U_TICKET_RL' }),
@@ -1114,8 +1207,7 @@ describe('fionaCommandCallback', () => {
     });
 
     it('records slash_bug telemetry with errorType rate_limited when rate limited', async () => {
-      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL2');
+      exhaustRateLimit('U_TICKET_RL2');
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'bug', user_id: 'U_TICKET_RL2' }),
@@ -1208,8 +1300,7 @@ describe('fionaCommandCallback', () => {
     });
 
     it('records slash_ticket with rate_limited when ticket is rate limited', async () => {
-      const { checkRateLimit } = await import('../../../src/agent/rate-limiter.js');
-      for (let i = 0; i < 25; i++) checkRateLimit('U_TICKET_RL3');
+      exhaustRateLimit('U_TICKET_RL3');
       const ack = jest.fn().mockResolvedValue(undefined);
       await fionaCommandCallback({
         command: cmd({ text: 'ticket', user_id: 'U_TICKET_RL3' }),
@@ -1333,5 +1424,136 @@ describe('fionaCommandCallback — flagged-off sub-commands', () => {
     await invoke('help');
     expect(mockAck).toHaveBeenCalledTimes(1);
     expect(mockAck.mock.calls[0][0]).toMatch('*Available commands:*');
+  });
+});
+
+// AI-248. ask, search, escalate and ticket share one preamble: acknowledge,
+// check the required fields, apply the rate limit. Each case proves the
+// sub-command still goes through it and stops before its own work.
+describe('shared slash-command preamble', () => {
+  let userSeq = 0;
+  let mockAck;
+  let mockRespond;
+  let mockClient;
+  let mockLogger;
+
+  const CASES = [
+    {
+      name: 'ask',
+      text: 'ask What is Ed-Fi?',
+      interactionType: 'slash_ask',
+      missingFieldsCopy: 'could not answer',
+      work: () => mockCallLLM,
+    },
+    {
+      name: 'search',
+      text: 'search Data Standard',
+      interactionType: 'slash_search',
+      missingFieldsCopy: 'Search encountered an error',
+      work: () => mockSearchForSources,
+    },
+    {
+      name: 'escalate',
+      text: 'escalate',
+      interactionType: 'slash_escalate',
+      missingFieldsCopy: 'could not escalate',
+      work: () => mockPostEscalation,
+    },
+    {
+      name: 'ticket',
+      text: 'ticket',
+      interactionType: 'slash_ticket',
+      missingFieldsCopy: 'Issue creation is not available',
+      work: () => mockClient.views.open,
+    },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ESCALATION_ENABLED = 'true';
+    process.env.TICKET_CREATION_ENABLED = 'true';
+    mockIsTicketingEnabled.mockReturnValue(true);
+    mockAck = jest.fn().mockResolvedValue(undefined);
+    mockRespond = jest.fn().mockResolvedValue(undefined);
+    mockClient = { views: { open: jest.fn().mockResolvedValue({}) }, chatStream: jest.fn() };
+    mockLogger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
+  });
+
+  const command = (text, over = {}) => {
+    userSeq += 1;
+    return {
+      user_id: `U_PREAMBLE_${userSeq}`,
+      team_id: 'T1',
+      channel_id: 'C1',
+      trigger_id: `trig-${userSeq}`,
+      text,
+      ...over,
+    };
+  };
+  const invoke = (cmd) =>
+    fionaCommandCallback({ command: cmd, ack: mockAck, respond: mockRespond, client: mockClient, logger: mockLogger });
+
+  describe.each(CASES)('$name', ({ text, interactionType, missingFieldsCopy, work }) => {
+    it('replies with the rate-limit message, records rate_limited, and does no work', async () => {
+      const cmd = command(text);
+      exhaustRateLimit(cmd.user_id);
+
+      await invoke(cmd);
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining('request limit') }),
+      );
+      expect(mockRecordInteraction).toHaveBeenCalledTimes(1);
+      expect(mockRecordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType, status: 'error', errorType: 'rate_limited', rateLimited: true }),
+      );
+      expect(work()).not.toHaveBeenCalled();
+    });
+
+    it('replies with its own copy when required fields are missing, and records nothing', async () => {
+      const { trigger_id: _t, ...cmd } = command(text);
+
+      await invoke(cmd);
+      await flushMicrotasks();
+
+      expect(mockRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response_type: 'ephemeral', text: expect.stringContaining(missingFieldsCopy) }),
+      );
+      expect(mockRecordInteraction).not.toHaveBeenCalled();
+      expect(work()).not.toHaveBeenCalled();
+    });
+
+    it('stops quietly when the ack fails', async () => {
+      mockAck.mockRejectedValueOnce(new Error('expired'));
+
+      await expect(invoke(command(text))).resolves.toBeUndefined();
+
+      expect(mockRespond).not.toHaveBeenCalled();
+      expect(work()).not.toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to acknowledge'));
+    });
+
+    it('survives respond() failing on a preamble reply', async () => {
+      const { trigger_id: _t, ...cmd } = command(text);
+      mockRespond.mockRejectedValueOnce(new Error('expired_url'));
+
+      await expect(invoke(cmd)).resolves.toBeUndefined();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to respond'));
+    });
+  });
+
+  it('checks ticketing is configured before spending the rate limit', async () => {
+    mockIsTicketingEnabled.mockReturnValue(false);
+    const cmd = command('ticket');
+    exhaustRateLimit(cmd.user_id);
+
+    await invoke(cmd);
+    await flushMicrotasks();
+
+    expect(mockRecordInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionType: 'slash_ticket', errorType: 'not_configured', rateLimited: false }),
+    );
   });
 });

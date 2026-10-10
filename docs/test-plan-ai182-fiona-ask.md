@@ -34,7 +34,8 @@ system prompt, citations, grounding rules, and numbered Sources block. The diffe
 only you can see it in Slack. You can reach it four ways: the `/fiona ask` slash command,
 `@fiona ask <question>` in a channel or thread, and bare `ask <question>` in your Fiona DM or
 the agent panel. On the slash command and the @-mention, the answer arrives all at once as a
-message only you can see, because Slack can't stream that kind of message. In the DM and the
+message only you can see, because Slack can't stream that kind of message. That message starts
+with a *You asked: …* line repeating your question. In the DM and the
 agent panel, which only you can see anyway, it streams like any other reply. The question is
 treated on its own: earlier messages in the thread are not sent with it. Answers have 👍/👎
 buttons; error messages don't. "Only you can see it" is about Slack: conversations with Fiona
@@ -46,7 +47,7 @@ may still be kept to review answer quality.
 
 | # | Do this | Expect |
 |---|---|---|
-| **T1** | `/fiona ask What is the Ed-Fi Data Standard?` | A *":hourglass_flowing_sand: Thinking…"* line appears right away, visible only to you. The answer then **replaces** it, all at once rather than streaming. Slack labels it "Only visible to you" |
+| **T1** | `/fiona ask What is the Ed-Fi Data Standard?` | A *":hourglass_flowing_sand: Thinking…"* line appears right away, visible only to you. The answer then **replaces** it, all at once rather than streaming. It starts with a small grey *You asked: What is the Ed-Fi Data Standard?* line. Slack labels it "Only visible to you" |
 | **T2** | In a real channel: `@fiona ask What is the Ed-Fi ODS/API?` | Your question is visible to the channel. While Fiona works, the thread may show a "thinking" status. The **answer** is visible **only to you**: check with the second viewer that no answer from Fiona appears for them. Once the answer arrives, the "thinking" status goes away |
 | **T3** | Inside a thread in that channel: `@fiona ask How do I authenticate to the ODS/API?` | Answer visible only to you, **in that thread**, not at the top of the channel. The thread's "thinking" status clears when the answer arrives |
 | **T4** | In your Fiona DM: bare `ask What is Ed-Fi?` (no `@fiona`) | Answer streams into the DM like a normal reply |
@@ -65,7 +66,10 @@ may still be kept to review answer quality.
 | **T8** | In your DM: `ASK what is Ed-Fi`, `/ask what is Ed-Fi`, `fiona ask what is Ed-Fi` | All three behave like `ask what is Ed-Fi`. Capital letters, a leading slash, and a leading `fiona ` don't change anything |
 | **T9** | In a thread with earlier messages about something specific, `@fiona ask what about the second one?` | Fiona has no idea what "the second one" means. Deliberate: `ask` sends only the question, not the thread |
 | **T10** | `/fiona help` | Lists **`ask <question>`** with no "(coming soon)" note. The *Who can see your question* section says only you see slash-command and DM answers; that in a channel, the answer to an @-mention stays with you only if it starts with `ask` or `search`; and that conversations may be retained. Nothing in it says "private" |
-| **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons |
+| **T11** | `/fiona ask` followed by a question over 3,000 characters (paste a long block of text) | *"That question is too long for me to answer. Please keep it under 3,000 characters."*, visible only to you, with no 👍/👎 buttons. It does not count toward your hourly limit |
+| **T11a** | `/fiona ask Is *this* bold, and is https://docs.ed-fi.org a link?` | The *You asked:* line shows exactly what you typed, as plain text: the asterisks stay visible, with no bold. Note whether Slack makes the URL clickable, and report it either way |
+| **T11b** | In a channel: `@fiona ask Is A & B the same as <Descriptor>? See https://docs.ed-fi.org` | The *You asked:* line reads exactly as typed: no `&amp;` or `&lt;`, and no angle brackets added around the URL. Rate the answer 👎 and confirm the stored feedback question reads the same way |
+| **T11c** | `/fiona ask Is <Descriptor> ok? a < b and c > d & e` | The *You asked:* line reads exactly as typed, angle brackets and `&` included: not `Is Descriptor ok?`, and no `&lt;` or `&amp;`. This checks how Slack sends slash-command text with `should_escape: false`, so report what you see either way |
 
 ## C. Answer content and rendering
 
@@ -92,7 +96,7 @@ notice, check that any code block above it is closed and that the notice is plai
 | **T20** | After T1, reload Slack (or open the same channel on another device) | The T1 answer is gone. That's how Slack treats messages only you can see. It's expected, not a bug |
 | **T21** | Click 👍 on the T1 answer, then dismiss the reason form (if one opens) | No error. The buttons acknowledge the click |
 | **T22** | Click 👎 on the T2 answer, enter a reason, and submit | A confirmation only you can see |
-| **T23** | 🔧 **maintainer:** check the feedback record from T22 | It holds Fiona's **answer text** but not your question (see "Known and expected") |
+| **T23** | 🔧 **maintainer:** check the feedback record from T22 | It holds **both** your question (as shown in the *You asked:* line) and Fiona's answer text |
 | **T24** | Click 👎 on the T5 (agent panel) answer and submit a reason. 🔧 **maintainer:** check the record | You see a confirmation. The record holds **both** your question and the answer |
 
 ## E. Rate limiting (do this last)
@@ -164,10 +168,8 @@ Also worth reporting even though it's not a failure:
   that uses the thread, use a normal `@fiona` question in the thread.
 - **Bare `search` with no query isn't a command.** It's answered as a normal question. Bare
   `ask` is different: it shows the help message (T7).
-- **Feedback on answers only you can see doesn't save your question.** Slack doesn't let Fiona
-  read those messages back later, so only the answer text can be saved when you click. Unlike
-  a search result, the answer doesn't repeat your question, so the question isn't
-  recoverable.
+- **The *You asked:* line shortens a very long question.** A question over 300 characters shows its first 299, then `…`. A question full of emoji can be cut sooner: the whole line is also held to 1,000 UTF-16 code units, and one emoji can take several (a family emoji takes 11). Either way the cut never splits a character, and the line ends in `…`.
+  Feedback saves the question as shown in that line.
 
 ---
 

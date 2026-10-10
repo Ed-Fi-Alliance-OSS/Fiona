@@ -179,6 +179,27 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
+  it('keeps the stored search query when the lookup fails', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'app_mention',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
+
+    await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).toHaveBeenCalled();
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: 'What is Ed-Fi ODS?', botResponse: null }),
+    );
+  });
+
   it('still posts ephemeral even when conversations.replies fails', async () => {
     mockClient.conversations.replies.mockRejectedValueOnce(new Error('API error'));
 
@@ -439,6 +460,41 @@ describe('feedbackReasonViewCallback — ask response type', () => {
     expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: null }));
   });
 
+  // AI-248. The "You asked:" line makes the question recoverable at click time.
+  it('records the question stored at click time', async () => {
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ question: 'What is the Ed-Fi Data Standard?' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'What is the Ed-Fi Data Standard?',
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
+    );
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+  });
+
+  // A streamed panel answer has no "You asked:" block, so its private_metadata
+  // never carries a question (feedback.test.js covers the click side).
+  it('records a null question when the assistant-panel thread has lost it', async () => {
+    mockClient.conversations.replies.mockResolvedValue({ messages: [] });
+
+    await feedbackReasonViewCallback({
+      ack: mockAck,
+      view: askView({ interactionType: 'assistant_message' }),
+      client: mockClient,
+      logger: mockLogger,
+    });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: null, botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+    );
+  });
+
   it('does not call conversations.replies for an ephemeral answer that cannot be re-fetched', async () => {
     await feedbackReasonViewCallback({ ack: mockAck, view: askView(), client: mockClient, logger: mockLogger });
 
@@ -480,7 +536,10 @@ describe('feedbackReasonViewCallback — ask response type', () => {
 
     expect(mockLogger.error).toHaveBeenCalled();
     expect(mockRecordFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ botResponse: 'The Ed-Fi Data Standard is a specification…' }),
+      expect.objectContaining({
+        userMessage: null,
+        botResponse: 'The Ed-Fi Data Standard is a specification…',
+      }),
     );
   });
 
@@ -628,6 +687,38 @@ describe('feedbackReasonClosedCallback', () => {
     );
   });
 
+  // The stored query and answer are the seed; a failed lookup keeps them.
+  it('keeps the stored search query when the lookup fails after a dismissed thumbs-up', async () => {
+    mockView.private_metadata = JSON.stringify({
+      channelId: 'C456',
+      messageTs: '1234567890.000001',
+      userId: 'U123',
+      value: 'good-feedback',
+      thread_ts: '1234567890.000001',
+      responseType: 'search',
+      interactionType: 'app_mention',
+      searchQuery: 'What is Ed-Fi ODS?',
+    });
+    mockClient.conversations.replies = jest.fn().mockRejectedValueOnce(new Error('channel_not_found'));
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: 'What is Ed-Fi ODS?', botResponse: null }),
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith('Failed to fetch feedback context:', expect.any(Error));
+  });
+
+  it('does not look up context for a dismissed synthesis thumbs-up', async () => {
+    mockClient.conversations.replies = jest.fn();
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
+  });
+
   it('does NOT record feedback when bad-feedback modal is dismissed', async () => {
     mockView.private_metadata = JSON.stringify({
       channelId: 'C456',
@@ -691,6 +782,16 @@ describe('feedbackReasonClosedCallback — ask response type', () => {
         reason: null,
       }),
     );
+  });
+
+  it('keeps the stored question when a thumbs-up modal is dismissed', async () => {
+    mockView.private_metadata = JSON.stringify({ ...JSON.parse(mockView.private_metadata), question: 'What is Ed-Fi?' });
+    const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
+
+    await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
+
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: 'What is Ed-Fi?' }));
+    expect(mockClient.conversations.replies).not.toHaveBeenCalled();
   });
 
   it('still ignores a dismissed thumbs-down', async () => {

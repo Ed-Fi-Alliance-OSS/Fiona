@@ -576,6 +576,88 @@ describe('appMentionCallback', () => {
       expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
     });
 
+    // The question is shown back ("You asked:") and stored with feedback, so a
+    // mention inside it keeps its place as a neutral marker rather than leaving
+    // a hole. No user or channel id is kept.
+    it.each([
+      ['a user', '<@UFIONA> ask Can <@UALICE> help with ODS?', 'Can @someone help with ODS?'],
+      ['a user group', '<@UFIONA> ask Is <!subteam^S123|@ods-team> the right group?', 'Is @someone the right group?'],
+      ['a channel', '<@UFIONA> ask Should I post in <#C999|ods-help>?', 'Should I post in #a-channel?'],
+      ['@here', '<@UFIONA> ask Does <!here> need to know?', 'Does @here need to know?'],
+      ['@channel', '<@UFIONA> ask Does <!channel> need to know?', 'Does @channel need to know?'],
+      ['@everyone with a label', '<@UFIONA> ask Does <!everyone|@everyone> know?', 'Does @everyone know?'],
+      ['a date, by its label', '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?', 'Is Nov 14 the release?'],
+      ['a token with no label', '<@UFIONA> ask Is <!date^1700000000^{date}> the release?', 'Is the release?'],
+    ])('keeps the place of %s mentioned inside an ask question', async (_label, text, question) => {
+      mockEvent.text = text;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: question }]);
+      const [{ blocks }] = mockClient.chat.postEphemeral.mock.calls[0];
+      expect(blocks[0].elements[0].text).toBe(`You asked: ${question}`);
+    });
+
+    it('keeps the indentation of a pasted snippet', async () => {
+      const snippet = ['```', 'services:', '    api:', '        image: ods', '```'].join('\n');
+      mockEvent.text = `<@UFIONA> ask why does this fail?\n${snippet}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts[0].content).toBe(`why does this fail?\n${snippet}`);
+    });
+
+    it('removes Fiona’s own mention from the middle of the question rather than marking it', async () => {
+      mockEvent.text = '<@UFIONA> ask can <@UFIONA|fiona> or <@UALICE> help?';
+
+      await appMentionCallback({
+        event: mockEvent,
+        client: mockClient,
+        context: { botUserId: 'UFIONA' },
+        logger: mockLogger,
+        say: mockSay,
+      });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'can or @someone help?' }]);
+    });
+
+    it('keeps the markers when a mention comes before the keyword', async () => {
+      mockEvent.text = '<@UFIONA> <!here> ask Can <@UALICE> help?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const [, prompts] = callLLM.mock.calls[0];
+      expect(prompts).toEqual([{ role: 'user', content: 'Can @someone help?' }]);
+    });
+
+    // A question made only of mentions is a bare `ask`, which gets help rather
+    // than a public LLM answer.
+    it.each([
+      ['a user', '<@UFIONA> ask <@UALICE>'],
+      ['a channel and @here', '<@UFIONA> ask <#C999|ods-help> <!here>'],
+    ])('answers an ask made only of %s with help, not the LLM', async (_label, text) => {
+      mockEvent.text = text;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ user: 'U456', text: expect.stringContaining('Available commands') }),
+      );
+    });
+
+    it('still removes mentions entirely from an ordinary question', async () => {
+      mockEvent.text = '<@UFIONA> can <@UALICE> help with ODS?';
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      const prompts = callLLM.mock.calls[0][1];
+      expect(prompts.at(-1)).toEqual({ role: 'user', content: 'can  help with ODS?' });
+    });
+
     it('keeps the ask answer in-thread when the mention occurs inside a thread', async () => {
       mockEvent.text = '<@UFIONA> ask how do I set up ODS?';
       mockEvent.thread_ts = '1234567890.000000';
@@ -584,6 +666,24 @@ describe('appMentionCallback', () => {
 
       expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
         expect.objectContaining({ thread_ts: '1234567890.000000' }),
+      );
+    });
+
+    // AI-250. The length check runs before the rate limit, so a question that
+    // will be declined anyway does not spend the user's budget.
+    it('declines an over-long ask privately without touching the rate limit', async () => {
+      mockEvent.text = `<@UFIONA> ask ${'x'.repeat(3001)}`;
+
+      await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });
+
+      expect(checkRateLimit).not.toHaveBeenCalled();
+      expect(callLLM).not.toHaveBeenCalled();
+      expect(mockSay).not.toHaveBeenCalled();
+      expect(mockClient.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({ user: 'U456', text: expect.stringContaining('too long') }),
+      );
+      expect(recordInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ interactionType: 'app_mention', status: 'error', errorType: 'question_too_long' }),
       );
     });
 
