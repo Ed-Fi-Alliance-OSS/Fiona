@@ -1,7 +1,7 @@
 # Fiona Skills — Product Requirements Document
 
 > **Parent document:** [Fiona Slack PRD](fiona-slack-prd.md) (§2.9) \
-> **Status:** Draft \
+> **Status:** Implemented (proactive escalation deferred; see §6) \
 > **Jira Project:** AI
 
 ## 1. Overview
@@ -16,20 +16,43 @@ conversational interface (channel mentions, DMs, and the Assistant panel).
   do, lowering the barrier to first use.
 - **Precision** — Each skill performs a single, well-defined action with
   predictable output, reducing ambiguity compared to free-form prompts.
-- **Composability** — Skills are implemented as independent handlers, making it
-  straightforward to add new skills without modifying existing ones.
+- **Composability** — New skills can be added without changing the behavior of
+  existing ones.
+- **Privacy by default** — Every skill answers only the invoking user. A new
+  entry point must fail closed rather than post publicly.
 
 ### 1.2 Slash Command Routing
 
 All skills share a single Slack slash command: `/fiona`. The first token after
 `/fiona` is the **sub-command**; the remainder is the **argument text**.
 
-```
+```text
 /fiona <sub-command> [argument text]
 ```
 
 If no recognized sub-command is provided, Fiona responds with the help output
 (equivalent to `/fiona help`).
+
+### 1.3 Other Entry Points
+
+The same skills are reachable without the slash command:
+
+| Surface                       | How                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| Channel or thread @-mention   | `@fiona help`, `@fiona ask <question>`, `@fiona search <query>`, `@fiona escalate` |
+| DM and Assistant panel        | Type `help`, `ask <question>`, `search <query>`, or `escalate` directly      |
+
+Keywords match only when they are the whole message (or, for `ask` and
+`search`, are followed by text). A message such as "help me with X" is an
+ordinary question for the LLM. `ask` and `search` answer privately wherever
+they are used; any other @-mention in a channel gets a reply the whole channel
+can see.
+
+### 1.4 Deployment Switches
+
+Escalation and ticket creation are off by default and are enabled per
+deployment (see §5). A disabled skill does not appear in `/fiona help`, and its
+keywords are treated as ordinary questions.
 
 ---
 
@@ -37,170 +60,112 @@ If no recognized sub-command is provided, Fiona responds with the help output
 
 ### 2.1 `/fiona help`
 
-**Purpose:** Display a usage guide listing all available skills with brief
-descriptions and example usage.
+**Purpose:** Display a usage guide listing the available skills, how to reach
+Fiona, and who can see each kind of question.
 
 **Behavior:**
 
-1. Fiona responds with an **ephemeral message** (visible only to the invoking
-   user) containing:
-   - A brief introduction to Fiona and how to interact with her.
-   - A table or list of available skills with descriptions.
-   - Example questions or prompts that Fiona answers well.
+1. Fiona responds with an **ephemeral message** containing:
+   - A brief introduction to Fiona.
+   - The skills available in this deployment, with short descriptions.
+   - The ways to reach Fiona (slash command, @-mention, DM or Assistant panel).
+   - Who can see a question and answer on each surface, and a note that
+     conversations may be retained to review and improve answer quality.
+   - A link to the Ed-Fi Terms of Use and Privacy Policy.
 2. The response is static and does not invoke the LLM.
-
-**Example output:**
-
-> 👋 **Hi! I'm Fiona** — your AI companion for Ed-Fi documentation, standards,
-> and implementation guidance.
->
-> **Slash commands:**
->
-> | Command                 | Description                                       |
-> | ----------------------- | ------------------------------------------------- |
-> | `/fiona help`           | Show this usage guide                             |
-> | `/fiona ask <question>` | Ask Fiona a question; only you see the answer     |
-> | `/fiona search <query>` | Search Ed-Fi sources without a synthesized answer |
-> | `/fiona escalate`       | Escalate the current conversation to a human      |
->
-> **You can also mention me directly:**
-> `@Fiona What is the Ed-Fi Data Standard?`
 
 **Acceptance criteria:**
 
-- [ ] Response is ephemeral.
-- [ ] Response renders correctly in Slack desktop and mobile.
-- [ ] No LLM call is made.
+- [x] Response is ephemeral.
+- [x] No LLM call is made.
+- [x] Only skills enabled in the deployment are listed.
+- [ ] Response renders correctly in Slack desktop and mobile (manual check).
 
 ---
 
 ### 2.2 `/fiona ask <question>`
 
-**Purpose:** Allow a user to ask Fiona a question without @-mentioning her in
-the channel. This is useful when a user prefers not to surface the question
-publicly in the conversation, or when Fiona has not been invited to the channel.
+**Purpose:** Let a user ask Fiona a question without @-mentioning her in the
+channel, so the question and answer are visible only to them. This also works
+in channels where Fiona has not been invited.
 
 **Behavior:**
 
 1. The user types `/fiona ask <question>` in any channel or DM.
-2. Fiona sends an **ephemeral message** (visible only to the invoking user) with
-   the LLM response.
-3. The response follows the same LLM pipeline as a standard `app_mention` —
-   including system prompt, citation handling, and domain filtering — but is
-   delivered ephemerally rather than in-thread.
-4. Thread context from the current channel is **not** included (the question is
-   treated as standalone). If the user needs context-aware answers, they should
-   use @-mentions in a thread instead.
-5. Feedback buttons ("Good Response" / "Bad Response") are included in the
-   ephemeral response.
-6. The ephemeral answer opens with a plain-text "You asked: …" line repeating
-   the question (over 300 visible characters, its first 299 and `…`; the whole
-   line is also held to 1,000 UTF-16 code units for Slack's text limit, so a
-   question heavy in emoji, some of which take up to 11 units, can be cut
-   earlier), because an
-   ephemeral answer is not threaded under it. Feedback reads the question back
-   from this line at click time (AI-248); it is the only copy Slack can give
-   back at that point, since an ephemeral message cannot be fetched later.
-   (Conversation capture, below, may separately keep the full question.) A
-   mention inside an `ask` question (`@fiona ask`, or `ask` in the assistant
-   panel) becomes `@someone` or `#a-channel`, so no user or channel id is shown,
-   stored with feedback, or captured. Fiona's own mention is removed wherever it
-   appears, a date keeps its readable label, and the rest of the question
-   (indentation included) is left as typed. Slash-command text is shown as typed: the
-   manifest sets `should_escape: false`, so a `<Descriptor>` in it is literal
-   text, not Slack link markup.
-   The question stored with a feedback rating is this displayed text: decoded,
-   with mention markers, and shortened the same way. A stored question ending
-   in `…` may therefore have been cut. It can contain whatever the user typed,
-   names included, and is kept under the same retention as the rated answer.
-7. The numbered Sources block (AI-230) sits between the answer and the feedback
-   buttons, exactly as on a standard `app_mention` answer, and the grounding rules
-   (AI-231) apply unchanged — a question with no usable sources gets the same
-   decline.
+2. Fiona acknowledges with an ephemeral "Thinking…" line, which the answer then
+   replaces.
+3. The answer goes through the same pipeline as a standard @-mention: system
+   prompt, numbered Sources block, grounding rules (a question with no usable
+   sources gets the standard decline), and domain filtering.
+4. The answer is **ephemeral** and includes "Good Response" / "Bad Response"
+   feedback buttons.
+5. Thread context is **not** included; the question is treated as standalone.
+   Users who need context-aware answers should @-mention Fiona in the thread.
+6. The answer opens with a "You asked: …" line repeating the question, because
+   an ephemeral answer is not threaded under it. Long questions are shortened
+   in this line. Feedback uses this displayed text as the question stored with
+   the rating.
+7. Mentions inside the question are replaced with neutral markers (`@someone`,
+   `#a-channel`) so no user or channel ID is displayed, stored with feedback, or
+   captured. Fiona's own mention is removed.
 
-**Ephemeral, therefore not streamed.** Slack has no ephemeral equivalent of
-`chat.startStream` — `recipient_user_id` on a stream is a routing field required
-outside a DM, not a privacy control, so streaming the answer would post it to the
-whole channel. The answer is buffered and delivered in one ephemeral message
-instead. Nothing is lost in the LLM pipeline by doing so: `callPerplexityChat`
-already buffers the full response and emits a single `append()`, because citation
-markers cannot be linkified until Perplexity sends the citations on the last chunk.
+**Why ephemeral answers are not streamed.** Slack offers no private equivalent
+of streaming, and a streamed answer would post to the whole channel. The answer
+is delivered in one ephemeral message instead.
 
-**The `ask` keyword behaves identically.** `@fiona ask <question>` in a channel or
-thread answers ephemerally through the same pipeline, so the phrasing a user
-happens to reach for does not change who can see the answer. Only the assistant
-panel, which is already private, streams the answer, so it reads like any other
-reply there. Every other surface gets the ephemeral answer, so a new entry point
-fails closed rather than posting publicly.
+**"Ephemeral" does not mean unrecorded.** Only the invoking user sees the
+answer in Slack. When conversation capture is on, the question and answer are
+kept for quality review, and a feedback click stores the rated answer.
+User-facing copy says "only you see…" and that conversations may be retained,
+and never describes them as private.
 
-**Visible only to you, not unrecorded.** "Ephemeral" describes who can see the
-answer in Slack. It does not mean the exchange is not stored: when conversation
-capture is on, the question and answer are kept like any other conversation for
-quality review, and a feedback click stores the rated answer. User-facing copy
-therefore says "only you see…" and that conversations may be retained, never
-that they are private.
-
-**Progress and delivery failures.** The answer can take up to a minute, so the
-slash command acknowledges with an ephemeral "Thinking…" line that the answer
-replaces, and the @-mention path shows a thread "thinking" status while the LLM
-runs. If the answer cannot be delivered, the user gets a short notice instead of
-silence, the interaction is recorded as an error (`respond_failed` on the slash
-command, `post_failed` on the @-mention path), and the conversation is not
-captured, because nobody saw the answer. On the slash command the notice is
-tried through `respond()` first, so it can replace the "Thinking…" line, and
-through `chat.postEphemeral` if that fails too.
+**Delivery failures.** If the answer cannot be delivered, the user gets a short
+notice instead of silence, the interaction is recorded as an error, and the
+conversation is not captured, because nobody saw the answer.
 
 **Edge cases:**
 
-- If `<question>` is empty or blank, Fiona responds with the help output
-  (equivalent to `/fiona help`). A bare `@fiona ask` does the same, and so does
-  one whose question is only mentions (`@fiona ask @someone`); neither is sent
-  to the LLM, which would answer it publicly.
-- A question over 3,000 characters is declined with a short message, is not
-  sent to the LLM, and does not count toward the rate limit: the length check
-  runs first (`errorType: question_too_long`). Leaving the decline unthrottled
-  is deliberate. It costs no LLM call and only the sender sees it, and counting
-  it would let one over-long paste spend the budget the shorter question needs.
-  A Slack retry of the same @-mention or panel message is declined only once.
-- An unexpected error while building the answer (as opposed to an LLM failure)
-  is answered privately with the error copy and recorded as `ask_failed`. On the
-  @-mention path it never reaches the generic public warning.
-- An error reply carries no feedback buttons. A failed call and an empty
-  generation get different copy; the empty case suggests rephrasing or
+- A blank question, or one containing only mentions, falls back to the help
+  output. It is never sent to the LLM.
+- A question over 3,000 characters is declined with a short message, is not sent
+  to the LLM, and does not count toward the rate limit.
+- An unexpected error while building the answer is answered privately with
+  error copy, never publicly.
+- Error replies carry no feedback buttons. A failed call and an empty
+  generation have different copy; the empty case suggests rephrasing or
   `/fiona search`.
-- An answer over Slack's 12,000-character `markdown` block limit is cut at a line
-  break, any open code fence is closed, and a notice suggests a narrower question.
+- An answer over Slack's message block limit is cut at a line break, with a
+  notice suggesting a narrower question.
 
 **Acceptance criteria:**
 
-- [ ] Response is ephemeral (see "Ephemeral, therefore not streamed" above).
-- [ ] `@fiona ask <question>` is held in lock step with the slash command.
-- [ ] LLM pipeline (system prompt, citations, domain filtering) is reused.
-- [ ] Empty questions fall back to `/fiona help`.
-- [ ] Rate limiting applies (counts toward the user's rate-limit window).
-- [ ] Interaction is recorded to Cosmos DB with `interactionType: slash_ask`.
+- [x] Response is ephemeral.
+- [x] `@fiona ask <question>` behaves the same as the slash command.
+- [x] The LLM pipeline (system prompt, citations, grounding, domain filtering)
+      is reused.
+- [x] Empty questions fall back to help.
+- [x] Rate limiting applies.
+- [x] Interaction is recorded with `interactionType: slash_ask`.
 
 ---
 
 ### 2.3 `/fiona search <query>`
 
 **Purpose:** Return the top matching source snippets for a query **without**
-synthesizing an answer. This lets users browse raw sources and decide for
-themselves which documents to read.
+synthesizing an answer, so users can browse raw sources and decide which
+documents to read.
 
 **Behavior:**
 
 1. The user types `/fiona search <query>`.
-2. Fiona calls the knowledge retrieval backend (Perplexity `search` or
-   equivalent) with the query.
-3. Fiona responds with an **ephemeral message** containing the top 3–5 source
-   snippets, each including:
-   - A brief excerpt or snippet of the matching content.
+2. Fiona queries the knowledge retrieval backend with the query.
+3. Fiona responds with an **ephemeral message** listing the top matching
+   sources (the count is configurable per deployment), each with:
+   - A short excerpt of the matching content.
    - A hyperlink to the original source document.
-4. No synthesized answer is generated — the response is purely a list of
-   sources.
-5. If no results are found, Fiona responds with a message indicating that no
-   matching sources were found and suggests rephrasing the query.
+4. No synthesized answer is generated.
+5. If no results are found, Fiona says so and suggests rephrasing the query.
+   If the search fails, Fiona shows a brief error message.
 
 **Example output:**
 
@@ -213,173 +178,197 @@ themselves which documents to read.
 > 2. **[API Guidelines — Ed-Fi Alliance](https://www.ed-fi.org/...)**
 >    *"All assessment resources follow the standard REST conventions described
 >    in section 4.2…"*
->
-> 3. **[Data Standard 5.1 — Assessments Domain](https://docs.ed-fi.org/...)**
->    *"The Assessments domain captures information about assessments,
->    objectives, and performance levels…"*
 
 **Edge cases:**
 
-- If `<query>` is empty, Fiona responds with the help output.
+- An empty query falls back to the help output.
 
 **Acceptance criteria:**
 
-- [ ] Response is ephemeral.
-- [ ] Returns 3–5 source snippets with hyperlinks.
-- [ ] No synthesized or summarized answer is included.
-- [ ] Rate limiting applies.
-- [ ] Interaction is recorded to Cosmos DB with `interactionType: slash_search`.
+- [x] Response is ephemeral.
+- [x] Returns source snippets with hyperlinks.
+- [x] No synthesized or summarized answer is included.
+- [x] Rate limiting applies.
+- [x] Interaction is recorded with `interactionType: slash_search`.
 
 ---
 
 ### 2.4 `/fiona escalate`
 
-**Purpose:** Escalate the current conversation to a human agent by posting a
-summary in the designated `#escalation` channel.
+**Purpose:** Hand a conversation to a human by posting an escalation notice in
+a designated Slack channel.
 
 **Behavior:**
 
-1. The user types `/fiona escalate` in a channel where a conversation is
-   occurring.
-2. Fiona posts a **private message** in the `#escalation` channel containing:
-   - The name (display name) of the user who requested escalation.
-   - A link back to the original channel and thread (if applicable).
-   - A summary or transcript of the recent conversation history in the
-     originating channel/thread.
-3. Fiona records the escalation event in Cosmos DB with `interactionType: slash_escalate` and relevant metadata (user ID,
-   channel ID, timestamp) and writes the context into the `feedback` collection.
-4. Fiona sends an **ephemeral confirmation** to the invoking user:
-   *"✅ Your conversation has been escalated to #escalation. A team member will
-   follow up shortly."*
-5. The escalation channel is configurable via environment variable
-   (`ESCALATION_CHANNEL_ID`, a Slack channel ID; unset by default).
+1. The user invokes escalation through `/fiona escalate`, or by typing
+   `escalate` in a DM, Assistant panel, or thread @-mention.
+2. Fiona posts to the configured escalation channel:
+   - The user who requested escalation.
+   - Where the request came from, with a link back to the conversation when one
+     exists (not for DMs).
+   - The time of the request.
+   - An optional @-mention of a configured Slack user group.
+3. Where the entry point has a real conversation thread (the `escalate` keyword
+   in a thread, DM, or Assistant panel), Fiona also includes an LLM-generated
+   summary and posts the transcript as a reply to the escalation post.
+4. The slash command carries no thread information, so a `/fiona escalate`
+   post is **context-free**. It names the user and channel and says no
+   conversation context was captured; Fiona does not read channel history to
+   fill the gap.
+5. The invoking user receives a confirmation: ephemeral for the slash command,
+   in-thread for the keyword. Invoked from a DM, the confirmation says a team
+   member will follow up.
+6. The escalation is recorded as an interaction and its context is written to
+   the feedback store.
 
 **Edge cases:**
 
-- If the user invokes `/fiona escalate` in a DM (no channel thread to
-  escalate), Fiona responds with an ephemeral message:
-  *"✅ A team member will follow up shortly."*
-- If the escalation channel cannot be found or Fiona lacks permission to post,
-  Fiona responds with an ephemeral error and logs the failure.
+- If escalation is not configured, the channel cannot be posted to, or the
+  post fails, the user gets an apology that points them to the team directly,
+  and the failure is logged and recorded.
+- If escalation is switched off for the deployment, no post is made and no
+  interaction is recorded.
 
 **Acceptance criteria:**
 
-- [ ] Escalation post appears in `#escalation` with user name and conversation
-      history.
-- [ ] Escalation post includes a link to the original thread.
-- [ ] Ephemeral confirmation is sent to the invoking user.
-- [ ] DM invocations are handled gracefully with a helpful message.
-- [ ] Rate limiting applies.
-- [ ] Interaction is recorded to Cosmos DB with
-      `interactionType: slash_escalate`.
+- [x] The escalation post names the requesting user.
+- [x] The post links to the original thread where one exists.
+- [x] Keyword escalations include a summary and transcript of the thread.
+- [ ] Slash-command escalations include conversation history (not possible with
+      Slack's slash-command payload; see §6).
+- [x] The invoking user receives a confirmation or error message.
+- [x] DM invocations are handled with a suitable message.
+- [x] Rate limiting applies to the slash command.
+- [x] Interaction is recorded with `interactionType: slash_escalate` (or
+      `mention_escalate` / `assistant_escalate` for the keyword).
 
 ---
 
-## 3. Proactive Escalation Detection
+### 2.5 `/fiona ticket`
 
-In addition to the explicit `/fiona escalate` skill, Fiona monitors regular
-conversational messages for **escalation intent**.
+**Purpose:** Let a user file an Ed-Fi support ticket (bug, feature request, or
+question) without leaving Slack.
 
-### 3.1 Trigger
+**Behavior:**
+
+1. The user types `/fiona ticket`. Fiona opens a form in which the user chooses
+   the ticket type and describes the issue.
+2. `/fiona bug` and `/fiona feature` open the same form with the type
+   preselected. They are accepted but not advertised in help.
+3. Conversationally, whole-message phrases such as "file a bug" or "request a
+   feature" make Fiona offer to open the form.
+4. If ticketing is switched on but its backing service is not configured, Fiona
+   says so rather than failing silently.
+
+**Acceptance criteria:**
+
+- [x] The form opens for `/fiona ticket`, `bug`, and `feature`.
+- [x] The skill appears in help only when ticketing is enabled.
+- [x] Rate limiting applies.
+- [x] Interaction is recorded with `interactionType` matching the word typed
+      (`slash_ticket`, `slash_bug`, `slash_feature`).
+
+---
+
+## 3. Slack App Configuration
+
+Skills require the following in the Slack app manifest:
+
+| Change                         | Detail                                              |
+| ------------------------------ | --------------------------------------------------- |
+| **OAuth scope**                | `commands`                                          |
+| **Slash command registration** | `/fiona`, with a description and usage hint         |
+| **Interactivity**              | Enabled (feedback, ticket, and approval buttons)    |
+
+Slash-command text is delivered unescaped, so angle brackets typed by the user
+are literal text, not Slack link markup.
+
+## 4. Configuration
+
+| Variable                  | Default | Purpose                                                                  |
+| ------------------------- | ------- | ------------------------------------------------------------------------ |
+| `ESCALATION_ENABLED`      | `false` | Turns escalation on. Only the exact value `true` enables it.             |
+| `ESCALATION_CHANNEL_ID`   | (unset) | Channel **ID** for escalation posts (the bot must be a member). Required when escalation is enabled. |
+| `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user group to @-mention on escalation.                    |
+| `TICKET_CREATION_ENABLED` | `false` | Turns ticket creation on. Only the exact value `true` enables it.        |
+
+Changing a switch requires a restart. Escalation and ticketing default to off
+so that neither goes live until the team has chosen to enable it.
+
+## 5. Analytics
+
+All skill invocations are recorded to the Cosmos DB `interactions` container
+using the existing interaction schema (see parent PRD §2.6).
+
+| `interactionType`                                   | Trigger                                               |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| `slash_help`                                        | `/fiona help`                                         |
+| `slash_ask`                                         | `/fiona ask`                                          |
+| `slash_search`                                      | `/fiona search`                                       |
+| `slash_escalate`                                    | `/fiona escalate`                                     |
+| `mention_escalate` / `assistant_escalate`           | `escalate` keyword in a mention / DM or panel         |
+| `slash_ticket`, `slash_bug`, `slash_feature`        | Ticket commands                                       |
+| `slash_unknown`                                     | An unrecognized `/fiona` sub-command                  |
+
+Failures, rate-limit rejections, and over-long questions are recorded on the
+interaction as an error type rather than as separate interaction types.
+
+---
+
+## 6. Out of Scope / Future Directions
+
+### 6.1 Proactive Escalation Detection
+
+**Status:** Not implemented. Escalation today is explicit only: `/fiona
+escalate` or the `escalate` keyword. The requirements below are retained for a
+future release and would need their own Jira issue.
+
+In addition to the explicit skill, Fiona would monitor regular conversational
+messages for **escalation intent**.
+
+#### Trigger
 
 When a user's message in a conversation with Fiona contains language suggesting
-they want human help — for example, words or phrases such as *"escalate"*,
-*"talk to a human"*, *"need a real person"*, or *"this isn't helping"* — Fiona
-detects this intent and offers to escalate.
+they want human help — for example *"escalate"*, *"talk to a human"*, *"need a
+real person"*, or *"this isn't helping"* — Fiona detects the intent and offers
+to escalate.
 
-> **Implementation note:** The exact detection mechanism (keyword matching, LLM
-> classification, or a hybrid approach) is an implementation decision. The
-> requirements below describe the user-facing behavior.
+> **Implementation note:** The detection mechanism (keyword matching, LLM
+> classification, or a hybrid) is left open. The requirements below describe
+> the user-facing behavior.
 
-### 3.2 Behavior
+#### Behavior
 
-1. Fiona responds in the current thread/conversation with a message containing
-   interactive buttons:
+1. Fiona responds in the current thread with interactive buttons:
 
    > *"It sounds like you'd like to connect with a human. Would you like me to
    > escalate this conversation?"*
    >
    > **[ Yes, escalate ]** · **[ No, keep trying ]**
 
-2. **If the user clicks "Yes, escalate":**
-   - Fiona posts in the `#escalation` channel with the same content and format
-     described in §2.4 (user name, conversation history, link to thread).
-   - Fiona sends a confirmation in the current thread:
-     *"✅ Done! Your conversation has been posted in #escalation. A team member
-     will follow up shortly."*
+2. **"Yes, escalate":** Fiona posts to the escalation channel with the same
+   content as §2.4 (user, conversation history, link to thread) and confirms in
+   the thread: *"✅ Done! Your conversation has been escalated. A team member
+   will follow up shortly."*
+3. **"No, keep trying":** Fiona sends an ephemeral acknowledgment — *"No problem
+   — I'm here to help. Feel free to keep asking questions!"* — and the
+   conversation continues normally.
+4. Buttons that are not clicked stay visible. Fiona does not re-prompt.
+5. Offers are recorded with `interactionType: auto_escalation`.
 
-3. **If the user clicks "No, keep trying":**
-   - Fiona sends an ephemeral acknowledgment:
-     *"No problem — I'm here to help. Feel free to keep asking questions!"*
-   - The conversation continues normally.
+#### Acceptance criteria
 
-4. Buttons expire gracefully — if not clicked, they remain visible but Fiona
-   does not re-prompt.
-
-### 3.3 Acceptance Criteria
-
-- [ ] Escalation intent is detected during normal conversation flow (not only
-      via slash command).
-- [ ] Fiona presents "Yes, escalate" / "No, keep trying" interactive buttons.
-- [ ] "Yes, escalate" triggers the same escalation flow as `/fiona escalate`.
+- [ ] Escalation intent is detected during normal conversation flow, not only
+      through the slash command.
+- [ ] Fiona presents "Yes, escalate" / "No, keep trying" buttons.
+- [ ] "Yes, escalate" triggers the same flow as `/fiona escalate`.
 - [ ] "No, keep trying" dismisses the prompt without side effects.
-- [ ] Detection does not trigger on every use of the word "help" — it should
-      target phrases that indicate frustration or explicit escalation requests.
+- [ ] Detection does not trigger on every use of the word "help"; it targets
+      phrases that indicate frustration or an explicit escalation request.
 
----
+### 6.2 Conversation Context for Slash-Command Escalation
 
-## 4. Slack App Configuration Changes
-
-Enabling Skills requires the following updates to the Slack app manifest
-(`apps/fiona-slack/manifest.json`):
-
-| Change                         | Detail                                                                 |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| **OAuth scope**                | Add `commands` scope                                                   |
-| **Slash command registration** | Register `/fiona` with a description and usage hint                   |
-| **Interactivity**              | Ensure interactivity is enabled (required for escalation buttons)     |
-
----
-
-## 5. Environment Variables
-
-| Variable                  | Default | Purpose                                                          |
-| ------------------------- | ------- | ---------------------------------------------------------------- |
-| `ESCALATION_CHANNEL_ID`   | (unset) | Channel **ID** where escalation posts are created (bot must join) |
-| `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user group ID to @-mention on escalation          |
-
----
-
-## 6. Module Structure (Proposed)
-
-```none
-src/
-├── listeners/
-│   ├── commands/
-│   │   └── fiona.js              # Slash command dispatcher: routes to skill handlers
-│   └── actions/
-│       ├── feedback.js            # (existing) Feedback button click handler
-│       └── escalation.js         # Escalation button click handler (Yes/No)
-├── skills/
-│   ├── help.js                   # /fiona help handler
-│   ├── ask.js                    # /fiona ask handler
-│   ├── search.js                 # /fiona search handler
-│   └── escalate.js               # /fiona escalate handler + proactive detection
-```
-
----
-
-## 7. Analytics
-
-All skill invocations are recorded to the Cosmos DB `interactions` container
-using the existing interaction document schema (see parent PRD §2.6).
-
-New `interactionType` values:
-
-| Value             | Trigger                                    |
-| ----------------- | ------------------------------------------ |
-| `slash_help`      | `/fiona help` invoked                      |
-| `slash_ask`       | `/fiona ask` invoked                       |
-| `slash_search`    | `/fiona search` invoked                    |
-| `slash_escalate`  | `/fiona escalate` invoked                  |
-| `auto_escalation` | Proactive escalation offered via detection |
+Slack's slash-command payload carries no thread reference, so `/fiona escalate`
+cannot include a transcript or thread link today. Possible approaches include
+reading recent channel history (which needs additional scopes and raises
+privacy questions) or having the user invoke the keyword form in the thread.
