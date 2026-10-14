@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock search-caller so command-handler tests don't load the LLM client.
 const mockSearchForSources = jest.fn().mockResolvedValue([]);
@@ -266,12 +266,9 @@ describe('parseCommandKeyword — bare bug/feature keywords', () => {
     expect(parseCommandKeyword(text)).toEqual({ keyword: 'file_ticket', rawArgs: expected });
   });
 
-  it.each(['there is a bug', 'bug in the ODS', 'feature parity question', 'debug'])(
-    'does not fire on "%s"',
-    (text) => {
-      expect(parseCommandKeyword(text)).toBeNull();
-    },
-  );
+  it.each(['there is a bug', 'bug in the ODS', 'feature parity question', 'debug'])('does not fire on "%s"', (text) => {
+    expect(parseCommandKeyword(text)).toBeNull();
+  });
 
   // The help text advertises `ticket` alongside its two aliases; the keyword and
   // @-mention paths must accept all three or help is lying to the user.
@@ -285,7 +282,8 @@ describe('parseCommandKeyword — bare bug/feature keywords', () => {
 });
 
 describe('buildCreateTicketBlocks', () => {
-  const buttonOf = (blocks) => blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
+  const buttonOf = (blocks) =>
+    blocks.flatMap((b) => b.elements ?? []).find((e) => e.action_id === CREATE_TICKET_ACTION);
   const promptOf = (blocks) => blocks.find((b) => b.type === 'section').text.text;
 
   it('emits a button with the ticket type and location encoded', () => {
@@ -319,7 +317,11 @@ describe('buildCreateTicketBlocks', () => {
 
   // Neutral copy must not neutralise the behaviour: the preselect still travels
   // in the button value, which is what create_ticket.js reads to build the modal.
-  it.each([['bug'], ['feature'], ['question']])('still carries %s as the preselect in the button value', (ticketType) => {
+  it.each([
+    ['bug'],
+    ['feature'],
+    ['question'],
+  ])('still carries %s as the preselect in the button value', (ticketType) => {
     expect(JSON.parse(buttonOf(buildCreateTicketBlocks(ticketType, 'C1', null)).value).ticketType).toBe(ticketType);
   });
 });
@@ -384,6 +386,12 @@ describe('buildHelpText (all features on)', () => {
 
   it('mentions fiona help as the two-word keyword alternative', () => {
     expect(buildHelpText()).toMatch('fiona help');
+  });
+
+  it('links to the Ed-Fi terms of use and privacy policy', () => {
+    expect(buildHelpText()).toMatch(
+      '<https://www.ed-fi.org/terms-of-use-and-privacy-policy/|Ed-Fi Terms of Use and Privacy Policy>',
+    );
   });
 
   it('lists search command without "(coming soon)"', () => {
@@ -539,9 +547,7 @@ describe('handleSearchViaSay', () => {
 
   it('disables link unfurls for search results', async () => {
     await handleSearchViaSay(mockSay, mockLogger, 'Ed-Fi API');
-    expect(mockSay).toHaveBeenCalledWith(
-      expect.objectContaining({ unfurl_links: false, unfurl_media: false }),
-    );
+    expect(mockSay).toHaveBeenCalledWith(expect.objectContaining({ unfurl_links: false, unfurl_media: false }));
   });
 
   it('tags say-based search feedback with the supplied interaction type', async () => {
@@ -599,7 +605,12 @@ describe('routeCommandViaSay', () => {
   });
 
   it('calls searchForSources and say() results when keyword is "search"', async () => {
-    await routeCommandViaSay(mockSay, mockLogger, { keyword: 'search', rawArgs: 'Data Standard' }, { interactionType: 'app_mention' });
+    await routeCommandViaSay(
+      mockSay,
+      mockLogger,
+      { keyword: 'search', rawArgs: 'Data Standard' },
+      { interactionType: 'app_mention' },
+    );
     expect(mockSearchForSources).toHaveBeenCalledWith('Data Standard', { logger: mockLogger });
     expect(mockSay).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -613,9 +624,7 @@ describe('routeCommandViaSay', () => {
 
   it('does not throw when say() throws', async () => {
     mockSay.mockRejectedValueOnce(new Error('network error'));
-    await expect(
-      routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' }),
-    ).resolves.not.toThrow();
+    await expect(routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' })).resolves.not.toThrow();
   });
 });
 
@@ -755,12 +764,17 @@ describe('parseCommandKeyword — ticket phrases are flag-gated', () => {
     delete process.env.TICKET_CREATION_ENABLED;
   });
 
-  it.each(['ticket', 'bug', 'feature', 'file a bug', 'report a bug', 'bug report', 'feature request'])(
-    'does not recognise "%s" when ticketing is off',
-    (phrase) => {
-      expect(parseCommandKeyword(phrase)).toBeNull();
-    },
-  );
+  it.each([
+    'ticket',
+    'bug',
+    'feature',
+    'file a bug',
+    'report a bug',
+    'bug report',
+    'feature request',
+  ])('does not recognise "%s" when ticketing is off', (phrase) => {
+    expect(parseCommandKeyword(phrase)).toBeNull();
+  });
 
   it('recognises "bug" again when ticketing is on', () => {
     process.env.TICKET_CREATION_ENABLED = 'true';

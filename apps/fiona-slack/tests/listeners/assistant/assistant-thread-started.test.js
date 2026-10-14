@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { assistantThreadStarted } from '../../../src/listeners/assistant/assistant_thread_started.js';
 
 describe('assistantThreadStarted', () => {
@@ -50,6 +50,23 @@ describe('assistantThreadStarted', () => {
     const [greeting] = mockSay.mock.calls[0];
     // Must explicitly instruct users to type the keyword, not just mention "help" in passing
     expect(greeting).toMatch(/type `?help`?/i);
+  });
+
+  it('greeting links to the Ed-Fi terms of use and privacy policy', async () => {
+    const event = { assistant_thread: { context: { channel_id: 'C123' } } };
+
+    await assistantThreadStarted({
+      event,
+      logger: mockLogger,
+      say: mockSay,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+      saveThreadContext: mockSaveThreadContext,
+    });
+
+    const [greeting] = mockSay.mock.calls[0];
+    expect(greeting).toMatch(
+      '<https://www.ed-fi.org/terms-of-use-and-privacy-policy/|Ed-Fi Terms of Use and Privacy Policy>',
+    );
   });
 
   it('calls saveThreadContext', async () => {

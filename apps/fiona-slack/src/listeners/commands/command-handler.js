@@ -13,6 +13,8 @@ const HELP_COMMAND_LINES = [
   'search <query>          Search Ed-Fi documentation',
 ];
 
+export const PRIVACY_POLICY_URL = 'https://www.ed-fi.org/terms-of-use-and-privacy-policy/';
+
 const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
 const HELP_ESCALATE_LINE = 'escalate                Escalate your conversation to a human';
 const HELP_ESCALATE_HINT =
@@ -56,7 +58,9 @@ ${escalationEnabled ? HELP_ESCALATE_HINT : ''}
 • *@-mention* — the channel sees your question. To keep Fiona's answer to yourself, start with \`ask\` or \`search\` (\`@fiona ask …\`). Any other @-mention gets a reply the whole channel can see
 _Conversations with Fiona may be retained to review and improve answer quality._
 
-_Tip: In a DM or the agent panel, just type your question directly — no command needed._`;
+_Tip: In a DM or the agent panel, just type your question directly — no command needed._
+
+<${PRIVACY_POLICY_URL}|Ed-Fi Terms of Use and Privacy Policy>`;
 }
 
 // User-facing escalation copy, shared by the slash sub-command (fiona.js) and the

@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { PRIVACY_POLICY_URL } from '../commands/command-handler.js';
+
 /**
  * The `assistant_thread_started` event is sent when a user opens the Assistant container.
  * This can happen via DM with the app or as a side-container within a channel.
@@ -29,7 +31,8 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
      * !! Please note: this is only intended for development and demonstrative purposes.
      */
     await say(
-      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi, or type `help` to see available commands.",
+      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi, or type `help` to see available commands.\n\n" +
+        `<${PRIVACY_POLICY_URL}|Ed-Fi Terms of Use and Privacy Policy>`,
     );
 
     await saveThreadContext();

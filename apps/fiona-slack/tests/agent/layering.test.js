@@ -6,7 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 
 const SRC_DIR = fileURLToPath(new URL('../../src/', import.meta.url));
 
@@ -149,21 +149,20 @@ describe('command modules and the LLM', () => {
     );
   });
 
-  it.each(commandModules.map((file) => [toLabel(file), file]))(
-    '%s reaches the LLM only through ask-handler.js',
-    (_label, file) => {
-      expect(graph.has(file)).toBe(true);
-      const reachable = [file, ...reachableFrom(graph, file, askHandler)];
-      const llmImports = Object.fromEntries(
-        reachable
-          .filter((module) => graph.get(module)?.includes(llmCaller))
-          .map((module) => [toLabel(module), namesImportedFrom(module, llmCaller).sort()]),
-      );
-      for (const [module, names] of Object.entries(llmImports)) {
-        expect([module, names]).toEqual([module, SANCTIONED_LLM_IMPORTS[module] ?? []]);
-      }
-    },
-  );
+  it.each(
+    commandModules.map((file) => [toLabel(file), file]),
+  )('%s reaches the LLM only through ask-handler.js', (_label, file) => {
+    expect(graph.has(file)).toBe(true);
+    const reachable = [file, ...reachableFrom(graph, file, askHandler)];
+    const llmImports = Object.fromEntries(
+      reachable
+        .filter((module) => graph.get(module)?.includes(llmCaller))
+        .map((module) => [toLabel(module), namesImportedFrom(module, llmCaller).sort()]),
+    );
+    for (const [module, names] of Object.entries(llmImports)) {
+      expect([module, names]).toEqual([module, SANCTIONED_LLM_IMPORTS[module] ?? []]);
+    }
+  });
 
   it('reads the names a module imports from llm-caller', () => {
     expect(namesImportedFrom(join(SRC_DIR, 'agent', 'escalation.js'), llmCaller)).toEqual(['summarizeForEscalation']);
