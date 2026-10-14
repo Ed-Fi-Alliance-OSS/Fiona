@@ -1,7 +1,7 @@
 # Fiona Skills — Product Requirements Document
 
 > **Parent document:** [Fiona Slack PRD](fiona-slack-prd.md) (§2.9) \
-> **Status:** Implemented (proactive escalation deferred; see §6) \
+> **Status:** Implemented (proactive escalation deferred; see §3.1) \
 > **Jira Project:** AI
 
 ## 1. Overview
@@ -48,11 +48,19 @@ ordinary question for the LLM. `ask` and `search` answer privately wherever
 they are used; any other @-mention in a channel gets a reply the whole channel
 can see.
 
-### 1.4 Deployment Switches
+### 1.4 Deployment and Recording
 
 Escalation and ticket creation are off by default and are enabled per
-deployment (see §5). A disabled skill does not appear in `/fiona help`, and its
-keywords are treated as ordinary questions.
+deployment, so neither goes live until the team chooses to enable it. A
+disabled skill does not appear in `/fiona help`, and its keywords are treated
+as ordinary questions.
+
+Every skill invocation is recorded as an interaction (see parent PRD §2.6),
+including failures and rate-limit rejections. Each skill's acceptance criteria
+name the interaction type it records.
+
+Skills require the Slack app to have the `commands` scope and interactivity
+enabled.
 
 ---
 
@@ -223,8 +231,8 @@ a designated Slack channel.
 
 **Edge cases:**
 
-- If escalation is not configured, the channel cannot be posted to, or the
-  post fails, the user gets an apology that points them to the team directly,
+- If no escalation channel is configured, the channel cannot be posted to, or
+  the post fails, the user gets an apology that points them to the team directly,
   and the failure is logged and recorded.
 - If escalation is switched off for the deployment, no post is made and no
   interaction is recorded.
@@ -235,7 +243,7 @@ a designated Slack channel.
 - [x] The post links to the original thread where one exists.
 - [x] Keyword escalations include a summary and transcript of the thread.
 - [ ] Slash-command escalations include conversation history (not possible with
-      Slack's slash-command payload; see §6).
+      Slack's slash-command payload; see §3.2).
 - [x] The invoking user receives a confirmation or error message.
 - [x] DM invocations are handled with a suitable message.
 - [x] Rate limiting applies to the slash command.
@@ -270,54 +278,9 @@ question) without leaving Slack.
 
 ---
 
-## 3. Slack App Configuration
+## 3. Out of Scope / Future Directions
 
-Skills require the following in the Slack app manifest:
-
-| Change                         | Detail                                              |
-| ------------------------------ | --------------------------------------------------- |
-| **OAuth scope**                | `commands`                                          |
-| **Slash command registration** | `/fiona`, with a description and usage hint         |
-| **Interactivity**              | Enabled (feedback, ticket, and approval buttons)    |
-
-Slash-command text is delivered unescaped, so angle brackets typed by the user
-are literal text, not Slack link markup.
-
-## 4. Configuration
-
-| Variable                  | Default | Purpose                                                                  |
-| ------------------------- | ------- | ------------------------------------------------------------------------ |
-| `ESCALATION_ENABLED`      | `false` | Turns escalation on. Only the exact value `true` enables it.             |
-| `ESCALATION_CHANNEL_ID`   | (unset) | Channel **ID** for escalation posts (the bot must be a member). Required when escalation is enabled. |
-| `ESCALATION_USERGROUP_ID` | (unset) | Optional Slack user group to @-mention on escalation.                    |
-| `TICKET_CREATION_ENABLED` | `false` | Turns ticket creation on. Only the exact value `true` enables it.        |
-
-Changing a switch requires a restart. Escalation and ticketing default to off
-so that neither goes live until the team has chosen to enable it.
-
-## 5. Analytics
-
-All skill invocations are recorded to the Cosmos DB `interactions` container
-using the existing interaction schema (see parent PRD §2.6).
-
-| `interactionType`                                   | Trigger                                               |
-| --------------------------------------------------- | ----------------------------------------------------- |
-| `slash_help`                                        | `/fiona help`                                         |
-| `slash_ask`                                         | `/fiona ask`                                          |
-| `slash_search`                                      | `/fiona search`                                       |
-| `slash_escalate`                                    | `/fiona escalate`                                     |
-| `mention_escalate` / `assistant_escalate`           | `escalate` keyword in a mention / DM or panel         |
-| `slash_ticket`, `slash_bug`, `slash_feature`        | Ticket commands                                       |
-| `slash_unknown`                                     | An unrecognized `/fiona` sub-command                  |
-
-Failures, rate-limit rejections, and over-long questions are recorded on the
-interaction as an error type rather than as separate interaction types.
-
----
-
-## 6. Out of Scope / Future Directions
-
-### 6.1 Proactive Escalation Detection
+### 3.1 Proactive Escalation Detection
 
 **Status:** Not implemented. Escalation today is explicit only: `/fiona
 escalate` or the `escalate` keyword. The requirements below are retained for a
@@ -366,7 +329,7 @@ to escalate.
 - [ ] Detection does not trigger on every use of the word "help"; it targets
       phrases that indicate frustration or an explicit escalation request.
 
-### 6.2 Conversation Context for Slash-Command Escalation
+### 3.2 Conversation Context for Slash-Command Escalation
 
 Slack's slash-command payload carries no thread reference, so `/fiona escalate`
 cannot include a transcript or thread link today. Possible approaches include
