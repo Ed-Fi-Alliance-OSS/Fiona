@@ -18,8 +18,6 @@ conversational interface (channel mentions, DMs, and the Assistant panel).
   predictable output, reducing ambiguity compared to free-form prompts.
 - **Composability** — New skills can be added without changing the behavior of
   existing ones.
-- **Privacy by default** — Every skill answers only the invoking user. A new
-  entry point must fail closed rather than post publicly.
 
 ### 1.2 Slash Command Routing
 
@@ -87,10 +85,10 @@ Fiona, and who can see each kind of question.
 
 **Acceptance criteria:**
 
-- [x] Response is ephemeral.
-- [x] No LLM call is made.
-- [x] Only skills enabled in the deployment are listed.
-- [ ] Response renders correctly in Slack desktop and mobile (manual check).
+- Response is ephemeral.
+- No LLM call is made.
+- Only skills enabled in the deployment are listed.
+- Response renders correctly in Slack desktop and mobile.
 
 ---
 
@@ -112,11 +110,7 @@ in channels where Fiona has not been invited.
    feedback buttons.
 5. Thread context is **not** included; the question is treated as standalone.
    Users who need context-aware answers should @-mention Fiona in the thread.
-6. The answer opens with a "You asked: …" line repeating the question, because
-   an ephemeral answer is not threaded under it. Long questions are shortened
-   in this line. Feedback uses this displayed text as the question stored with
-   the rating.
-7. For `ask` keyword entry points, mentions inside the question are replaced
+6. For `ask` keyword entry points, mentions inside the question are replaced
    with neutral markers (`@someone`, `#a-channel`) so no user or channel ID is
    displayed, stored with feedback, or captured. Fiona's own mention is removed.
    Slash-command text is shown and recorded as typed; Slack does not expand its
@@ -152,13 +146,12 @@ conversation is not captured, because nobody saw the answer.
 
 **Acceptance criteria:**
 
-- [x] Response is ephemeral.
-- [x] `@fiona ask <question>` behaves the same as the slash command.
-- [x] The LLM pipeline (system prompt, citations, grounding, domain filtering)
-      is reused.
-- [x] Empty questions fall back to help.
-- [x] Rate limiting applies.
-- [x] Interaction is recorded with `interactionType: slash_ask`.
+- Response is ephemeral.
+- `@fiona ask <question>` behaves the same as the slash command.
+- The LLM pipeline (system prompt, citations, grounding, domain filtering) is reused.
+- Empty questions fall back to help.
+- Rate limiting applies.
+- Interaction is recorded with `interactionType: slash_ask`.
 
 ---
 
@@ -198,11 +191,11 @@ documents to read.
 
 **Acceptance criteria:**
 
-- [x] Response is ephemeral.
-- [x] Returns source snippets with hyperlinks.
-- [x] No synthesized or summarized answer is included.
-- [x] Rate limiting applies.
-- [x] Interaction is recorded with `interactionType: slash_search`.
+- Response is ephemeral.
+- Returns source snippets with hyperlinks.
+- No synthesized or summarized answer is included.
+- Rate limiting applies.
+- Interaction is recorded with `interactionType: slash_search`.
 
 ---
 
@@ -244,15 +237,15 @@ a designated Slack channel.
 
 **Acceptance criteria:**
 
-- [x] The escalation post names the requesting user.
-- [x] The post links to the original thread where one exists.
-- [x] Keyword escalations include a summary and transcript of the thread.
-- [ ] Slash-command escalations include conversation history (not possible with
-      Slack's slash-command payload; see §3.2).
-- [x] The invoking user receives a confirmation or error message.
-- [x] DM invocations are handled with a suitable message.
-- [x] Rate limiting applies to the slash command.
-- [x] Interaction is recorded with `interactionType: slash_escalate` (or
+- The escalation post names the requesting user.
+- The post links to the original thread where one exists.
+- Keyword escalations include a summary and transcript of the thread.
+- Slash-command escalations include conversation history (not possible with Slack's
+  slash-command payload; see §3.2).
+- The invoking user receives a confirmation or error message.
+- DM invocations are handled with a suitable message.
+- Rate limiting applies to the slash command.
+- Interaction is recorded with `interactionType: slash_escalate` (or
       `mention_escalate` / `assistant_escalate` for the keyword).
 
 ---
@@ -275,10 +268,10 @@ question) without leaving Slack.
 
 **Acceptance criteria:**
 
-- [x] The form opens for `/fiona ticket`, `bug`, and `feature`.
-- [x] The skill appears in help only when ticketing is enabled.
-- [x] Rate limiting applies.
-- [x] Interaction is recorded with `interactionType` matching the word typed
+- The form opens for `/fiona ticket`, `bug`, and `feature`.
+- The skill appears in help only when ticketing is enabled.
+- Rate limiting applies.
+- Interaction is recorded with `interactionType` matching the word typed
       (`slash_ticket`, `slash_bug`, `slash_feature`).
 
 ---
@@ -326,12 +319,12 @@ to escalate.
 
 #### Acceptance criteria
 
-- [ ] Escalation intent is detected during normal conversation flow, not only
+- Escalation intent is detected during normal conversation flow, not only
       through the slash command.
-- [ ] Fiona presents "Yes, escalate" / "No, keep trying" buttons.
-- [ ] "Yes, escalate" triggers the same flow as `/fiona escalate`.
-- [ ] "No, keep trying" dismisses the prompt without side effects.
-- [ ] Detection does not trigger on every use of the word "help"; it targets
+- Fiona presents "Yes, escalate" / "No, keep trying" buttons.
+- "Yes, escalate" triggers the same flow as `/fiona escalate`.
+- "No, keep trying" dismisses the prompt without side effects.
+- Detection does not trigger on every use of the word "help"; it targets
       phrases that indicate frustration or an explicit escalation request.
 
 ### 3.2 Conversation Context for Slash-Command Escalation
