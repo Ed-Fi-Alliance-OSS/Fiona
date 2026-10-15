@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 137,
+  "title": "docs: align Fiona Skills PRD with shipped behavior",
+  "state": "merged",
+  "jiraKey": null,
+  "authorKind": "human",
+  "stats": {
+    "additions": 214,
+    "deletions": 264,
+    "changedFiles": 1,
+    "commits": 4,
+    "reviewCycles": 2,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 1868,
+    "ciRuns": {
+      "total": 4,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "md": 1
+    },
+    "testToSourceRatio": null,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-15T21:51:48.604Z"
+}
