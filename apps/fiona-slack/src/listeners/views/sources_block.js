@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { MetadataLifecycleState } from '../../agent/llm-caller.js';
+import { MetadataLifecycleState } from '../../agent/metadata-lifecycle.js';
 
 // Slack rejects a section block whose text exceeds 3000 characters.
 export const SLACK_SECTION_TEXT_LIMIT = 3000;
