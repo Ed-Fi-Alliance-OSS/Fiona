@@ -37,10 +37,13 @@ If no recognized sub-command is provided, Fiona responds with the help output
 
 The same skills are reachable without the slash command:
 
-| Surface                       | How                                                                          |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| Channel or thread @-mention   | `@fiona help`, `@fiona ask <question>`, `@fiona search <query>`, `@fiona escalate` |
-| DM and Assistant panel        | Type `help`, `ask <question>`, `search <query>`, or `escalate` directly      |
+| Surface                     | How                                                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Channel or thread @-mention | `@fiona help`, `@fiona ask <question>`, `@fiona search <query>`, `@fiona escalate`, or `@fiona <ticket phrase>` |
+| DM and Assistant panel      | Type `help`, `ask <question>`, `search <query>`, `escalate`, or a ticket phrase directly                       |
+
+When ticketing is enabled, exact whole-message ticket phrases include `ticket`,
+`bug`, `feature`, `file a bug`, and `request a feature`.
 
 Keywords match only when they are the whole message (or, for `ask` and
 `search`, are followed by text). A message such as "help me with X" is an
@@ -113,9 +116,11 @@ in channels where Fiona has not been invited.
    an ephemeral answer is not threaded under it. Long questions are shortened
    in this line. Feedback uses this displayed text as the question stored with
    the rating.
-7. Mentions inside the question are replaced with neutral markers (`@someone`,
-   `#a-channel`) so no user or channel ID is displayed, stored with feedback, or
-   captured. Fiona's own mention is removed.
+7. For `ask` keyword entry points, mentions inside the question are replaced
+   with neutral markers (`@someone`, `#a-channel`) so no user or channel ID is
+   displayed, stored with feedback, or captured. Fiona's own mention is removed.
+   Slash-command text is shown and recorded as typed; Slack does not expand its
+   mentions to IDs because command escaping is disabled.
 
 **Why ephemeral answers are not streamed.** Slack offers no private equivalent
 of streaming, and a streamed answer would post to the whole channel. The answer
@@ -168,9 +173,9 @@ documents to read.
 1. The user types `/fiona search <query>`.
 2. Fiona queries the knowledge retrieval backend with the query.
 3. Fiona responds with an **ephemeral message** listing the top matching
-   sources (the count is configurable per deployment), each with:
-   - A short excerpt of the matching content.
-   - A hyperlink to the original source document.
+   sources (the count is configurable per deployment). Each source includes a
+   hyperlink to the original document and, when supplied by the backend, a short
+   excerpt.
 4. No synthesized answer is generated.
 5. If no results are found, Fiona says so and suggests rephrasing the query.
    If the search fails, Fiona shows a brief error message.
