@@ -799,10 +799,11 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         metadata.source_index_map = sourceIndexMap;
       }
       // A removed page counts as cited through its [n] marker, or when the
-      // answer links it directly.
+      // answer links it directly. Scan the resolved text: a model-written
+      // source list is stripped from it, so an uncited entry there is not sent.
       const citedRemoved =
         resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker))) ||
-        textLinksAny(textBuffer, [...removedUrls]);
+        textLinksAny(resolved.text, [...removedUrls]);
       if (citedRemoved && sources.length > 0) {
         const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
         if (rewritten) {

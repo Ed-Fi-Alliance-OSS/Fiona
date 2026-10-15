@@ -293,6 +293,25 @@ describe('link check: a cited source is dead', () => {
     expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
   });
 
+  it('ignores a dead URL that only appears, uncited, in a model-written source list', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([
+          {
+            text: `Claim [1].\n\nSources:\n[1] Live ${LIVE_A}\n[2] Gone ${DEAD}`,
+            searchResults: results([LIVE_A, DEAD]),
+          },
+        ]),
+      )
+      .mockRejectedValueOnce(new Error('the answer should not be rewritten'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(streamer._appended).toEqual([`Claim [[1]](${LIVE_A}).`]);
+    expect(streamer.__citation_metadata.link_check.regenerated).toBe(false);
+  });
+
   it('rewrites when the answer links a dead source directly instead of through its marker', async () => {
     mockFetchDead(DEAD);
     mockCreate
