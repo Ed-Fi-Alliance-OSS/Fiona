@@ -30,6 +30,7 @@ const { clearLinkCheckCache } = await import('../../src/agent/utils/link-checker
 const LIVE_A = 'https://docs.ed-fi.org/live-a/';
 const LIVE_B = 'https://docs.ed-fi.org/live-b/';
 const DEAD = 'https://www.ed-fi.org/blog/gone/';
+const DEAD_PARENS = 'https://docs.ed-fi.org/old_(guide)';
 const RETIRED = 'https://www.ed-fi.org/what-is-ed-fi-old/mission/';
 
 function makeStream(chunks, { terminal = 'response.completed' } = {}) {
@@ -316,6 +317,21 @@ describe('link check: a cited source is dead', () => {
     const streamer = makeStreamer(makeMetadata());
     await callPerplexityChat(streamer, USER);
     expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a markdown link', `See [the old guide](${DEAD_PARENS}).`],
+    ['a bare URL', `See ${DEAD_PARENS}.`],
+    ['a bare URL in parentheses', `(see ${DEAD_PARENS}).`],
+  ])('keeps parentheses that belong to a dead URL in %s', async (_label, text) => {
+    mockFetchDead(DEAD_PARENS);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: `${text} Also [1].`, searchResults: results([LIVE_A, DEAD_PARENS]) }]))
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
   });
 
   it('applies the same rules to an incomplete run', async () => {
