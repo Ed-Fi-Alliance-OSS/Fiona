@@ -378,6 +378,29 @@ describe('link check: a cited source is dead', () => {
     expect(streamer.__citation_metadata.grounding).toBe('regenerated_dead_sources');
   });
 
+  it('declines a rewrite that still links a removed source directly', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]))
+      .mockResolvedValueOnce(completed(`See [the old page](${DEAD}); current [1].`));
+    const streamer = makeStreamer(makeMetadata());
+    const { botText, citations } = await callPerplexityChat(streamer, USER);
+    expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
+    expect(citations).toEqual([]);
+    expect(streamer.__citation_metadata.grounding).toBe('declined_dead_sources');
+  });
+
+  it('keeps a rewrite whose own source list names a removed source it does not cite', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]))
+      .mockResolvedValueOnce(completed(`Current [1].\n\nSources:\n[1] Live ${LIVE_A}\n[2] Gone ${DEAD}`));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(streamer._appended).toEqual([`Current [[1]](${LIVE_A}).`]);
+    expect(streamer.__citation_metadata.grounding).toBe('regenerated_dead_sources');
+  });
+
   it.each([
     ['an API error', () => mockCreate.mockRejectedValueOnce(new Error('boom'))],
     ['a failed status', () => mockCreate.mockResolvedValueOnce({ status: 'failed', error: { message: 'x' } })],

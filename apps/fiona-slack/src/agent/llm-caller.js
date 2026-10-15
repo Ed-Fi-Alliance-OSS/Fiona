@@ -815,6 +815,11 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         }
       }
       resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
+      // The rewrite sees only live sources but can still recall a removed URL.
+      if (regenerated && textLinksAny(resolved.text, [...removedUrls])) {
+        logger?.warn?.('[citations] rewrite still links a removed source; declining');
+        declinedDeadSources = true;
+      }
     }
     if (metadata && linkCheck) {
       metadata.link_check = {
