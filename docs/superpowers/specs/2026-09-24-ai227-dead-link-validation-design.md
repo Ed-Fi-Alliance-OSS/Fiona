@@ -131,11 +131,15 @@ stream ends (answer held back, as today)
 1. Today's marker-to-URL mapping runs first, over **all** sources. This includes the model-written-list safety net,
    because a model's own list uses its own numbers rather than result ids.
 2. The cited URLs are those of `cited_markers` under that mapping, plus any removed URL the answer links directly (a
-   markdown link or a bare URL, matched loosely like `urlKey`). If any cited URL was removed (dead or denylisted),
-   Fiona rewrites the answer.
+   markdown link or a bare URL, matched loosely like `urlKey` but ignoring any `#fragment`; a URL keeps parentheses it
+   opens, such as `/old_(guide)`). Direct links are read from the answer with the model's own source list already
+   stripped, so an uncited entry there does not count. If any cited URL was removed (dead or denylisted), Fiona
+   rewrites the answer.
 3. Uncited removed sources are simply dropped: they leave *Also retrieved*, and no rewrite runs.
 4. The final `citation_index` and `cited_markers` are rebuilt from the **filtered** sources, and from the rewritten text
    when there is one. The inline links and the Sources block stay built from that one map (the #117 invariant).
+5. A rewrite that still links a removed URL directly (by the same rules) is declined with `declined_dead_sources`, as
+   a failed rewrite is.
 
 ### 3.5 The rewrite call
 
