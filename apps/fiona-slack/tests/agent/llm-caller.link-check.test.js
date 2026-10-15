@@ -319,6 +319,19 @@ describe('link check: a cited source is dead', () => {
     expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
+  it('matches a dead page linked with a #fragment', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([{ text: `See [details](${DEAD}#details) and [1].`, searchResults: results([LIVE_A, DEAD]) }]),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
+  });
+
   it.each([
     ['a markdown link', `See [the old guide](${DEAD_PARENS}).`],
     ['a bare URL', `See ${DEAD_PARENS}.`],

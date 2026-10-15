@@ -566,10 +566,13 @@ function trimUrl(match) {
   return url;
 }
 
+/** The page a URL points to: its urlKey without the #fragment. */
+const pageKey = (url) => urlKey(url).split('#')[0];
+
 /** True when the text links any of `urls` directly, as a markdown link or a bare URL. */
 function textLinksAny(text, urls) {
-  const keys = new Set(urls.map(urlKey));
-  return [...text.matchAll(URL_IN_TEXT)].some(([match]) => keys.has(urlKey(trimUrl(match))));
+  const keys = new Set(urls.map(pageKey));
+  return [...text.matchAll(URL_IN_TEXT)].some(([match]) => keys.has(pageKey(trimUrl(match))));
 }
 
 /**
