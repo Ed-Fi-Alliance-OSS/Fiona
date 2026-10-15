@@ -3,7 +3,8 @@
 ## Prerequisites
 
 1. Azure subscription with Fiona resource group (`fiona-rg`)
-2. Cosmos DB account with `fiona` database, `interactions` container, and `feedback` container
+2. Cosmos DB account with `chatbot` database, `interactions`, `feedback`, and
+   `slack-users` containers (the user directory must include emails for meaningful segmentation)
 3. Azure Key Vault instance for storing secrets
 4. GitHub secrets configured: `AZURE_CREDENTIALS`, `COSMOS_ENDPOINT`, `KEY_VAULT_URL`
 
@@ -37,11 +38,16 @@ PRINCIPAL_ID=$(az functionapp identity show \
   --resource-group fiona-rg \
   --query principalId -o tsv)
 
-# Grant Cosmos DB Data Reader role (scoped to the fiona database)
-az role assignment create \
-  --assignee-object-id "$PRINCIPAL_ID" \
-  --role "Cosmos DB Data Reader" \
-  --scope /subscriptions/{subscription-id}/resourceGroups/fiona-rg/providers/Microsoft.DocumentDB/databaseAccounts/fiona/sqlDatabases/fiona
+# Grant the Cosmos DB Built-in Data Reader data-plane role (role definition
+# 00000000-0000-0000-0000-000000000001), scoped to the chatbot database, which
+# includes the interactions, feedback and slack-users containers. A control-plane
+# `az role assignment create` does NOT grant data access for Entra ID clients.
+az cosmosdb sql role assignment create \
+  --account-name fiona \
+  --resource-group fiona-rg \
+  --role-definition-id 00000000-0000-0000-0000-000000000001 \
+  --principal-id "$PRINCIPAL_ID" \
+  --scope "/dbs/chatbot"
 
 # Grant Key Vault Secrets User role
 az role assignment create \
@@ -81,6 +87,7 @@ az functionapp config appsettings set \
     COSMOS_DATABASE='chatbot' \
     COSMOS_INTERACTIONS_CONTAINER='interactions' \
     COSMOS_FEEDBACK_CONTAINER='feedback' \
+    COSMOS_USERS_CONTAINER='slack-users' \
     DEPLOYMENT_TYPE='production' \
     KEY_VAULT_URL='https://fiona-kv.vault.azure.net/' \
     SLACK_WEBHOOK_KEYVAULT_SECRET_NAME='slack-fiona-weekly-report-webhook' \
@@ -121,8 +128,11 @@ design, including this pipeline.
      --auth-mode login
    ```
 2. Create a dedicated service principal for the workflow, scoped to:
-   - `Cosmos DB Data Reader` (data-plane role, via
+   - `Cosmos DB Built-in Data Reader` (data-plane role
+     `00000000-0000-0000-0000-000000000001`, via
      `az cosmosdb sql role assignment create`) on the `chatbot` database
+     (this must include `slack-users`: the PDF job fails if it can't read the
+     user directory)
    - `Storage Blob Data Contributor` **and** `Storage Blob Delegator` (the
      latter is required for `az storage blob generate-sas --as-user`) on the
      `usage-reports` container
@@ -136,9 +146,9 @@ design, including this pipeline.
 
 ### How it fits together
 
-- The workflow runs on a cron a few hours before `REPORT_SCHEDULE` (both
-  compute the same `[oneWeekAgo, endOfReport)` window, so they describe the
-  same week), generates the PDF via
+- The workflow runs on a cron a few hours before `REPORT_SCHEDULE`, on the
+  same UTC day (both use `resolveWeeklyReportWindow`: the 7 whole UTC days
+  before that day, so they describe exactly the same records), generates the PDF via
   `scripts/generate-executive-report-artifact.js`, uploads it to
   `usage-reports/executive-report-<deploymentType>-<start>-to-<end>.pdf`,
   generates a 6-day SAS URL for it (the Azure AD user delegation SAS this
@@ -151,6 +161,9 @@ design, including this pipeline.
   without a link (with a warning logged) rather than blocking.
 - Trigger a run manually via the Actions tab (`workflow_dispatch`) to
   regenerate the PDF/link outside the schedule.
+- The PDF labels feedback and top users only as Internal/External/Unknown;
+  it contains no email addresses. It still includes Slack user IDs and
+  feedback Q/A text, so share the SAS URL only with intended recipients.
 
 ## Testing
 
@@ -187,7 +200,14 @@ The `REPORT_SCHEDULE` environment variable uses Azure Functions cron format (6 f
 
 ## Troubleshooting
 
-- **Cosmos DB connection errors:** Verify Managed Identity has `Cosmos DB Data Reader` role scoped to the `fiona` database
+- **Cosmos DB connection errors:** Verify Managed Identity has the `Cosmos DB Built-in Data Reader` data-plane role (`az cosmosdb sql role assignment list`) scoped to the `chatbot` database
+- **Missing user segments:** If `slack-users` can't be read, the Slack summary posts unsegmented
+  totals with a visible "segments unavailable" note and logs a warning naming the container and
+  status code, while the executive PDF job **fails** so the problem gets fixed. Verify both report
+  identities have the `Cosmos DB Built-in Data Reader` data-plane role on the `chatbot` database
+  (which covers `slack-users`).
+- **Most users show as Unknown:** A warning is logged when the directory resolves no users or leaves
+  more than 25% Unknown. Check that the Slack user loader has populated email addresses.
 - **Key Vault access denied:** Verify Managed Identity has `Key Vault Secrets User` role scoped to the secret
 - **Slack webhook not found:** Verify secret name matches `SLACK_WEBHOOK_KEYVAULT_SECRET_NAME`
 - **Function timeout:** Check Cosmos DB query performance; ensure composite indexes are created by Bicep template

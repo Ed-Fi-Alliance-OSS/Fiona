@@ -59,7 +59,7 @@ descriptions and example usage.
 > | Command                 | Description                                       |
 > | ----------------------- | ------------------------------------------------- |
 > | `/fiona help`           | Show this usage guide                             |
-> | `/fiona ask <question>` | Ask Fiona a question privately                    |
+> | `/fiona ask <question>` | Ask Fiona a question; only you see the answer     |
 > | `/fiona search <query>` | Search Ed-Fi sources without a synthesized answer |
 > | `/fiona escalate`       | Escalate the current conversation to a human      |
 >
@@ -93,7 +93,27 @@ publicly in the conversation, or when Fiona has not been invited to the channel.
    use @-mentions in a thread instead.
 5. Feedback buttons ("Good Response" / "Bad Response") are included in the
    ephemeral response.
-6. The numbered Sources block (AI-230) sits between the answer and the feedback
+6. The ephemeral answer opens with a plain-text "You asked: …" line repeating
+   the question (over 300 visible characters, its first 299 and `…`; the whole
+   line is also held to 1,000 UTF-16 code units for Slack's text limit, so a
+   question heavy in emoji, some of which take up to 11 units, can be cut
+   earlier), because an
+   ephemeral answer is not threaded under it. Feedback reads the question back
+   from this line at click time (AI-248); it is the only copy Slack can give
+   back at that point, since an ephemeral message cannot be fetched later.
+   (Conversation capture, below, may separately keep the full question.) A
+   mention inside an `ask` question (`@fiona ask`, or `ask` in the assistant
+   panel) becomes `@someone` or `#a-channel`, so no user or channel id is shown,
+   stored with feedback, or captured. Fiona's own mention is removed wherever it
+   appears, a date keeps its readable label, and the rest of the question
+   (indentation included) is left as typed. Slash-command text is shown as typed: the
+   manifest sets `should_escape: false`, so a `<Descriptor>` in it is literal
+   text, not Slack link markup.
+   The question stored with a feedback rating is this displayed text: decoded,
+   with mention markers, and shortened the same way. A stored question ending
+   in `…` may therefore have been cut. It can contain whatever the user typed,
+   names included, and is kept under the same retention as the rated answer.
+7. The numbered Sources block (AI-230) sits between the answer and the feedback
    buttons, exactly as on a standard `app_mention` answer, and the grounding rules
    (AI-231) apply unchanged — a question with no usable sources gets the same
    decline.
@@ -126,15 +146,25 @@ replaces, and the @-mention path shows a thread "thinking" status while the LLM
 runs. If the answer cannot be delivered, the user gets a short notice instead of
 silence, the interaction is recorded as an error (`respond_failed` on the slash
 command, `post_failed` on the @-mention path), and the conversation is not
-captured, because nobody saw the answer.
+captured, because nobody saw the answer. On the slash command the notice is
+tried through `respond()` first, so it can replace the "Thinking…" line, and
+through `chat.postEphemeral` if that fails too.
 
 **Edge cases:**
 
 - If `<question>` is empty or blank, Fiona responds with the help output
-  (equivalent to `/fiona help`). A bare `@fiona ask` does the same; it is not
-  sent to the LLM, which would answer it publicly.
-- A question over 3,000 characters is declined with a short message and is not
-  sent to the LLM (`errorType: question_too_long`).
+  (equivalent to `/fiona help`). A bare `@fiona ask` does the same, and so does
+  one whose question is only mentions (`@fiona ask @someone`); neither is sent
+  to the LLM, which would answer it publicly.
+- A question over 3,000 characters is declined with a short message, is not
+  sent to the LLM, and does not count toward the rate limit: the length check
+  runs first (`errorType: question_too_long`). Leaving the decline unthrottled
+  is deliberate. It costs no LLM call and only the sender sees it, and counting
+  it would let one over-long paste spend the budget the shorter question needs.
+  A Slack retry of the same @-mention or panel message is declined only once.
+- An unexpected error while building the answer (as opposed to an LLM failure)
+  is answered privately with the error copy and recorded as `ask_failed`. On the
+  @-mention path it never reaches the generic public warning.
 - An error reply carries no feedback buttons. A failed call and an empty
   generation get different copy; the empty case suggests rephrasing or
   `/fiona search`.

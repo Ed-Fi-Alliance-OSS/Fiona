@@ -3,11 +3,48 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import {
+  ADOPTION_METRICS,
+  formatDecimal,
+  formatPercent,
+  hasSegmentActivity,
+  RELIABILITY_METRICS,
+  SEGMENTS_UNAVAILABLE_NOTE,
+  segmentColumns,
+  segmentFootnote,
+} from './report-presentation.js';
+
+/** Slack rejects or truncates messages near 4,000 characters; stay safely below. */
+const MAX_MESSAGE_LENGTH = 3900;
+const FEEDBACK_OMITTED =
+  "📋 *Representative Feedback*\nOmitted to fit Slack's message limit; see the full executive report.";
+/** Room kept for at least the feedback heading when deciding whether the report link fits. */
+const FEEDBACK_HEADROOM = 200;
+const LINK_OMITTED = '📎 *Full executive report:* link too long to include; see the usage-reports container.';
+const LABEL_WIDTH = 18;
+const COLUMN_WIDTH = 9;
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function truncate(text, maxLength = 150) {
+function truncate(text, maxLength = 110) {
   if (!text) return '';
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+/**
+ * Makes stored, user-supplied text inert in Slack mrkdwn. Escaping `&`, `<`
+ * and `>` (Slack's only required escapes) neutralizes control sequences such
+ * as `<!channel>`, `<!here>`, `<@U123>` and `<url|label>` links, so a typed
+ * question can't ping the report channel or spoof a link. Line breaks are
+ * collapsed so the text can't fake extra report lines. Truncation happens
+ * first so it never cuts an escape sequence in half.
+ */
+export function slackSafeText(text, maxLength = 110) {
+  if (typeof text !== 'string') return '';
+  return truncate(text.replace(/\s+/g, ' ').trim(), maxLength)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 export function formatWeekLabel(startDate, endDate) {
@@ -37,91 +74,104 @@ export function formatFeedbackSection(feedbackItems) {
   feedbackItems.forEach((item, index) => {
     const sentimentLabel = item.value === 'good-feedback' ? '👍 Positive' : '👎 Negative';
     lines.push(`${index + 1}. ${sentimentLabel}`);
-    lines.push(`   Q: ${truncate(item.userMessage)}`);
-    lines.push(`   A: ${truncate(item.botResponse)}`);
-    lines.push(`   Reason: ${item.hasReason ? truncate(item.reason) : '(no reason provided)'}`);
+    lines.push(`   Q: ${slackSafeText(item.userMessage)}`);
+    lines.push(`   A: ${slackSafeText(item.botResponse)}`);
+    lines.push(`   Reason: ${item.hasReason ? slackSafeText(item.reason) : '(no reason provided)'}`);
   });
 
   return lines.join('\n');
 }
 
+function formatUsageMatrix(kpis) {
+  const columns = segmentColumns(kpis.segments, kpis);
+  const cell = (value, width) => String(value).padEnd(width);
+  const header = cell('Metric', LABEL_WIDTH) + columns.map(([label]) => cell(label, COLUMN_WIDTH)).join('');
+  return [
+    '*Usage by user segment*',
+    '```',
+    header.trimEnd(),
+    '-'.repeat(header.trimEnd().length),
+    ...[...ADOPTION_METRICS, ...RELIABILITY_METRICS].map(([label, value]) =>
+      (cell(label, LABEL_WIDTH) + columns.map(([, kpi]) => cell(value(kpi), COLUMN_WIDTH)).join('')).trimEnd(),
+    ),
+    '```',
+    `_${segmentFootnote(hasSegmentActivity(kpis.segments.unknown))} — = no data._`,
+  ];
+}
+
 /**
  * Formats a weekly usage report as a Slack message string.
  *
- * @param {Object} kpis
- * @param {number} kpis.distinctUsers
- * @param {number} kpis.sessionCount
- * @param {number} kpis.totalInteractions
- * @param {number} kpis.errorCount
- * @param {number} kpis.errorRate
- * @param {number} kpis.rateLimitedCount
- * @param {number} kpis.goodFeedback
- * @param {number} kpis.badFeedback
- * @param {number} kpis.feedbackRatio
- * @param {number} kpis.avgInteractionsPerUser
- * @param {number} kpis.feedbackResponseRate
- * @param {number} kpis.newUsersCount
- * @param {number} kpis.newUserPercentage
- * @param {number} kpis.returningUsersCount
- * @param {number} kpis.repeatRate
+ * @param {Object} kpis  a `getKpiSummary` result (see kpi-core.js for fields), plus:
+ * @param {Object|null} [kpis.segments]  per-segment KPIs; renders a segment matrix when present
+ * @param {boolean} [kpis.segmentsUnavailable]  the directory couldn't be read; adds a visible note
  * @param {string} kpis.environment
  * @param {string} kpis.startDate  ISO date string (YYYY-MM-DD)
  * @param {string} kpis.endDate    ISO date string (YYYY-MM-DD)
+ * @param {Array<Object>} [kpis.representativeFeedback]
  * @param {string|null} [kpis.reportUrl]  Link to the full executive PDF for this week, if available
  * @returns {string}
  */
 export function formatWeeklyReport(kpis) {
   const {
-    distinctUsers,
-    sessionCount,
-    totalInteractions,
-    errorCount,
-    errorRate,
-    rateLimitedCount,
-    goodFeedback,
-    badFeedback,
-    feedbackRatio,
-    avgInteractionsPerUser,
-    feedbackResponseRate,
-    newUsersCount,
-    newUserPercentage,
-    returningUsersCount,
-    repeatRate,
     environment,
     startDate,
     endDate,
-    representativeFeedback,
+    representativeFeedback = [],
     reportUrl,
+    segments,
+    segmentsUnavailable,
   } = kpis;
 
   const weekLabel = formatWeekLabel(startDate, endDate);
 
-  const lines = [
-    `📊 *Fiona Usage Report* — Week of ${weekLabel}`,
-    '',
-    `👤 Unique users:           ${distinctUsers} (🔁 ${returningUsersCount} returning, ${repeatRate.toFixed(1)}% repeat rate)`,
-    `🆕 New users:              ${newUsersCount} (${newUserPercentage.toFixed(1)}% of unique users)`,
-    `💬 Sessions:               ${sessionCount}`,
-    `📨 Total interactions:     ${totalInteractions}`,
-    `⛔ Errors:                 ${errorCount} (${errorRate.toFixed(1)}% error rate)`,
-    `🚫 Rate-limited:           ${rateLimitedCount}`,
-    '',
-    `👍 Good feedback:          ${goodFeedback}`,
-    `👎 Bad feedback:           ${badFeedback}`,
-    `📈 Feedback ratio:         ${feedbackRatio.toFixed(1)}% positive`,
-    `📊 Avg interactions/user:  ${avgInteractionsPerUser.toFixed(1)}`,
-    `📝 Feedback response rate: ${feedbackResponseRate.toFixed(1)}%`,
-    '',
-    `_Environment: ${environment} | Generated by Fiona Analytics_`,
-  ];
+  const lines = [`📊 *Fiona Usage Report* — Week of ${weekLabel} (UTC)`, ''];
 
-  if (reportUrl) {
-    lines.push('', `📎 *Full executive report:* ${reportUrl}`);
+  if (segmentsUnavailable) {
+    lines.push(`⚠️ _${SEGMENTS_UNAVAILABLE_NOTE}_`, '');
   }
 
-  lines.push('', formatFeedbackSection(representativeFeedback));
+  if (segments) {
+    lines.push(...formatUsageMatrix(kpis));
+  } else {
+    lines.push(
+      `👤 Unique users:           ${kpis.uniqueUsers} (🔁 ${kpis.returningUsers} returning, ${formatPercent(kpis.repeatRate)} repeat rate)`,
+      `🆕 New users:              ${kpis.newUsers} (${formatPercent(kpis.newUserPct)} of unique users)`,
+      `💬 Sessions:               ${kpis.sessions}`,
+      `📨 Total interactions:     ${kpis.totalInteractions}`,
+      `⛔ Errors:                 ${kpis.errors} (${formatPercent(kpis.errorRate)} error rate)`,
+      `🚫 Rate-limited:           ${kpis.rateLimited}`,
+      '',
+      `👍 Good feedback:          ${kpis.goodFeedback}`,
+      `👎 Bad feedback:           ${kpis.badFeedback}`,
+      `📈 Feedback ratio:         ${formatPercent(kpis.feedbackRatio)} positive`,
+      `📊 Avg interactions/user:  ${formatDecimal(kpis.avgInteractionsPerUser)}`,
+      `📝 Feedback response rate: ${formatPercent(kpis.feedbackResponseRate)}`,
+    );
+  }
+  lines.push('', `_Environment: ${environment} | Generated by Fiona Analytics_`);
 
-  return lines.join('\n');
+  if (reportUrl) {
+    // The matrix and labels have a fixed size, so only an unusually long URL
+    // could push the message past Slack's limit; leave it out rather than
+    // cutting through the code fence or the link.
+    const linkLine = `📎 *Full executive report:* ${reportUrl}`;
+    const fits = lines.join('\n').length + linkLine.length + FEEDBACK_HEADROOM <= MAX_MESSAGE_LENGTH;
+    lines.push('', fits ? linkLine : LINK_OMITTED);
+  }
+
+  // Drop the least representative feedback items until the message fits.
+  const head = lines.join('\n');
+  let shownFeedback = representativeFeedback;
+  let message = `${head}\n\n${formatFeedbackSection(shownFeedback)}`;
+  while (message.length > MAX_MESSAGE_LENGTH && shownFeedback.length > 0) {
+    shownFeedback = shownFeedback.slice(0, -1);
+    message = `${head}\n\n${formatFeedbackSection(shownFeedback)}`;
+  }
+  if (representativeFeedback.length > 0 && shownFeedback.length === 0) {
+    message = `${head}\n\n${FEEDBACK_OMITTED}`;
+  }
+  return message;
 }
 
 /**
@@ -137,7 +187,7 @@ export function formatWeeklyReport(kpis) {
  */
 export function formatLongitudinalReport(weeklySeries, { deploymentType, startDate, endDate }) {
   const rangeLabel = formatWeekLabel(startDate, endDate);
-  const header = [`📈 *Fiona Longitudinal Usage Trends* — ${rangeLabel}`, `_Environment: ${deploymentType}_`, ''];
+  const header = [`📈 *Fiona Longitudinal Usage Trends* — ${rangeLabel} (UTC)`, `_Environment: ${deploymentType}_`, ''];
 
   if (!weeklySeries || weeklySeries.length === 0) {
     return [...header, 'No interaction data recorded for this period.'].join('\n');
@@ -150,14 +200,14 @@ export function formatLongitudinalReport(weeklySeries, { deploymentType, startDa
     const weekLabel = formatWeekLabel(week.weekStart, week.weekEnd);
     const lines = [
       `📊 *Week of ${weekLabel}*`,
-      `👤 Unique users: ${week.uniqueUsers} (🆕 ${week.newUsers} new, 🔁 ${week.returningUsers} returning, ${week.repeatRate.toFixed(1)}% repeat rate)`,
+      `👤 Unique users: ${week.uniqueUsers} (🆕 ${week.newUsers} new, 🔁 ${week.returningUsers} returning, ${formatPercent(week.repeatRate)} repeat rate)`,
       `💬 Sessions: ${week.sessions}`,
       `📨 Total interactions: ${week.totalInteractions}`,
-      `⛔ Errors: ${week.errors} (${week.errorRate.toFixed(1)}% error rate)`,
+      `⛔ Errors: ${week.errors} (${formatPercent(week.errorRate)} error rate)`,
       `🚫 Rate-limited: ${week.rateLimited}`,
-      `👍 Good feedback: ${week.goodFeedback}  👎 Bad feedback: ${week.badFeedback} (${week.feedbackRatio.toFixed(1)}% positive)`,
-      `📊 Avg interactions/user: ${week.avgInteractionsPerUser.toFixed(1)}`,
-      `📝 Feedback response rate: ${week.feedbackResponseRate.toFixed(1)}%`,
+      `👍 Good feedback: ${week.goodFeedback}  👎 Bad feedback: ${week.badFeedback} (${formatPercent(week.feedbackRatio)} positive)`,
+      `📊 Avg interactions/user: ${formatDecimal(week.avgInteractionsPerUser)}`,
+      `📝 Feedback response rate: ${formatPercent(week.feedbackResponseRate)}`,
     ];
 
     if (index !== 0) {

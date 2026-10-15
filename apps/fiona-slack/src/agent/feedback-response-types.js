@@ -8,3 +8,13 @@ export const FEEDBACK_RESPONSE_TYPES = Object.freeze({
   SEARCH: 'search',
   ASK: 'ask',
 });
+
+/**
+ * Response types whose context is stored in the feedback modal's
+ * private_metadata when the button is clicked. Their messages are ephemeral on
+ * at least one surface and cannot be fetched back later. A synthesis answer
+ * always lives in a thread, so it is read back instead.
+ */
+export const STORED_CONTEXT_TYPES = Object.freeze(
+  new Set([FEEDBACK_RESPONSE_TYPES.SEARCH, FEEDBACK_RESPONSE_TYPES.ASK]),
+);

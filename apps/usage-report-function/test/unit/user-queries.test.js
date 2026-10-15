@@ -3,26 +3,18 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, expect, it, jest } from '@jest/globals';
-import { getTopUsersByFeedback, getTopUsersByInteractions } from '../../lib/user-queries.js';
+import { describe, expect, it } from '@jest/globals';
+import { summarizeTopUsersByFeedback, summarizeTopUsersByInteractions } from '../../lib/user-queries.js';
 
-describe('getTopUsersByInteractions', () => {
-  const deploymentType = 'production';
-  const startISO = '2026-04-13T00:00:00.000Z';
-  const endISO = '2026-04-20T00:00:00.000Z';
-
-  const makeQueryable = (resources) => ({
-    items: { query: jest.fn().mockReturnValue({ fetchAll: jest.fn().mockResolvedValue({ resources }) }) },
-  });
-
-  it('aggregates interactions per user including errored records', async () => {
-    const container = makeQueryable([
+describe('summarizeTopUsersByInteractions', () => {
+  it('aggregates interactions per user including errored records', () => {
+    const records = [
       { userId: 'u1', threadTs: 't1', status: 'success', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'u1', threadTs: 't1', status: 'success', timestamp: '2026-04-13T11:00:00.000Z' },
       { userId: 'u1', threadTs: 't2', status: 'error', timestamp: '2026-04-14T10:00:00.000Z' },
-    ]);
+    ];
 
-    const [u1] = await getTopUsersByInteractions(container, deploymentType, startISO, endISO);
+    const [u1] = summarizeTopUsersByInteractions(records);
 
     expect(u1.userId).toBe('u1');
     expect(u1.interactions).toBe(3);
@@ -34,59 +26,40 @@ describe('getTopUsersByInteractions', () => {
     expect(u1.lastSeen).toBe('2026-04-14T10:00:00.000Z');
   });
 
-  it('sorts by interaction count descending and caps at limit', async () => {
-    const container = makeQueryable([
+  it('sorts by interaction count descending and caps at limit', () => {
+    const records = [
       { userId: 'low', threadTs: 't1', status: 'success', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'high', threadTs: 't2', status: 'success', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'high', threadTs: 't2', status: 'success', timestamp: '2026-04-13T11:00:00.000Z' },
       { userId: 'high', threadTs: 't2', status: 'success', timestamp: '2026-04-13T12:00:00.000Z' },
       { userId: 'mid', threadTs: 't3', status: 'success', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'mid', threadTs: 't3', status: 'success', timestamp: '2026-04-13T11:00:00.000Z' },
-    ]);
+    ];
 
-    const result = await getTopUsersByInteractions(container, deploymentType, startISO, endISO, 2);
+    const result = summarizeTopUsersByInteractions(records, 2);
 
     expect(result).toHaveLength(2);
     expect(result.map((u) => u.userId)).toEqual(['high', 'mid']);
   });
 
-  it('returns an empty array when there are no interactions in range', async () => {
-    const container = makeQueryable([]);
+  it('returns an empty array when there are no interactions', () => {
+    const records = [];
 
-    const result = await getTopUsersByInteractions(container, deploymentType, startISO, endISO);
+    const result = summarizeTopUsersByInteractions(records);
 
     expect(result).toEqual([]);
   });
-
-  it('passes correct query parameters', async () => {
-    const container = makeQueryable([]);
-
-    await getTopUsersByInteractions(container, deploymentType, startISO, endISO);
-
-    const [querySpec] = container.items.query.mock.calls[0];
-    expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: deploymentType });
-    expect(querySpec.parameters).toContainEqual({ name: '@startISO', value: startISO });
-    expect(querySpec.parameters).toContainEqual({ name: '@endISO', value: endISO });
-  });
 });
 
-describe('getTopUsersByFeedback', () => {
-  const deploymentType = 'production';
-  const startISO = '2026-04-13T00:00:00.000Z';
-  const endISO = '2026-04-20T00:00:00.000Z';
-
-  const makeQueryable = (resources) => ({
-    items: { query: jest.fn().mockReturnValue({ fetchAll: jest.fn().mockResolvedValue({ resources }) }) },
-  });
-
-  it('aggregates feedback counts and positive ratio per user', async () => {
-    const container = makeQueryable([
+describe('summarizeTopUsersByFeedback', () => {
+  it('aggregates feedback counts and positive ratio per user', () => {
+    const records = [
       { userId: 'u1', feedbackValue: 'good-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'u1', feedbackValue: 'good-feedback', timestamp: '2026-04-14T10:00:00.000Z' },
       { userId: 'u1', feedbackValue: 'bad-feedback', timestamp: '2026-04-15T10:00:00.000Z' },
-    ]);
+    ];
 
-    const [u1] = await getTopUsersByFeedback(container, deploymentType, startISO, endISO);
+    const [u1] = summarizeTopUsersByFeedback(records);
 
     expect(u1.userId).toBe('u1');
     expect(u1.feedbackCount).toBe(3);
@@ -96,35 +69,46 @@ describe('getTopUsersByFeedback', () => {
     expect(u1.positiveRatioPct).toBeCloseTo(66.667, 2);
   });
 
-  it('sorts by feedback count descending and caps at limit', async () => {
-    const container = makeQueryable([
+  it('sorts by feedback count descending and caps at limit', () => {
+    const records = [
       { userId: 'low', feedbackValue: 'good-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'high', feedbackValue: 'good-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'high', feedbackValue: 'bad-feedback', timestamp: '2026-04-13T11:00:00.000Z' },
       { userId: 'mid', feedbackValue: 'good-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
       { userId: 'mid', feedbackValue: 'good-feedback', timestamp: '2026-04-13T11:00:00.000Z' },
-    ]);
+    ];
 
-    const result = await getTopUsersByFeedback(container, deploymentType, startISO, endISO, 2);
+    const result = summarizeTopUsersByFeedback(records, 2);
 
     expect(result).toHaveLength(2);
     expect(result.map((u) => u.userId)).toEqual(['high', 'mid']);
   });
 
-  it('returns 0 positiveRatioPct instead of NaN when feedbackCount is 0-safe', async () => {
-    const container = makeQueryable([
-      { userId: 'u1', feedbackValue: 'bad-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
-    ]);
+  it('ignores feedback values other than good/bad (e.g. escalation) in counts', () => {
+    const records = [
+      { userId: 'u1', feedbackValue: 'good-feedback', timestamp: '2026-04-13T10:00:00.000Z' },
+      { userId: 'u1', feedbackValue: 'escalation', timestamp: '2026-04-16T10:00:00.000Z' },
+    ];
 
-    const [u1] = await getTopUsersByFeedback(container, deploymentType, startISO, endISO);
+    const [u1] = summarizeTopUsersByFeedback(records);
+
+    expect(u1.feedbackCount).toBe(1);
+    expect(u1.goodFeedback).toBe(1);
+    expect(u1.badFeedback).toBe(0);
+  });
+
+  it('returns 0 positiveRatioPct instead of NaN when feedbackCount is 0-safe', () => {
+    const records = [{ userId: 'u1', feedbackValue: 'bad-feedback', timestamp: '2026-04-13T10:00:00.000Z' }];
+
+    const [u1] = summarizeTopUsersByFeedback(records);
 
     expect(u1.positiveRatioPct).toBe(0);
   });
 
-  it('returns an empty array when there is no feedback in range', async () => {
-    const container = makeQueryable([]);
+  it('returns an empty array when there is no feedback', () => {
+    const records = [];
 
-    const result = await getTopUsersByFeedback(container, deploymentType, startISO, endISO);
+    const result = summarizeTopUsersByFeedback(records);
 
     expect(result).toEqual([]);
   });

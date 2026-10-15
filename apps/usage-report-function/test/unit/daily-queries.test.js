@@ -3,21 +3,20 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, expect, it, jest } from '@jest/globals';
-import { getDailySummary } from '../../lib/daily-queries.js';
+import { describe, expect, it } from '@jest/globals';
+import { summarizeDailyActivity } from '../../lib/daily-queries.js';
 
-describe('getDailySummary', () => {
-  const deploymentType = 'production';
+describe('summarizeDailyActivity', () => {
   const startISO = '2026-04-13T00:00:00.000Z';
   const endISO = '2026-04-15T00:00:00.000Z';
 
-  const makeQueryable = (resourcesList) => {
-    const query = jest.fn();
-    for (const resources of resourcesList) {
-      query.mockReturnValueOnce({ fetchAll: jest.fn().mockResolvedValue({ resources }) });
-    }
-    return { items: { query } };
-  };
+  const activityOf = (interactions, { feedback = [], priorUserIds = [] } = {}) => ({
+    startISO,
+    endISO,
+    interactions,
+    feedback,
+    priorUserIds: new Set(priorUserIds),
+  });
 
   const dayAInteractions = [
     { userId: 'u1', threadTs: 't1', status: 'success', rateLimited: false, timestamp: '2026-04-13T10:00:00.000Z' },
@@ -29,20 +28,14 @@ describe('getDailySummary', () => {
     { userId: 'u3', threadTs: 't4', status: 'success', rateLimited: true, timestamp: '2026-04-14T09:30:00.000Z' },
   ];
 
-  it('buckets interactions into UTC calendar days, oldest to newest', async () => {
-    const container = makeQueryable([[...dayAInteractions, ...dayBInteractions], ['u4']]);
+  it('buckets interactions into UTC calendar days, oldest to newest', () => {
+    const days = summarizeDailyActivity(activityOf([...dayBInteractions, ...dayAInteractions]));
 
-    const days = await getDailySummary(container, deploymentType, startISO, endISO);
-
-    expect(days).toHaveLength(2);
-    expect(days[0].date).toBe('2026-04-13');
-    expect(days[1].date).toBe('2026-04-14');
+    expect(days.map((d) => d.date)).toEqual(['2026-04-13', '2026-04-14']);
   });
 
-  it('counts uniqueUsers/sessions from success+non-rate-limited records only, totalInteractions/errors from all records', async () => {
-    const container = makeQueryable([dayAInteractions, []]);
-
-    const [dayA] = await getDailySummary(container, deploymentType, startISO, endISO);
+  it('counts uniqueUsers/sessions from success+non-rate-limited records only, totalInteractions/errors from all records', () => {
+    const [dayA] = summarizeDailyActivity(activityOf(dayAInteractions));
 
     expect(dayA.uniqueUsers).toBe(1); // only u1 (u2's record errored)
     expect(dayA.sessions).toBe(1); // only t1
@@ -52,10 +45,8 @@ describe('getDailySummary', () => {
     expect(dayA.rateLimited).toBe(0);
   });
 
-  it('counts rate-limited records separately from uniqueUsers/sessions', async () => {
-    const container = makeQueryable([dayBInteractions, []]);
-
-    const [dayB] = await getDailySummary(container, deploymentType, startISO, endISO);
+  it('counts rate-limited records separately from uniqueUsers/sessions', () => {
+    const [dayB] = summarizeDailyActivity(activityOf(dayBInteractions));
 
     expect(dayB.uniqueUsers).toBe(1); // rate-limited record excluded
     expect(dayB.sessions).toBe(1); // only t3
@@ -65,55 +56,78 @@ describe('getDailySummary', () => {
     expect(dayB.rateLimited).toBe(1);
   });
 
-  it('omits days with zero interactions', async () => {
-    const container = makeQueryable([dayAInteractions, []]);
-
-    const days = await getDailySummary(container, deploymentType, startISO, endISO);
+  it('omits days with zero interactions', () => {
+    const days = summarizeDailyActivity(activityOf(dayAInteractions));
 
     expect(days.map((d) => d.date)).toEqual(['2026-04-13']);
   });
 
-  it('returns an empty array when there are no interactions in range', async () => {
-    const container = makeQueryable([[]]);
-
-    const days = await getDailySummary(container, deploymentType, startISO, endISO);
-
-    expect(days).toEqual([]);
+  it('returns an empty array when there are no interactions', () => {
+    expect(summarizeDailyActivity(activityOf([]))).toEqual([]);
   });
 
-  it('passes correct query parameters to the main interactions query', async () => {
-    const container = makeQueryable([[]]);
+  it('classifies new vs returning users using first-seen-in-range and prior history', () => {
+    const [dayA, dayB] = summarizeDailyActivity(
+      activityOf([...dayAInteractions, ...dayBInteractions], { priorUserIds: ['u3'] }),
+    );
 
-    await getDailySummary(container, deploymentType, startISO, endISO);
-
-    const [querySpec] = container.items.query.mock.calls[0];
-    expect(querySpec.parameters).toContainEqual({ name: '@deploymentType', value: deploymentType });
-    expect(querySpec.parameters).toContainEqual({ name: '@startISO', value: startISO });
-    expect(querySpec.parameters).toContainEqual({ name: '@endISO', value: endISO });
-  });
-
-  it('classifies new vs returning users using first-seen-in-range and prior-to-range history', async () => {
-    // Prior-history query (2nd container.items.query call) reports u2 as seen before the range.
-    const container = makeQueryable([[...dayAInteractions, ...dayBInteractions], ['u2']]);
-
-    const [dayA, dayB] = await getDailySummary(container, deploymentType, startISO, endISO);
-
-    // Day A: only u1 is success+non-rate-limited, with no prior-to-range history -> new.
+    // Day A: u1 is success+non-rate-limited with no prior history -> new.
     expect(dayA.newUsers).toBe(1);
     expect(dayA.returningUsers).toBe(0);
     expect(dayA.repeatRate).toBe(0);
 
-    // Day B: only u3 is success+non-rate-limited (u3's 2nd record is rate-limited), no prior history -> new.
-    expect(dayB.newUsers).toBe(1);
-    expect(dayB.returningUsers).toBe(0);
+    // Day B: u3 has prior history -> returning.
+    expect(dayB.newUsers).toBe(0);
+    expect(dayB.returningUsers).toBe(1);
+    expect(dayB.repeatRate).toBe(100);
   });
 
-  it('only queries prior-history for users who actually appear in the range', async () => {
-    const container = makeQueryable([[]]);
+  it('counts a user as new only on the first day they appear in range', () => {
+    const laterVisit = {
+      userId: 'u1',
+      threadTs: 't9',
+      status: 'success',
+      rateLimited: false,
+      timestamp: '2026-04-14T15:00:00.000Z',
+    };
+    const [dayA, dayB] = summarizeDailyActivity(activityOf([...dayAInteractions, laterVisit]));
 
-    const days = await getDailySummary(container, deploymentType, startISO, endISO);
+    expect(dayA.newUsers).toBe(1);
+    expect(dayB.newUsers).toBe(0);
+    expect(dayB.returningUsers).toBe(1);
+  });
 
-    expect(days).toEqual([]);
-    expect(container.items.query).toHaveBeenCalledTimes(1);
+  it('ignores feedback: feedback-only days are omitted and rows carry only interaction fields', () => {
+    const days = summarizeDailyActivity(
+      activityOf(dayAInteractions, {
+        feedback: [{ userId: 'u9', feedbackValue: 'good-feedback', timestamp: '2026-04-14T08:00:00.000Z' }],
+      }),
+    );
+
+    expect(days.map((d) => d.date)).toEqual(['2026-04-13']);
+    expect(Object.keys(days[0]).sort()).toEqual(
+      [
+        'date',
+        'errorRate',
+        'errors',
+        'newUsers',
+        'rateLimited',
+        'repeatRate',
+        'returningUsers',
+        'sessions',
+        'totalInteractions',
+        'uniqueUsers',
+      ].sort(),
+    );
+  });
+
+  it('reports a null repeat rate for a day with no successful users', () => {
+    const [day] = summarizeDailyActivity(
+      activityOf([
+        { userId: 'u2', threadTs: 't2', status: 'error', rateLimited: false, timestamp: '2026-04-13T12:00:00.000Z' },
+      ]),
+    );
+
+    expect(day).toMatchObject({ uniqueUsers: 0, errorRate: 100, repeatRate: null });
   });
 });

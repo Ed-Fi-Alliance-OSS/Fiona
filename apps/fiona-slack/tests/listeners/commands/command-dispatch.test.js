@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockEscalateViaSay = jest.fn();
 jest.unstable_mockModule('../../../src/agent/escalation.js', () => ({ escalateViaSay: mockEscalateViaSay }));
@@ -19,8 +19,10 @@ const mockCapture = jest.fn().mockResolvedValue(undefined);
 jest.unstable_mockModule('../../../src/listeners/commands/ask-handler.js', () => ({
   ASK_DELIVERY_FAILED_TEXT: ':warning: could not deliver',
   ASK_ERROR_TEXT: ':warning: ask failed',
+  ASK_TOO_LONG_TEXT: ':warning: too long',
   buildAskResponse: mockBuildAskResponse,
   describeError: (err) => err.name,
+  isQuestionTooLong: (question) => question.length > 3000,
   streamAskResponse: mockStreamAskResponse,
 }));
 
@@ -33,6 +35,7 @@ jest.unstable_mockModule('../../../src/agent/utils/idempotent-finalize.js', () =
   rollbackFinalization: mockRollbackFinalization,
 }));
 
+// Real search would hit the network, including from the keyword-coverage test.
 const mockSearchForSources = jest.fn();
 jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   searchForSources: mockSearchForSources,
@@ -40,8 +43,10 @@ jest.unstable_mockModule('../../../src/agent/search-caller.js', () => ({
   SEARCH_ERROR_TEXT: ':warning: search failed',
 }));
 
-const { dispatchKeywordViaSay } = await import('../../../src/listeners/commands/command-dispatch.js');
-const { CREATE_TICKET_ACTION, TICKET_NOT_CONFIGURED_TEXT } = await import(
+const { declineOverLongAsk, dispatchKeywordViaSay } = await import(
+  '../../../src/listeners/commands/command-dispatch.js'
+);
+const { COMMAND_KEYWORDS, CREATE_TICKET_ACTION, parseCommandKeyword, TICKET_NOT_CONFIGURED_TEXT } = await import(
   '../../../src/listeners/commands/command-handler.js'
 );
 
@@ -51,9 +56,11 @@ const ctx = (cmd, say) => ({
   cmd,
   say,
   logger,
-  markInteractionRecorded: jest.fn(),
-  markInteractionError: jest.fn(),
-  claimResponseId: jest.fn(),
+  telemetry: {
+    markInteractionRecorded: jest.fn(),
+    markInteractionError: jest.fn(),
+    claimResponseId: jest.fn(),
+  },
   client: {},
   userId: 'U1',
   teamId: 'T1',
@@ -113,7 +120,7 @@ describe('dispatchKeywordViaSay — ask', () => {
       expect.objectContaining({ question: 'how do I set up ODS?', interactionType: 'app_mention' }),
     );
     expect(mockGenerateResponseId).toHaveBeenCalledWith('C1', '123.45', '123.45');
-    expect(params.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
+    expect(params.telemetry.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
     expect(mockShouldFinalize).toHaveBeenCalledWith('C1:123.45:123.45', logger);
   });
 
@@ -154,7 +161,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
-    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('post_failed');
     expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ephemeral ask'));
   });
@@ -179,7 +186,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     params.client.chat.postEphemeral.mockRejectedValue(new Error('channel_not_found'));
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('delivery-failure notice'));
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask delivery-failure response'));
   });
 
   it('captures the conversation only once the answer is posted', async () => {
@@ -219,14 +226,53 @@ describe('dispatchKeywordViaSay — ask', () => {
     );
   });
 
-  it('clears the thinking status even when generation throws', async () => {
-    const params = askCtx();
-    mockBuildAskResponse.mockRejectedValueOnce(new Error('boom'));
+  // AI-250. An error escaping to the telemetry wrapper would post its warning
+  // with say(), in front of the whole channel.
+  describe('when building the answer throws unexpectedly', () => {
+    beforeEach(() => {
+      mockBuildAskResponse.mockRejectedValueOnce(new TypeError('boom'));
+    });
 
-    await expect(dispatchKeywordViaSay(params)).rejects.toThrow('boom');
-    expect(params.client.assistant.threads.setStatus).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: '' }),
-    );
+    it('answers ephemerally instead of letting the error reach the public warning', async () => {
+      const params = askCtx();
+
+      await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+
+      expect(params.say).not.toHaveBeenCalled();
+      expect(params.client.chat.postEphemeral).toHaveBeenCalledWith({
+        channel: 'C1',
+        user: 'U1',
+        text: ':warning: ask failed',
+      });
+    });
+
+    it('records ask_failed and releases the slot so a retry runs again', async () => {
+      const params = askCtx();
+
+      await dispatchKeywordViaSay(params);
+
+      expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('ask_failed');
+      expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
+      expect(mockCapture).not.toHaveBeenCalled();
+    });
+
+    it('still clears the thinking status', async () => {
+      const params = askCtx();
+
+      await dispatchKeywordViaSay(params);
+
+      expect(params.client.assistant.threads.setStatus).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: '' }),
+      );
+    });
+
+    it('survives the error notice failing too', async () => {
+      const params = askCtx();
+      params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+      await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask error response'));
+    });
   });
 
   it('still answers when the thinking status cannot be set', async () => {
@@ -252,7 +298,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     },
   );
 
-  it('marks a handled ask-generation failure from buildAskResponse', async () => {
+  it('marks a handled ask-generation failure without posting a public warning', async () => {
     mockBuildAskResponse.mockResolvedValueOnce({
       response: { text: ':warning: ask failed', blocks: [], unfurl_links: false, unfurl_media: false },
       errorType: 'llm_failed',
@@ -262,7 +308,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.markInteractionError).toHaveBeenCalledWith('llm_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('llm_failed');
     expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
     expect(params.say).not.toHaveBeenCalled();
   });
@@ -285,7 +331,7 @@ describe('dispatchKeywordViaSay — ask', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.markInteractionError).toHaveBeenCalledWith('llm_empty');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('llm_empty');
   });
 
   it('does not escalate or record the turn itself', async () => {
@@ -296,7 +342,7 @@ describe('dispatchKeywordViaSay — ask', () => {
     expect(mockEscalateViaSay).not.toHaveBeenCalled();
     // The telemetry wrapper records app_mention/assistant_message turns; the ask
     // branch must not suppress that the way escalate does.
-    expect(params.markInteractionRecorded).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionRecorded).not.toHaveBeenCalled();
   });
 });
 
@@ -350,6 +396,152 @@ describe('dispatchKeywordViaSay — file_ticket', () => {
   });
 });
 
+// routeCommandViaSay answers an unrouted keyword with help and logs an error.
+// Every keyword the parser can return must be routed somewhere on purpose.
+describe('dispatchKeywordViaSay — keyword coverage', () => {
+  // One message per keyword. Keyed by COMMAND_KEYWORDS, so a keyword added to
+  // the parser fails the first test below until it has a sample here.
+  const SAMPLE_BY_KEYWORD = {
+    help: 'help',
+    escalate: 'escalate',
+    ask: 'ask what is Ed-Fi?',
+    search: 'search Data Standard',
+    file_ticket: 'file a bug',
+  };
+  const SAMPLE_COMMANDS = Object.values(SAMPLE_BY_KEYWORD);
+
+  beforeEach(() => {
+    process.env.ESCALATION_ENABLED = 'true';
+    process.env.TICKET_CREATION_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.ESCALATION_ENABLED;
+    delete process.env.TICKET_CREATION_ENABLED;
+  });
+
+  const parsedKeywords = () => SAMPLE_COMMANDS.map((text) => parseCommandKeyword(text)?.keyword);
+
+  it('samples every keyword the parser can return', () => {
+    expect(Object.keys(SAMPLE_BY_KEYWORD).sort()).toEqual(Object.values(COMMAND_KEYWORDS).sort());
+    expect(parsedKeywords()).toEqual(Object.keys(SAMPLE_BY_KEYWORD));
+  });
+
+  it.each(['app_mention', 'assistant_message'])('routes every keyword on %s without the unrouted fallback', async (interactionType) => {
+    for (const text of SAMPLE_COMMANDS) {
+      const params = {
+        ...ctx(parseCommandKeyword(text), jest.fn().mockResolvedValue(undefined)),
+        client: {
+          chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) },
+          assistant: { threads: { setStatus: jest.fn().mockResolvedValue(undefined) } },
+        },
+        interactionType,
+      };
+
+      await dispatchKeywordViaSay(params);
+    }
+
+    expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('Unrouted command keyword'));
+  });
+});
+
+// AI-250. Checked before the rate limit by both say() listeners, so a question
+// that will be declined anyway does not spend the user's budget.
+describe('declineOverLongAsk', () => {
+  const base = (over = {}) => ({
+    cmd: { keyword: 'ask', rawArgs: 'x'.repeat(3001) },
+    say: jest.fn().mockResolvedValue(undefined),
+    client: { chat: { postEphemeral: jest.fn().mockResolvedValue(undefined) } },
+    logger,
+    userId: 'U1',
+    channelId: 'C1',
+    threadTs: '100.00',
+    messageTs: '200.00',
+    interactionType: 'app_mention',
+    telemetry: { markInteractionError: jest.fn(), claimResponseId: jest.fn() },
+    ...over,
+  });
+
+  it('declines an over-long @-mention ask ephemerally, in its thread', async () => {
+    const params = base();
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+
+    expect(params.client.chat.postEphemeral).toHaveBeenCalledWith({
+      channel: 'C1',
+      user: 'U1',
+      text: ':warning: too long',
+      thread_ts: '100.00',
+    });
+    expect(params.say).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('question_too_long');
+  });
+
+  // A Slack retry of the same event must not post the decline twice.
+  it('claims the response and declines a duplicate silently', async () => {
+    const params = base();
+    mockShouldFinalize.mockReturnValueOnce(false);
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+
+    expect(mockGenerateResponseId).toHaveBeenCalledWith('C1', '100.00', '200.00');
+    expect(params.telemetry.claimResponseId).toHaveBeenCalledWith('C1:123.45:123.45');
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).not.toHaveBeenCalled();
+  });
+
+  it('declines in the assistant panel with say(), which only the user sees', async () => {
+    const params = base({ interactionType: 'assistant_message' });
+
+    await declineOverLongAsk(params);
+
+    expect(params.say).toHaveBeenCalledWith({ text: ':warning: too long', thread_ts: '100.00' });
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a question within the limit', { cmd: { keyword: 'ask', rawArgs: 'x'.repeat(3000) } }],
+    ['another keyword', { cmd: { keyword: 'search', rawArgs: 'x'.repeat(5000) } }],
+    ['no command at all', { cmd: null }],
+  ])('leaves %s alone', async (_label, over) => {
+    const params = base(over);
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(false);
+
+    expect(params.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(params.say).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).not.toHaveBeenCalled();
+    expect(params.telemetry.claimResponseId).not.toHaveBeenCalled();
+  });
+
+  it('still reports the decline when the notice fails to send', async () => {
+    const params = base();
+    params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('channel_not_found'));
+
+    await expect(declineOverLongAsk(params)).resolves.toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ask too-long response'));
+  });
+
+  // The user never saw it, so a Slack retry must not be swallowed as a duplicate.
+  it.each([
+    ['an @-mention ephemeral', {}, (params) => params.client.chat.postEphemeral.mockRejectedValueOnce(new Error('x'))],
+    ['an assistant-panel say()', { interactionType: 'assistant_message' }, (params) => params.say.mockRejectedValueOnce(new Error('x'))],
+  ])('releases the response when %s decline fails to send', async (_label, over, fail) => {
+    const params = base(over);
+    fail(params);
+
+    await declineOverLongAsk(params);
+
+    expect(mockRollbackFinalization).toHaveBeenCalledWith('C1:123.45:123.45');
+  });
+
+  it('keeps the response claimed once the decline is delivered', async () => {
+    await declineOverLongAsk(base());
+
+    expect(mockRollbackFinalization).not.toHaveBeenCalled();
+  });
+});
+
 // AI-198 review. Help and search follow ask's fail-closed rule, and a failed
 // delivery is recorded rather than counted as a success.
 describe('dispatchKeywordViaSay — help and search', () => {
@@ -367,7 +559,7 @@ describe('dispatchKeywordViaSay — help and search', () => {
 
     expect(params.client.chat.postEphemeral).toHaveBeenCalledTimes(1);
     expect(params.say).not.toHaveBeenCalled();
-    expect(params.markInteractionError).not.toHaveBeenCalled();
+    expect(params.telemetry.markInteractionError).not.toHaveBeenCalled();
   });
 
   // A surface added later must default to private, as ask already does.
@@ -395,7 +587,7 @@ describe('dispatchKeywordViaSay — help and search', () => {
 
     await expect(dispatchKeywordViaSay(params)).resolves.toBeUndefined();
 
-    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('post_failed');
   });
 
   it('marks search_failed when the search itself fails but the notice is delivered', async () => {
@@ -407,7 +599,7 @@ describe('dispatchKeywordViaSay — help and search', () => {
     expect(params.client.chat.postEphemeral).toHaveBeenCalledWith(
       expect.objectContaining({ text: ':warning: search failed' }),
     );
-    expect(params.markInteractionError).toHaveBeenCalledWith('search_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('search_failed');
   });
 
   it('marks post_failed, not search_failed, when neither the search nor the notice gets through', async () => {
@@ -417,8 +609,8 @@ describe('dispatchKeywordViaSay — help and search', () => {
 
     await dispatchKeywordViaSay(params);
 
-    expect(params.markInteractionError).toHaveBeenCalledTimes(1);
-    expect(params.markInteractionError).toHaveBeenCalledWith('post_failed');
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledTimes(1);
+    expect(params.telemetry.markInteractionError).toHaveBeenCalledWith('post_failed');
   });
 
   it.each(['help', 'search'])('omits thread_ts for a top-level %s mention', async (keyword) => {

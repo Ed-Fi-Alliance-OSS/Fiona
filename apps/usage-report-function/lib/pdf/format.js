@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { lastIncludedDate } from '../report-dates.js';
+
 const MONTH_ABBR = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' });
 
 /** Formats a Monday-Sunday week range as e.g. "Apr 13-19, 2026" or "Apr 27-May 3, 2026". */
@@ -16,6 +18,21 @@ export function formatWeekLabel(weekStartISO, weekEndISO) {
   return startMonth === endMonth
     ? `${startMonth} ${start.getUTCDate()}-${end.getUTCDate()}, ${year}`
     : `${startMonth} ${start.getUTCDate()}-${endMonth} ${end.getUTCDate()}, ${year}`;
+}
+
+/**
+ * Formats a half-open [startISO, endISO) report window with its last
+ * included day, e.g. "2026-10-02 to 2026-10-08", so readers never see the
+ * exclusive end date.
+ */
+export function formatPeriodLabel(startISO, endISO) {
+  return `${startISO.split('T')[0]} to ${lastIncludedDate(endISO)}`;
+}
+
+/** A week's label, flagged when the report window cut the week short. */
+export function formatTrendWeekLabel(week) {
+  const label = formatWeekLabel(week.weekStart, week.weekEnd);
+  return week.partial ? `${label} (partial)` : label;
 }
 
 /** Formats an ISO timestamp as "YYYY-MM-DD HH:MM" in UTC. */

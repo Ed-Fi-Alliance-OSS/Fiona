@@ -587,13 +587,14 @@ describe('routeCommandViaSay', () => {
     expect(mockSay).toHaveBeenCalledWith(buildHelpText());
   });
 
-  it('warns when it has to fall back, so an unrouted keyword is visible in logs', async () => {
+  it('logs an error when it has to fall back, because an unrouted keyword is a wiring bug', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'ask', rawArgs: 'how do I set up ODS?' });
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('ask'));
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Unrouted command keyword "ask"'));
   });
 
-  it('does not warn on the ordinary help route', async () => {
+  it('logs nothing on the ordinary help route', async () => {
     await routeCommandViaSay(mockSay, mockLogger, { keyword: 'help', rawArgs: '' });
+    expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 

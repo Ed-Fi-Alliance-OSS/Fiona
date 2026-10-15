@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import { formatDecimal, formatPercent, hasSegmentActivity } from '../report-presentation.js';
+import { INTERNAL_EMAIL_DOMAIN } from '../user-segments.js';
 import { formatWeekLabel } from './format.js';
 
 /**
@@ -14,22 +16,30 @@ import { formatWeekLabel } from './format.js';
  * genuinely analytical observations a human/agent might notice.
  */
 
-export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO) {
+export function buildReadoutBullets(kpiSummary, _weeklyTrend, periodStartISO, userSegments) {
   const periodStartDate = periodStartISO ? periodStartISO.split('T')[0] : 'the report start date';
 
-  const engagement = `During the report period, ${kpiSummary.uniqueUsers} unique users generated ${kpiSummary.totalSessions} sessions and ${kpiSummary.totalInteractions} interactions.`;
+  const engagement = `During the report period, ${kpiSummary.uniqueUsers} unique users generated ${kpiSummary.sessions} sessions and ${kpiSummary.totalInteractions} interactions.`;
 
-  const newUserCallout = `${kpiSummary.newUsers} of those users were new (${kpiSummary.newUserPct.toFixed(1)}%), with no successful interactions before ${periodStartDate}.`;
+  const newUserCallout = `${kpiSummary.newUsers} of those users were new (${formatPercent(kpiSummary.newUserPct)}), with no successful interactions before ${periodStartDate}.`;
 
   const rateLimitedPhrase =
-    kpiSummary.rateLimitedEvents === 0
-      ? 'no rate-limited events'
-      : `${kpiSummary.rateLimitedEvents} rate-limited events`;
-  const reliability = `Reliability recorded ${kpiSummary.errorCount} errors (${kpiSummary.errorRate.toFixed(1)}%) and ${rateLimitedPhrase}.`;
+    kpiSummary.rateLimited === 0 ? 'no rate-limited events' : `${kpiSummary.rateLimited} rate-limited events`;
+  const reliability = `Reliability recorded ${kpiSummary.errors} errors (${formatPercent(kpiSummary.errorRate)}) and ${rateLimitedPhrase}.`;
 
-  const feedback = `Feedback included ${kpiSummary.feedbackTotal} ratings (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad), with ${kpiSummary.positiveFeedbackPct.toFixed(1)}% positive.`;
+  const feedback = `Feedback included ${kpiSummary.feedbackTotal} ratings (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad), with ${formatPercent(kpiSummary.feedbackRatio)} positive.`;
 
-  return [engagement, newUserCallout, reliability, feedback];
+  const bullets = [engagement, newUserCallout, reliability, feedback];
+  if (userSegments) {
+    const { internal, external, unknown } = userSegments;
+    const unknownPart = hasSegmentActivity(unknown)
+      ? `; unknown email: ${unknown.uniqueUsers} users and ${unknown.totalInteractions} interactions`
+      : '';
+    bullets.push(
+      `Internal (@${INTERNAL_EMAIL_DOMAIN}): ${internal.uniqueUsers} users and ${internal.totalInteractions} interactions; external: ${external.uniqueUsers} users and ${external.totalInteractions} interactions${unknownPart}.`,
+    );
+  }
+  return bullets;
 }
 
 export function buildUsageObservations(weeklyTrend) {
@@ -45,7 +55,9 @@ export function buildUsageObservations(weeklyTrend) {
   const previousWeek = weeklyTrend.length > 1 ? weeklyTrend[weeklyTrend.length - 2] : null;
 
   let newUserGrowthObservation = 'Not enough weeks to calculate new-user week-over-week growth.';
-  if (previousWeek) {
+  if (previousWeek && (lastWeek.partial || previousWeek.partial)) {
+    newUserGrowthObservation = `Not compared: ${formatWeekLabel(lastWeek.partial ? lastWeek.weekStart : previousWeek.weekStart, lastWeek.partial ? lastWeek.weekEnd : previousWeek.weekEnd)} is a partial week.`;
+  } else if (previousWeek) {
     if (previousWeek.newUsers > 0) {
       const pct = ((lastWeek.newUsers - previousWeek.newUsers) / previousWeek.newUsers) * 100;
       newUserGrowthObservation = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% versus ${formatWeekLabel(previousWeek.weekStart, previousWeek.weekEnd).replace(/, \d{4}$/, '')}.`;
@@ -77,7 +89,7 @@ export function buildUsageObservations(weeklyTrend) {
     },
     {
       metric: 'Engagement depth',
-      observation: `Average interactions per user peaked at ${peakAvgWeek.avgInteractionsPerUser.toFixed(1)} during ${formatWeekLabel(peakAvgWeek.weekStart, peakAvgWeek.weekEnd).replace(/, \d{4}$/, '')}.`,
+      observation: `Average interactions per user peaked at ${formatDecimal(peakAvgWeek.avgInteractionsPerUser)} during ${formatWeekLabel(peakAvgWeek.weekStart, peakAvgWeek.weekEnd).replace(/, \d{4}$/, '')}.`,
     },
   ];
 }
@@ -86,12 +98,12 @@ export function buildReliabilityTakeaways(kpiSummary, _weeklyTrend) {
   return [
     {
       signal: 'System error rate',
-      takeaway: `${kpiSummary.errorRate.toFixed(1)}% overall (${kpiSummary.errorCount} errors).`,
+      takeaway: `${formatPercent(kpiSummary.errorRate)} overall (${kpiSummary.errors} errors).`,
     },
-    { signal: 'Rate limiting', takeaway: `${kpiSummary.rateLimitedEvents} rate-limited events.` },
+    { signal: 'Rate limiting', takeaway: `${kpiSummary.rateLimited} rate-limited events.` },
     {
       signal: 'Feedback quality',
-      takeaway: `${kpiSummary.positiveFeedbackPct.toFixed(1)}% positive feedback overall (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad).`,
+      takeaway: `${formatPercent(kpiSummary.feedbackRatio)} positive feedback overall (${kpiSummary.goodFeedback} good / ${kpiSummary.badFeedback} bad).`,
     },
   ];
 }

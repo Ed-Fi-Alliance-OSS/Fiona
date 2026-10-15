@@ -4,28 +4,19 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { createFinalizeMetadataEnvelopeMock, METADATA_LIFECYCLE_STATE } from '../../helpers/llm-caller-mock.js';
 
 const mockCallLLM = jest.fn();
 // Transitions the state the way the real one does, so a Sources block built
 // after finalizing — which would render nothing — fails the tests below.
-const mockFinalizeMetadataEnvelope = jest.fn((metadata) => {
-  if (metadata && ['ready_to_finalize', 'degraded_no_metadata'].includes(metadata.finalize_state)) {
-    metadata.finalize_state = 'finalized';
-  }
-});
+const mockFinalizeMetadataEnvelope = createFinalizeMetadataEnvelopeMock();
 jest.unstable_mockModule('../../../src/agent/llm-caller.js', () => ({
   callLLM: mockCallLLM,
   finalizeMetadataEnvelope: mockFinalizeMetadataEnvelope,
   LLM_MODEL: 'test-model',
   SYSTEM_PROMPT_VERSION: 'v1',
   CITATION_POLICY: { METADATA_WAIT_TIMEOUT_MS: 2000 },
-  MetadataLifecycleState: {
-    STREAMING_TEXT: 'streaming_text',
-    COLLECTING_METADATA: 'collecting_metadata',
-    READY_TO_FINALIZE: 'ready_to_finalize',
-    FINALIZED: 'finalized',
-    DEGRADED_NO_METADATA: 'degraded_no_metadata',
-  },
+  MetadataLifecycleState: METADATA_LIFECYCLE_STATE,
 }));
 
 const mockWaitForMetadataReady = jest.fn().mockResolvedValue(undefined);
@@ -111,7 +102,7 @@ describe('buildAskResponse', () => {
     expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
   });
 
-  it('renders the answer as a markdown block followed by a divider and feedback buttons', async () => {
+  it('shows the question, then the answer as a markdown block, a divider and feedback buttons', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
     const { response } = await buildAskResponse({
@@ -121,9 +112,65 @@ describe('buildAskResponse', () => {
       ...ids,
     });
 
-    expect(response.blocks[0]).toEqual({ type: 'markdown', text: 'answer' });
-    expect(response.blocks[1]).toEqual({ type: 'divider' });
-    expect(response.blocks[2].block_id).toBe('feedback|ask|app_mention');
+    expect(response.blocks[0]).toEqual({ type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: q', emoji: false }] });
+    expect(response.blocks[1]).toEqual({ type: 'markdown', text: 'answer' });
+    expect(response.blocks[2]).toEqual({ type: 'divider' });
+    expect(response.blocks[3].block_id).toBe('feedback|ask|app_mention');
+  });
+
+  // AI-248. An ephemeral answer is not threaded under its question.
+  describe('the "You asked:" line', () => {
+    it('renders the question as plain text, so nothing in it is formatting or a link', async () => {
+      mockCallLLM.mockImplementation(answersWith('answer'));
+      const question = 'is *this* <https://evil.example|a link> or <@U123> or `code`?';
+
+      const { response } = await buildAskResponse({ question, logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+      expect(response.blocks[0]).toEqual({
+        type: 'context',
+        block_id: 'ask_question',
+        elements: [{ type: 'plain_text', text: 'You asked: is *this* a link or @U123 or `code`?', emoji: false }],
+      });
+    });
+
+    it('shortens a long question to 300 characters', async () => {
+      mockCallLLM.mockImplementation(answersWith('answer'));
+
+      const { response } = await buildAskResponse({
+        question: 'q'.repeat(1000),
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      const shown = response.blocks[0].elements[0].text.slice('You asked: '.length);
+      expect(shown).toHaveLength(300);
+      expect(shown.endsWith('…')).toBe(true);
+    });
+
+    it('is not added to error replies', async () => {
+      mockCallLLM.mockRejectedValue(new Error('down'));
+
+      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+
+      expect(response.blocks.map((block) => block.type)).toEqual(['section']);
+    });
+
+    it('is not added on the streaming path, where the question is already in the thread', async () => {
+      const streamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) };
+      mockCallLLM.mockImplementation(answersWith('answer'));
+
+      await streamAskResponse({
+        client: { chatStream: () => streamer },
+        logger: mockLogger,
+        question: 'q',
+        interactionType: 'assistant_message',
+        ...ids,
+      });
+
+      const [{ blocks }] = streamer.stop.mock.calls[0];
+      expect(blocks.some((block) => block.block_id === 'ask_question')).toBe(false);
+    });
   });
 
   it('suppresses link unfurling so a cited answer does not explode into previews', async () => {
@@ -142,7 +189,7 @@ describe('buildAskResponse', () => {
 
     const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
 
-    expect(response.blocks[0]).toEqual({ type: 'markdown', text: answer });
+    expect(response.blocks[1]).toEqual({ type: 'markdown', text: answer });
   });
 
   it('keeps a long answer with a code block in one block, so the fence is never split', async () => {
@@ -220,7 +267,7 @@ describe('buildAskResponse', () => {
     expect(mockFinalizeMetadataEnvelope).toHaveBeenCalledWith(metadata);
   });
 
-  it('logs the citation state through the shared helper', async () => {
+  it('logs the citation state for the answer', async () => {
     const metadata = { finalize_state: 'ready_to_finalize', sources: [{}, {}] };
     mockCallLLM.mockImplementation(answersWith('answer', metadata));
 
@@ -270,9 +317,34 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.blocks.map((block) => block.type)).toEqual(['markdown', 'section', 'divider', 'context_actions']);
-      expect(response.blocks[0].text).toBe('A [1] B [2]');
-      expect(response.blocks[1].text.text).toBe(SOURCES_TEXT);
+      expect(response.blocks.map((block) => block.type)).toEqual([
+        'context',
+        'markdown',
+        'section',
+        'divider',
+        'context_actions',
+      ]);
+      expect(response.blocks[1].text).toBe('A [1] B [2]');
+      expect(response.blocks[2].text.text).toBe(SOURCES_TEXT);
+    });
+
+    it('builds the Sources block before finalizing the envelope', async () => {
+      const order = [];
+      mockCallLLM.mockImplementation(answersWith('A [1] B [2]', readyMetadata()));
+      mockFinalizeMetadataEnvelope.mockImplementationOnce((metadata) => {
+        order.push(`finalize:${metadata.finalize_state}`);
+        metadata.finalize_state = 'finalized';
+      });
+
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
+
+      expect(order).toEqual(['finalize:ready_to_finalize']);
+      expect(response.blocks[2].text.text).toBe(SOURCES_TEXT);
     });
 
     it('omits the Sources block when metadata degraded', async () => {
@@ -287,7 +359,7 @@ describe('buildAskResponse', () => {
         ...ids,
       });
 
-      expect(response.blocks.map((block) => block.type)).toEqual(['markdown', 'divider', 'context_actions']);
+      expect(response.blocks.map((block) => block.type)).toEqual(['context', 'markdown', 'divider', 'context_actions']);
     });
 
     it('omits the Sources block from the empty-answer fallback', async () => {
@@ -399,7 +471,7 @@ describe('buildAskResponse', () => {
 
     const { response } = await buildAskResponse({ question: 'q', interactionType: 'slash_ask', ...ids });
 
-    expect(response.blocks[0].text).toMatch(/shortened/);
+    expect(response.blocks[1].text).toMatch(/shortened/);
   });
 });
 

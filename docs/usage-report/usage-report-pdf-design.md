@@ -186,24 +186,31 @@ and handed to its own renderer. Each slice stays independently testable.
 
 | Section                       | Data source                                                             |
 | ------------------------------- | -------------------------------------------------------------------------|
-| KPI summary                      | `getKpiSummary` (`lib/kpi-summary.js`)                                  |
-| Week-over-week trends             | `getWeeklyTrendSeries` (`lib/longitudinal-queries.js`, §5)             |
-| Weekly snapshots (appendix)         | Same `getWeeklyTrendSeries` output, reshaped (no WoW columns)         |
-| Daily summary                     | `getDailySummary` (`lib/daily-queries.js`)                             |
+| KPI summary                      | `summarizeActivity` (`lib/kpi-core.js`)                                 |
+| Week-over-week trends             | `summarizeWeeklyTrend` (`lib/longitudinal-queries.js`, §5); weeks cut short by the window are labelled with their actual days, marked partial, and excluded from week-over-week comparisons |
+| Weekly snapshots (appendix)         | Same `summarizeWeeklyTrend` output, reshaped (no WoW columns)         |
+| Daily summary                     | `summarizeDailyActivity` (`lib/daily-queries.js`)                      |
 | Feedback details (appendix)          | `getFeedbackDetails` (`lib/cosmos-queries.js`) — chronological, unfiltered |
 | Representative feedback (cards)      | `getRepresentativeFeedbackInRange` (`lib/cosmos-queries.js`, §7)      |
-| Top users by feedback / interactions   | `getTopUsersByFeedback` / `getTopUsersByInteractions` (`lib/user-queries.js`) |
+| Top users by feedback / interactions   | `summarizeTopUsersByFeedback` / `summarizeTopUsersByInteractions` (`lib/user-queries.js`) |
 
-`getDailySummary` additionally tracks `newUsers`/`returningUsers`/`repeatRate`
-per day, mirroring `getWeeklyTrendSeries`'s logic: bucket each user's
+`summarizeDailyActivity` additionally tracks `newUsers`/`returningUsers`/`repeatRate`
+per day, mirroring `summarizeWeeklyTrend`'s logic: bucket each user's
 first-seen-in-range day, then reuse one prior-history query (not per-day)
 to classify true new vs. returning.
 
-`buildExecutiveReportData` (`lib/report-data.js`) runs all of the above in
-parallel and returns one plain object — `period`, `kpiSummary`,
-`weeklyTrend`, `trendWeekly` (a wider rolling window for historical
-context, snapped to Monday boundaries), `dailySummary`, `feedbackDetails`,
-`representativeFeedback`, `topUsersByFeedback`, `topUsersByInteractions`.
+`buildExecutiveReportData` (`lib/report-data.js`) fetches interaction and
+feedback activity **once** (`loadActivity` in `lib/activity-records.js`) for
+the window covering both the report period and the trend window, looks up
+the Slack user directory once, and derives the KPI summary, weekly trends,
+daily summary, and top users in memory from that single fetch, using the
+shared KPI definitions in `lib/kpi-core.js`. Only the two feedback listings
+are separate queries. It returns one plain object: `period`, `kpiSummary`,
+`weeklyTrend`, `trendWeekly` (a wider rolling window for historical context,
+starting on a Monday and ending at the requested end), `dailySummary`,
+`feedbackDetails`, `representativeFeedback`, `topUsersByFeedback`,
+`topUsersByInteractions`, and `userSegments`. If the user directory can't be
+read, it throws rather than producing a report without segments.
 No formatting/rendering logic lives here — the same separation of concerns
 as `getWeeklyTrendSeries` vs. `formatLongitudinalReport`.
 
@@ -310,7 +317,8 @@ manual/agent step, and without changing the Function's hosting plan.
 GitHub Actions (generate-usage-report-pdf.yml, cron a few hours before
 REPORT_SCHEDULE, plus workflow_dispatch)
   → scripts/generate-executive-report-artifact.js computes the same
-    [oneWeekAgo, endOfReport) window WeeklyReportTrigger uses, then calls
+    7-whole-UTC-day window WeeklyReportTrigger uses (resolveWeeklyReportWindow),
+    then calls
     buildExecutiveReportData + generateExecutiveReportPdf (§4, unmodified)
   → az storage blob upload the PDF to fionausagereportsa / usage-reports,
     per-week blob name
@@ -434,8 +442,8 @@ Manual setup and a full dry run were completed against the real
 
 ## 7. Representative Feedback Selection
 
-`getRepresentativeFeedback` (`lib/cosmos-queries.js`) selects up to 5
-feedback examples for the Slack report:
+`getRepresentativeFeedbackInRange` (`lib/cosmos-queries.js`) selects up to 5
+feedback examples for both the Slack report and the executive PDF:
 
 - Queries the `feedback` container for `[startDate, endDate)`.
 - Two-tier selection: entries with a non-empty `reason` first (most recent
@@ -448,18 +456,14 @@ feedback examples for the Slack report:
 
 `formatFeedbackSection` (`lib/slack-formatter.js`) renders this as plain
 text (no Slack Block Kit): truncates `userMessage`/`botResponse`/`reason`
-independently to 150 characters each; prints `Reason: (no reason
+independently to 110 characters each, dropping trailing items if the
+message would exceed Slack's length limit; prints `Reason: (no reason
 provided)` explicitly for fallback items rather than omitting the line;
 prints `No feedback recorded for this period.` when empty.
 
-`getRepresentativeFeedbackInRange` (§4.2) is a range-bound sibling used by
-the executive PDF and longitudinal/ad hoc requests: `getRepresentativeFeedback`
-takes only an open-ended-to-now lower bound, which is correct for
-`WeeklyReportTrigger`'s "last 7 days up to now" usage but would silently
-include feedback past an arbitrary past range's `endISO`. Kept as a
-separate function rather than changing `getRepresentativeFeedback`'s
-signature, since that function is actively used by `WeeklyReportTrigger`
-with passing tests that assume its current open-ended behavior.
+The former open-ended `getRepresentativeFeedback` was removed once
+`WeeklyReportTrigger` moved to the same bounded `[startISO, endISO)` window
+as the executive PDF.
 
 ## 8. Testing
 
