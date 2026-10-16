@@ -73,7 +73,7 @@ export async function main({
   return { pdfPath, metaPath };
 }
 
-function createCosmosContainers() {
+export function createCosmosContainers() {
   if (!COSMOS_ENDPOINT) {
     throw new Error('Required environment variable COSMOS_ENDPOINT is not set');
   }
