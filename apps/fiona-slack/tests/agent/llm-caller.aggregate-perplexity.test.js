@@ -1092,7 +1092,7 @@ describe('callLLM returns botText alongside metadata', () => {
     const unquoted = system.replaceAll('"Ed-Fi specifically says"', '""').replaceAll('"Ed-Fi"', '""');
     const bareUses = [
       ...unquoted.matchAll(
-        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|APIs?|Technology Suite|documentation|implementations?|code base|questions?|tools|specifications|licensing|AI)\b)/g,
+        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|API|Technology Suite|documentation|code base|questions?|specifications|AI)\b)/g,
       ),
     ].map((match) => unquoted.slice(Math.max(0, match.index - 30), match.index + 30));
     expect(bareUses).toEqual([]);

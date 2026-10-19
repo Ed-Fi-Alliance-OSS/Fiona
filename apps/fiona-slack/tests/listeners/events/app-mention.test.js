@@ -282,7 +282,7 @@ describe('appMentionCallback', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0].text).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0].text).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(mockSay.mock.calls[0][0].thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
   });
@@ -304,7 +304,7 @@ describe('appMentionCallback', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0].text).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0].text).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0].text).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(mockSay.mock.calls[0][0].thread_ts).toBe('1234567890.000001');
     expect(callLLM).not.toHaveBeenCalled();
   });

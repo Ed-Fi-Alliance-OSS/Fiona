@@ -163,7 +163,7 @@ describe('message (assistant thread handler)', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0]).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -182,7 +182,7 @@ describe('message (assistant thread handler)', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0]).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -201,7 +201,7 @@ describe('message (assistant thread handler)', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0]).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -220,7 +220,7 @@ describe('message (assistant thread handler)', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0]).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,7 @@ describe('message (assistant thread handler)', () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     expect(mockSay.mock.calls[0][0]).toContain("I'm Fiona");
     // Ed-Fi terminology guidelines (AI-225): never "Ed-Fi" on its own.
-    expect(mockSay.mock.calls[0][0]).toContain('the Ed-Fi Data Standard');
+    expect(mockSay.mock.calls[0][0]).toContain("the Ed-Fi Data Standard, the Ed-Fi Technology Suite, or the Ed-Fi Alliance's documentation");
     expect(callLLM).not.toHaveBeenCalled();
   });
 
