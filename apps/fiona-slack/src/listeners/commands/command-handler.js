@@ -9,11 +9,11 @@ import { createFeedbackBlock, FEEDBACK_RESPONSE_TYPES } from '../views/feedback_
 
 const HELP_COMMAND_LINES = [
   'help                    Show this help message',
-  'ask <question>          Ask a question about Ed-Fi',
-  'search <query>          Search Ed-Fi documentation',
+  'ask <question>          Ask a question about the Ed-Fi Technology Suite',
+  "search <query>          Search the Ed-Fi Alliance's documentation",
 ];
 
-const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi support ticket (opens a form)';
+const HELP_TICKET_LINE = 'ticket                  Create an Ed-Fi Alliance support ticket (opens a form)';
 const HELP_ESCALATE_LINE = 'escalate                Escalate your conversation to a human';
 const HELP_ESCALATE_HINT =
   '*Need a human?* Use `/fiona escalate` (or type `escalate` in a DM/thread) to hand your conversation to the team.\n';
@@ -38,7 +38,7 @@ export function buildHelpText() {
   const escalationEnabled = isEscalationEnabled();
   if (escalationEnabled) commands.push(HELP_ESCALATE_LINE);
   return `*Fiona — your Ed-Fi AI assistant* :wave:
-Fiona helps you navigate Ed-Fi documentation, standards, and community resources using natural language.
+Fiona helps you use natural language to navigate the Ed-Fi Alliance's documentation, including use cases, getting started playbooks, and reference documentation for the Ed-Fi Data Standard and Ed-Fi Technology Suite.
 
 *Available commands:*
 \`\`\`
