@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 128,
+  "title": "[AI-246] Link to Ed-Fi Terms of Use and Privacy Policy",
+  "state": "merged",
+  "jiraKey": "AI-246",
+  "authorKind": "human",
+  "stats": {
+    "additions": 760,
+    "deletions": 382,
+    "changedFiles": 44,
+    "commits": 4,
+    "reviewCycles": 1,
+    "reviewComments": 4,
+    "timeToFirstGreenCiMinutes": 12907,
+    "timeToMergeMinutes": 20478,
+    "ciRuns": {
+      "total": 4,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "json": 1,
+      "js": 43
+    },
+    "testToSourceRatio": 20.5,
+    "docsTouched": false,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 4,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 1
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-19T21:02:15.044Z"
+}
