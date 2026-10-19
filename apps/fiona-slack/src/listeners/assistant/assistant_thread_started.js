@@ -31,7 +31,7 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
      * !! Please note: this is only intended for development and demonstrative purposes.
      */
     await say(
-      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about Ed-Fi, or type `help` to see available commands.\n\n" +
+      "Hi, I'm Fiona, your Ed-Fi AI assistant! Ask me anything about the Ed-Fi Data Standard or the Ed-Fi Technology Suite, or type `help` to see available commands.\n\n" +
         `<${PRIVACY_POLICY_URL}|Ed-Fi Terms of Use and Privacy Policy>`,
     );
 

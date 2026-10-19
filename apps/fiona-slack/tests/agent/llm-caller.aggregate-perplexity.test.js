@@ -1003,7 +1003,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
-    expect(result).toHaveProperty('systemPromptVersion', 'v3');
+    expect(result).toHaveProperty('systemPromptVersion', 'v4');
   });
 
   it('instructs the model to cite result numbers and not to write its own source list', async () => {
@@ -1044,7 +1044,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
     expect(system).toMatch(/do not answer from background knowledge/i);
-    expect(system).toMatch(/could not find (?:this|that|it) in (?:the )?Ed-Fi documentation/i);
+    expect(system).toMatch(/could not find (?:this|that|it) in (?:the )?Ed-Fi Alliance's documentation/i);
     for (const topic of [/states or agencies/i, /adoption/i, /implementation status/i, /licensing/i, /legal/i]) {
       expect(system).toMatch(topic);
     }
@@ -1057,16 +1057,52 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(system).toContain('https://www.ed-fi.org/contact/');
     // Scope: Ed-Fi implementation coding is in, general coding and trivia are out,
     // and out-of-scope questions are declined as out of scope, not as "not found".
-    expect(system).toMatch(/implementing, integrating, or extending Ed-Fi/i);
+    expect(system).toMatch(/implementing, integrating, or extending the Ed-Fi Technology Suite/i);
     expect(system).toMatch(/general programming/i);
     expect(system).toMatch(/outside what you can help with/i);
     // Measured: a generic SQL question was answered by recasting it onto Ed-Fi's Admin database.
-    expect(system).toMatch(/do not recast it as an Ed-Fi question/i);
+    expect(system).toMatch(/do not recast it as a question about the Ed-Fi\s+Data Standard or the Ed-Fi Technology Suite/i);
     // Search is forced now, and "general productivity" invited ungrounded answers.
     expect(system).not.toMatch(/offer to search/i);
     expect(system).not.toMatch(/general productivity/i);
     // Both contradicted the rules above: uncited "general knowledge", and a remit wider than Ed-Fi.
     expect(system).not.toMatch(/general knowledge\./i);
     expect(system).not.toMatch(/education data standards, APIs, implementation guidance, and related tools/);
+  });
+
+  it('instructs the model to follow the Ed-Fi terminology guidelines, and follows them itself', async () => {
+    // SME review 2026-08-26 (Q-013 to Q-016): Fiona used "Ed-Fi" on its own, e.g.
+    // "Ed-Fi specifically says" where the guidelines call for "the Ed-Fi Data Standard".
+    const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield { type: 'response.completed', response: { status: 'completed' } };
+      })(),
+    );
+
+    await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+    });
+
+    const system = mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    expect(system).toMatch(/never use "Ed-Fi" on its own/i);
+    expect(system).toContain('the Ed-Fi Data Standard');
+    expect(system).toContain('the Ed-Fi Alliance');
+    expect(system).toContain('"the Ed-Fi Data Standard specifically says"');
+
+    // A prompt that uses bare "Ed-Fi" teaches the habit it forbids. Only the rule's
+    // own quotes are exempt: the word itself, and the example of what not to write.
+    // Any other quoted text is scanned, so a quoted instruction can't slip through.
+    const unquoted = system.replaceAll('"Ed-Fi specifically says"', '""').replaceAll('"Ed-Fi"', '""');
+    const bareUses = [
+      ...unquoted.matchAll(
+        /Ed-Fi(?! (?:Data Standard|Alliance|ODS\/API|API|Technology Suite|specifications|AI)\b)/g,
+      ),
+    ].map((match) => unquoted.slice(Math.max(0, match.index - 30), match.index + 30));
+    expect(bareUses).toEqual([]);
+    // Not approved terms (PR #135 review): "Ed-Fi Technology Suite" is the correct name.
+    expect(system).not.toMatch(/Ed-Fi (?:technology|community)\b/);
   });
 });

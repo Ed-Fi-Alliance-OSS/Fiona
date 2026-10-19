@@ -400,8 +400,16 @@ describe('buildHelpText (all features on)', () => {
     expect(buildHelpText()).not.toMatch(/search.*coming soon/);
   });
 
+  it('follows the Ed-Fi terminology guidelines (AI-225)', () => {
+    expect(buildHelpText()).toMatch(/^ask <question>\s+Ask a question about the Ed-Fi Technology Suite$/m);
+    expect(buildHelpText()).toMatch(/^search <query>\s+Search the Ed-Fi Alliance's documentation$/m);
+    expect(buildHelpText()).toContain('the Ed-Fi Data Standard');
+    expect(buildHelpText()).toContain('reference documentation for the Ed-Fi Data Standard and Ed-Fi Technology Suite.');
+    expect(buildHelpText()).not.toMatch(/Ed-Fi (?:technology|community)\b/);
+  });
+
   it('advertises one ticket command, described in Ed-Fi terms', () => {
-    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
+    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi Alliance support ticket \(opens a form\)$/m);
   });
 
   // `bug` and `feature` still work as slash sub-commands and as keywords, and
@@ -641,7 +649,7 @@ describe('buildHelpText — ticket line is flag-gated', () => {
 
   it('advertises the ticket command when the feature is on', () => {
     process.env.TICKET_CREATION_ENABLED = 'true';
-    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi support ticket \(opens a form\)$/m);
+    expect(buildHelpText()).toMatch(/^ticket\s+Create an Ed-Fi Alliance support ticket \(opens a form\)$/m);
   });
 
   it('keeps every other command listed when the feature is off', () => {
