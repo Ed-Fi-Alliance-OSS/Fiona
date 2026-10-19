@@ -127,6 +127,39 @@ case the model's text is discarded and a fixed decline
 `grounding=declined_no_results`. When usable results exist but do not cover the
 question, only the prompt prevents a guess.
 
+**Dead links (AI-227).** Perplexity's index still holds pages that now return
+404, so before the answer is sent, Fiona checks every source. Checks start as
+soon as search results arrive, so they overlap with writing the answer. Pages under a retired prefix (`CITATION_PATH_DENYLIST`) are dropped
+without being fetched. The rest get a HEAD request (GET if HEAD is refused, and
+a GET to confirm a HEAD 404 or 410),
+sent with the `User-Agent` `Fiona-LinkCheck/1.0 (+https://www.ed-fi.org/contact/)`
+and only to hosts in `PERPLEXITY_DOMAIN_FILTER` and their subdomains. A 404 or 410 drops the
+source. Any result the check cannot confirm, such as a timeout or a 5xx, keeps
+the source. Results are cached for 1 hour, live and dead alike, so a page that
+404s briefly returns quickly. If the answer cited a dropped source (through its
+`[n]` marker, or by linking its URL directly), it is rewritten once, with no
+search tool, from the live sources only (one attempt, limited by
+`CITATION_REGENERATE_TIMEOUT_MS`, default 20 seconds), and the metadata records
+`grounding: 'regenerated_dead_sources'`. The rewrite prompt wraps the live
+results in `<search_results>` tags and tells the model that the text inside is
+copied from web pages and that any instructions in it must be ignored. Fence
+tags found inside a title or snippet are removed first, so a page cannot close
+the fence early. If that rewrite fails, or no live source can be offered to
+it, the fixed
+decline is sent, with `grounding: 'declined_dead_sources'`. If every source
+was dropped, the no-results decline above applies. If an answer or its
+rewrite is empty once the model's own source list is removed, the fixed
+decline is sent with `grounding: 'declined_empty_answer'`, rather than a
+Sources block with no answer. This applies whether or not link checking is on.
+A reply that had no text to begin with is a failed generation, not a decline:
+it is returned empty, so the existing `llm_empty` handling applies. `/fiona search` drops dead
+results the same way. It asks for 3 extra results but checks only the requested
+number, and checks the extras only if something was dropped. The `[citations]` log line gains `dead=` and
+`regenerated=`. Setting `CITATION_LINK_CHECK_ENABLED=false` turns off the
+link checks and rewrites; retired prefixes are still dropped (set
+`CITATION_PATH_DENYLIST=` to empty to stop that too). If link checking itself fails, no source is dropped as dead, but retired
+prefixes are still dropped (and an answer citing one is still rewritten).
+
 The escalation summary (§2.10) is exempt. It summarizes a transcript Fiona
 already holds, uses its own prompt with no tools, and does not pass through
 this check.
@@ -157,8 +190,10 @@ production with the earlier prompt, the model appended its own list in 8 of 12
 answers, and in those it numbered its sources 1, 2, 3… itself instead of by
 result id, so linking `[n]` to result `n` pointed at the wrong page. If the
 answer ends with lines like `[n] … URL` that read as a bibliography (a
-*Sources* / *References* / *Citations* heading, or, without one, every listed
-number cited earlier in the answer and every listed URL a search result), Fiona
+*Sources* / *References* / *Citations* heading, or, without one, every line of
+the trailing `[n]` run carrying a URL (blank lines between entries allowed),
+every listed number cited earlier in the answer and every listed URL a search
+result), Fiona
 treats that list as the meaning of its numbers. A closing list of numbered
 steps with links normally fails that test, even if the answer cites one of its
 numbers, so it is kept as answer content; a missed list only falls back to
@@ -167,8 +202,10 @@ result-id linking. Each
 or loosely (ignoring scheme, host case, `www.` and trailing slashes, never path
 case) when only one result matches. A URL the search did not return, or one
 that loosely matches several results, leaves its marker as plain text. Under a
-heading, every `[n]` line belongs to the list, including one that names a page
-without a URL; that marker also stays plain text. The list
+heading, every `[n]` line belongs to the list, even with blank lines between
+entries, including one that names a page without a URL; that marker also stays
+plain text. A headed list with no URL at all is kept as answer content, since
+it may be steps and removing it would leave its numbers unexplained. The list
 is removed from the answer, so only the Sources block lists sources. The
 results the model did not list are numbered from just after its highest listed
 number, skipping any number the answer already uses, so a stray `[2026]` in the
