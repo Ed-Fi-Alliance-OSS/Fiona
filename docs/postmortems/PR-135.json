@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 135,
+  "title": "[AI-225] feat: follow the Ed-Fi terminology guidelines in the system prompt and Slack text",
+  "state": "merged",
+  "jiraKey": "AI-225",
+  "authorKind": "human",
+  "stats": {
+    "additions": 114,
+    "deletions": 34,
+    "changedFiles": 11,
+    "commits": 9,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 1,
+    "timeToMergeMinutes": 14380,
+    "ciRuns": {
+      "total": 9,
+      "failed": 3,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 3
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "js": 10,
+      "md": 1
+    },
+    "testToSourceRatio": 1,
+    "docsTouched": true,
+    "depsManifestTouched": false
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 4,
+      "feature": 0
+    },
+    "reworkAfterReview": true
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "human",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-19T17:40:55.447Z"
+}
