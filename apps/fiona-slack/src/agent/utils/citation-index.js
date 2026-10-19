@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { urlKey } from './source-filter.js';
+import { pageKey, urlKey, urlsInText } from './source-filter.js';
 import { normalizeSource } from './source-normalizer.js';
 
 function buildIndexToUrlMap(sourceIndexMap = {}, rawResults = []) {
@@ -79,7 +79,6 @@ export function linkifyCitationMarkers(text, indexToUrl) {
 // heading, then lines like "[1] Title: [label](https://...)" or "- [2] https://...".
 const MODEL_LIST_HEADING = /^\s*(?:#{1,6}\s*)?\**\s*(?:sources|references|citations)\s*\**\s*:?\s*\**\s*$/i;
 const MODEL_LIST_LINE = /^\s*(?:[-*]\s*)?\[(\d+)\]\s*\S/;
-const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
 
 /**
  * Build a function that maps a URL the model wrote to the search result it
@@ -93,12 +92,23 @@ const URL_IN_TEXT = /https?:\/\/[^\s)<>\]]+/g;
 function makeResultUrlResolver(sources) {
   const resultUrls = new Set(sources.map((source) => source.url));
   // null marks a key shared by several results, which cannot be resolved.
-  const resultUrlByKey = new Map();
-  for (const { url } of sources) {
-    const key = urlKey(url);
-    resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
-  }
-  return (url) => (resultUrls.has(url) ? url : (resultUrlByKey.get(urlKey(url)) ?? undefined));
+  const byKey = (keyOf) => {
+    const resultUrlByKey = new Map();
+    for (const { url } of sources) {
+      const key = keyOf(url);
+      resultUrlByKey.set(key, resultUrlByKey.has(key) ? null : url);
+    }
+    return resultUrlByKey;
+  };
+  const resultUrlByKey = byKey(urlKey);
+  // A #fragment names a part of a result's page, so it falls back to the page.
+  const resultUrlByPage = byKey(pageKey);
+  return (url) => {
+    if (resultUrls.has(url)) return url;
+    const loose = resultUrlByKey.get(urlKey(url));
+    if (loose !== undefined) return loose ?? undefined;
+    return resultUrlByPage.get(pageKey(url)) ?? undefined;
+  };
 }
 
 /**
@@ -138,7 +148,7 @@ function extractModelSourceList(text, resolveResultUrl) {
   const listFrom = (start) => {
     const urlByMarker = new Map();
     for (const line of lines.slice(start, end).filter((entry) => MODEL_LIST_LINE.test(entry))) {
-      urlByMarker.set(Number(line.match(MODEL_LIST_LINE)[1]), line.match(URL_IN_TEXT)?.at(-1) ?? null);
+      urlByMarker.set(Number(line.match(MODEL_LIST_LINE)[1]), urlsInText(line).at(-1) ?? null);
     }
     return urlByMarker;
   };
@@ -157,7 +167,7 @@ function extractModelSourceList(text, resolveResultUrl) {
   }
 
   start = end;
-  const isLinkedEntry = (line) => MODEL_LIST_LINE.test(line) && line.match(URL_IN_TEXT);
+  const isLinkedEntry = (line) => MODEL_LIST_LINE.test(line) && urlsInText(line).length > 0;
   while (start > 0 && (isLinkedEntry(lines[start - 1]) || !lines[start - 1].trim())) start -= 1;
   if (start === end || (start > 0 && MODEL_LIST_LINE.test(lines[start - 1]))) {
     return null;
@@ -215,7 +225,8 @@ function buildModelListIndex(urlByMarker, sources, resolveResultUrl, text) {
  * @param {Array<import('./source-normalizer.js').NormalizedSource>} sources
  * @param {Object} sourceIndexMap - URL -> result id
  * @param {Array<Object>} rawResults - Raw search results (for duplicate-id aliases)
- * @returns {{ text: string, indexToUrl: Map<number, string>, citedMarkers: number[] }}
+ * @returns {{ text: string, indexToUrl: Map<number, string>, citedMarkers: number[], citedListUrls: string[] }}
+ *   citedListUrls are the URLs, as the model wrote them, of its source-list entries the answer cites, linkable or not
  */
 export function resolveCitations(text, sources, sourceIndexMap, rawResults) {
   const resolveResultUrl = makeResultUrlResolver(sources);
@@ -228,8 +239,8 @@ export function resolveCitations(text, sources, sourceIndexMap, rawResults) {
   } else {
     indexToUrl = buildIndexToUrlMap(sourceIndexMap, rawResults);
   }
-  const citedMarkers = [...new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))]
-    .filter((marker) => indexToUrl.has(marker))
-    .sort((a, b) => a - b);
-  return { text: answer, indexToUrl, citedMarkers };
+  const markers = [...new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])))];
+  const citedMarkers = markers.filter((marker) => indexToUrl.has(marker)).sort((a, b) => a - b);
+  const citedListUrls = modelList ? markers.map((marker) => modelList.urlByMarker.get(marker)).filter(Boolean) : [];
+  return { text: answer, indexToUrl, citedMarkers, citedListUrls };
 }

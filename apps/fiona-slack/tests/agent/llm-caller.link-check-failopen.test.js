@@ -21,6 +21,8 @@ jest.unstable_mockModule('../../src/agent/utils/source-filter.js', () => ({
   isDenylisted: (url) => url.includes('/what-is-ed-fi-old/'),
   parseDenylist: () => [],
   urlKey: (url) => url,
+  pageKey: (url) => url,
+  urlsInText: (text) => text.match(/https?:\/\/[^\s)]+/g) ?? [],
 }));
 
 const mockCreate = jest.fn();

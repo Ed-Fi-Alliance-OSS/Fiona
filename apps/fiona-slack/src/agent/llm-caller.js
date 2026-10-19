@@ -14,7 +14,7 @@ import {
   recordSourceCount,
 } from './utils/citation-telemetry.js';
 import { checkUrls } from './utils/link-checker.js';
-import { filterSources, isDenylisted, parseDenylist, urlKey } from './utils/source-filter.js';
+import { filterSources, isDenylisted, pageKey, parseDenylist, urlsInText } from './utils/source-filter.js';
 import { normalizeSource, normalizeSources } from './utils/source-normalizer.js';
 
 // ─── Perplexity Configuration ───────────────────────────────────────────────
@@ -548,31 +548,16 @@ function denylistOnly(sources) {
   };
 }
 
-const URL_IN_TEXT = /https?:\/\/[^\s<>\]]+/g;
-const TRAILING_PUNCTUATION = /[.,;:!?'"*_]+$/;
-
-const count = (text, char) => text.split(char).length - 1;
-
 /**
- * A URL as matched in text, without the punctuation after it. A closing
- * parenthesis stays only when the URL opened it, as in `/old_(guide)`; one
- * that closes a markdown link or an aside is dropped.
+ * True when the answer links any of `urls` directly: in its text, as a
+ * markdown link or a bare URL, or in a source-list entry it cites.
+ *
+ * @param {{ text: string, citedListUrls: string[] }} resolved - From resolveCitations
+ * @param {string[]} urls
  */
-function trimUrl(match) {
-  let url = match.replace(TRAILING_PUNCTUATION, '');
-  while (url.endsWith(')') && count(url, ')') > count(url, '(')) {
-    url = url.slice(0, -1).replace(TRAILING_PUNCTUATION, '');
-  }
-  return url;
-}
-
-/** The page a URL points to: its urlKey without the #fragment. */
-const pageKey = (url) => urlKey(url).split('#')[0];
-
-/** True when the text links any of `urls` directly, as a markdown link or a bare URL. */
-function textLinksAny(text, urls) {
+function linksAny(resolved, urls) {
   const keys = new Set(urls.map(pageKey));
-  return [...text.matchAll(URL_IN_TEXT)].some(([match]) => keys.has(pageKey(trimUrl(match))));
+  return [...urlsInText(resolved.text), ...resolved.citedListUrls].some((url) => keys.has(pageKey(url)));
 }
 
 /**
@@ -799,11 +784,11 @@ export async function callPerplexityChat(streamer, prompts, logger) {
         metadata.source_index_map = sourceIndexMap;
       }
       // A removed page counts as cited through its [n] marker, or when the
-      // answer links it directly. Scan the resolved text: a model-written
-      // source list is stripped from it, so an uncited entry there is not sent.
+      // answer links it directly. An entry in a model-written source list
+      // counts only when the answer cites its marker.
       const citedRemoved =
         resolved.citedMarkers.some((marker) => removedUrls.has(resolved.indexToUrl.get(marker))) ||
-        textLinksAny(resolved.text, [...removedUrls]);
+        linksAny(resolved, [...removedUrls]);
       if (citedRemoved && sources.length > 0) {
         const rewritten = await regenerateFromSources(prompts, sources, sourceIndexMap, logger);
         if (rewritten) {
@@ -816,7 +801,7 @@ export async function callPerplexityChat(streamer, prompts, logger) {
       }
       resolved = resolveCitations(answerText, sources, sourceIndexMap, searchResults);
       // The rewrite sees only live sources but can still recall a removed URL.
-      if (regenerated && textLinksAny(resolved.text, [...removedUrls])) {
+      if (regenerated && linksAny(resolved, [...removedUrls])) {
         logger?.warn?.('[citations] rewrite still links a removed source; declining');
         declinedDeadSources = true;
       }

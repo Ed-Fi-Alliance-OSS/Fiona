@@ -132,9 +132,11 @@ stream ends (answer held back, as today)
    because a model's own list uses its own numbers rather than result ids.
 2. The cited URLs are those of `cited_markers` under that mapping, plus any removed URL the answer links directly (a
    markdown link or a bare URL, matched loosely like `urlKey` but ignoring any `#fragment`; a URL keeps parentheses it
-   opens, such as `/old_(guide)`). Direct links are read from the answer with the model's own source list already
-   stripped, so an uncited entry there does not count. If any cited URL was removed (dead or denylisted), Fiona
-   rewrites the answer.
+   opens, such as `/old_(guide)`, and loses closing punctuation and Markdown delimiters such as backticks). Direct
+   links are read from the answer with the model's own source list already stripped, plus the URLs of the list
+   entries the answer cites; an uncited entry does not count. A list entry's URL resolves to a search result by the
+   same rules, so `/blog/gone/#details` names the `/blog/gone/` result. If any cited URL was removed (dead or
+   denylisted), Fiona rewrites the answer.
 3. Uncited removed sources are simply dropped: they leave *Also retrieved*, and no rewrite runs.
 4. The final `citation_index` and `cited_markers` are rebuilt from the **filtered** sources, and from the rewritten text
    when there is one. The inline links and the Sources block stay built from that one map (the #117 invariant).

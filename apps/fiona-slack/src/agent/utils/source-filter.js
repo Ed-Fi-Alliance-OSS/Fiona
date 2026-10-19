@@ -28,6 +28,37 @@ export function urlKey(url) {
   }
 }
 
+/** The page a URL points to: its urlKey without the #fragment. */
+export const pageKey = (url) => urlKey(url).split('#')[0];
+
+const URL_IN_TEXT = /https?:\/\/[^\s<>\]]+/g;
+const TRAILING_PUNCTUATION = /[.,;:!?'"*_`]+$/;
+
+const count = (text, char) => text.split(char).length - 1;
+
+/**
+ * A URL as matched in text, without the punctuation or markdown after it. A
+ * closing parenthesis stays only when the URL opened it, as in `/old_(guide)`;
+ * one that closes a markdown link or an aside is dropped.
+ */
+function trimUrl(match) {
+  let url = match.replace(TRAILING_PUNCTUATION, '');
+  while (url.endsWith(')') && count(url, ')') > count(url, '(')) {
+    url = url.slice(0, -1).replace(TRAILING_PUNCTUATION, '');
+  }
+  return url;
+}
+
+/**
+ * Every URL written in the text, as a markdown link or bare, in order.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function urlsInText(text) {
+  return [...text.matchAll(URL_IN_TEXT)].map(([match]) => trimUrl(match));
+}
+
 /**
  * Parse CITATION_PATH_DENYLIST: comma-separated URL prefixes, with or without a
  * scheme. Returns them as urlKey-style keys.

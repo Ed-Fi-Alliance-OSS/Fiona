@@ -565,6 +565,8 @@ describe('searchForSources link checking (AI-227)', () => {
       isDenylisted: () => false,
       parseDenylist: () => [],
       urlKey: (url) => url,
+      pageKey: (url) => url,
+      urlsInText: (text) => text.match(/https?:\/\/[^\s)]+/g) ?? [],
     }));
     const { searchForSources: searchForSourcesFailOpen } = await import('../../src/agent/search-caller.js');
 

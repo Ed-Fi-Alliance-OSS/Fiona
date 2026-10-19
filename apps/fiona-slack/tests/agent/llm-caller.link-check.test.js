@@ -366,6 +366,33 @@ describe('link check: a cited source is dead', () => {
     expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
   });
 
+  it.each([
+    ['a #fragment', DEAD, `${DEAD}#details`],
+    ['parentheses', DEAD_PARENS, DEAD_PARENS],
+    ['backticks', DEAD, `\`${DEAD}\``],
+  ])('rewrites when a cited source-list entry links a dead page with %s', async (_label, dead, written) => {
+    mockFetchDead(dead);
+    mockCreate
+      .mockResolvedValueOnce(
+        makeStream([{ text: `Yes [1].\n\nSources:\n[1] Gone ${written}`, searchResults: results([LIVE_A, dead]) }]),
+      )
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(streamer._appended).toEqual([`Live [[1]](${LIVE_A}).`]);
+  });
+
+  it('rewrites when the answer names a dead URL in backticks', async () => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: `See \`${DEAD}\`. Also [1].`, searchResults: results([LIVE_A, DEAD]) }]))
+      .mockResolvedValueOnce(completed('Live [1].'));
+    const streamer = makeStreamer(makeMetadata());
+    await callPerplexityChat(streamer, USER);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
   it('applies the same rules to an incomplete run', async () => {
     mockFetchDead(DEAD);
     mockCreate
@@ -387,6 +414,20 @@ describe('link check: a cited source is dead', () => {
     const { botText, citations } = await callPerplexityChat(streamer, USER);
     expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
     expect(citations).toEqual([]);
+    expect(streamer.__citation_metadata.grounding).toBe('declined_dead_sources');
+  });
+
+  it.each([
+    ['in backticks', (url) => `See \`${url}\`; current [1].`],
+    ['through a cited source-list entry', (url) => `Current [1].\n\nSources:\n[1] Gone ${url}`],
+  ])('declines a rewrite that links a removed source %s', async (_label, rewrite) => {
+    mockFetchDead(DEAD);
+    mockCreate
+      .mockResolvedValueOnce(makeStream([{ text: 'Yes [2].', searchResults: results([LIVE_A, DEAD]) }]))
+      .mockResolvedValueOnce(completed(rewrite(DEAD)));
+    const streamer = makeStreamer(makeMetadata());
+    const { botText } = await callPerplexityChat(streamer, USER);
+    expect(botText).toBe(NO_SOURCES_DECLINE_TEXT);
     expect(streamer.__citation_metadata.grounding).toBe('declined_dead_sources');
   });
 
