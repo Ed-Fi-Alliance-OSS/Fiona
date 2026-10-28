@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, beforeEach } from '@jest/globals';
+import { beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Set COSMOS_CONNECTION_STRING before the module is imported so that the
 // module-level constant picks it up at load time.
@@ -14,14 +14,14 @@ const mockContainerObj = { items: { upsert: mockUpsert } };
 const mockDatabase = {
   container: jest.fn().mockReturnValue(mockContainerObj),
   containers: {
-    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj })
-  }
+    createIfNotExists: jest.fn().mockResolvedValue({ container: mockContainerObj }),
+  },
 };
 const MockCosmosClient = jest.fn().mockImplementation(() => ({
   database: jest.fn().mockReturnValue(mockDatabase),
   databases: {
-    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase })
-  }
+    createIfNotExists: jest.fn().mockResolvedValue({ database: mockDatabase }),
+  },
 }));
 
 jest.unstable_mockModule('@azure/cosmos', () => ({

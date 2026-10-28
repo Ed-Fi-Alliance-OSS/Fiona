@@ -3,10 +3,12 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockBuildTicketModal = jest.fn(() => ({ type: 'modal', callback_id: 'ticket_modal' }));
-jest.unstable_mockModule('../../../src/listeners/views/ticket_modal.js', () => ({ buildTicketModal: mockBuildTicketModal }));
+jest.unstable_mockModule('../../../src/listeners/views/ticket_modal.js', () => ({
+  buildTicketModal: mockBuildTicketModal,
+}));
 
 const mockIsTicketingEnabled = jest.fn();
 jest.unstable_mockModule('../../../src/agent/ticket-service.js', () => ({
@@ -29,7 +31,12 @@ describe('createTicketActionCallback', () => {
     const client = { views: { open: jest.fn().mockResolvedValue({}) } };
     const body = {
       trigger_id: 'trig-9',
-      actions: [{ action_id: 'create_ticket', value: JSON.stringify({ ticketType: 'feature', channelId: 'C1', threadTs: '9.9' }) }],
+      actions: [
+        {
+          action_id: 'create_ticket',
+          value: JSON.stringify({ ticketType: 'feature', channelId: 'C1', threadTs: '9.9' }),
+        },
+      ],
     };
     await createTicketActionCallback({ ack, body, client, logger });
     expect(ack).toHaveBeenCalled();

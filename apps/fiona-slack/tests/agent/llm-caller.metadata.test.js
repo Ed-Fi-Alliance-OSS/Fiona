@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 
 // Mock all external dependencies before importing the module under test.
 jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
@@ -87,13 +87,7 @@ describe('CITATION_POLICY', () => {
 describe('Metadata envelope contract (v1)', () => {
   it('required field names are well-defined', () => {
     // Documents the v1 contract shape expected from callLLM.
-    const requiredFields = [
-      'metadata_contract_version',
-      'finalize_state',
-      'provider',
-      'sources',
-      'source_index_map',
-    ];
+    const requiredFields = ['metadata_contract_version', 'finalize_state', 'provider', 'sources', 'source_index_map'];
 
     requiredFields.forEach((field) => {
       expect(typeof field).toBe('string');
@@ -102,7 +96,10 @@ describe('Metadata envelope contract (v1)', () => {
   });
 
   it('READY_TO_FINALIZE and DEGRADED_NO_METADATA are the only allowed pre-stop states', () => {
-    const allowedPreStopStates = [MetadataLifecycleState.READY_TO_FINALIZE, MetadataLifecycleState.DEGRADED_NO_METADATA];
+    const allowedPreStopStates = [
+      MetadataLifecycleState.READY_TO_FINALIZE,
+      MetadataLifecycleState.DEGRADED_NO_METADATA,
+    ];
     expect(allowedPreStopStates).toContain('ready_to_finalize');
     expect(allowedPreStopStates).toContain('degraded_no_metadata');
     expect(allowedPreStopStates).not.toContain(MetadataLifecycleState.STREAMING_TEXT);
@@ -155,7 +152,10 @@ describe('finalizeMetadataEnvelope', () => {
 
 describe('handleMetadataTimeout', () => {
   it('transitions STREAMING_TEXT to READY_TO_FINALIZE when sources exist', () => {
-    const metadata = { finalize_state: MetadataLifecycleState.STREAMING_TEXT, sources: [{ url: 'https://example.com' }] };
+    const metadata = {
+      finalize_state: MetadataLifecycleState.STREAMING_TEXT,
+      sources: [{ url: 'https://example.com' }],
+    };
     handleMetadataTimeout(metadata);
     expect(metadata.finalize_state).toBe(MetadataLifecycleState.READY_TO_FINALIZE);
   });
@@ -167,7 +167,10 @@ describe('handleMetadataTimeout', () => {
   });
 
   it('transitions COLLECTING_METADATA to READY_TO_FINALIZE when sources exist', () => {
-    const metadata = { finalize_state: MetadataLifecycleState.COLLECTING_METADATA, sources: [{ url: 'https://example.com' }] };
+    const metadata = {
+      finalize_state: MetadataLifecycleState.COLLECTING_METADATA,
+      sources: [{ url: 'https://example.com' }],
+    };
     handleMetadataTimeout(metadata);
     expect(metadata.finalize_state).toBe(MetadataLifecycleState.READY_TO_FINALIZE);
   });
@@ -185,7 +188,10 @@ describe('handleMetadataTimeout', () => {
   });
 
   it('does not mutate state when already DEGRADED_NO_METADATA', () => {
-    const metadata = { finalize_state: MetadataLifecycleState.DEGRADED_NO_METADATA, sources: [{ url: 'https://example.com' }] };
+    const metadata = {
+      finalize_state: MetadataLifecycleState.DEGRADED_NO_METADATA,
+      sources: [{ url: 'https://example.com' }],
+    };
     handleMetadataTimeout(metadata);
     expect(metadata.finalize_state).toBe(MetadataLifecycleState.DEGRADED_NO_METADATA);
   });

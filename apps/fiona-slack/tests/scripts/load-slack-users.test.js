@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeAll, beforeEach, afterAll } from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Mock dotenv so the test file's CWD doesn't need a real .env
 jest.unstable_mockModule('dotenv', () => ({ config: jest.fn() }));
@@ -198,10 +198,7 @@ describe('processUser + flushPending — success and failure counters', () => {
   });
 
   it('accumulates upserted and failed across multiple users in one flush', async () => {
-    mockUpsertUser
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mockUpsertUser.mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     await processUser(activeUser);
     await processUser({ ...activeUser, id: 'U22222', userId: 'U22222' });
     await processUser({ ...activeUser, id: 'U33333', userId: 'U33333' });

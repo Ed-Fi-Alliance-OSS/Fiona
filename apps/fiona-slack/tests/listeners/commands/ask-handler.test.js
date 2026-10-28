@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { createFinalizeMetadataEnvelopeMock, METADATA_LIFECYCLE_STATE } from '../../helpers/llm-caller-mock.js';
 
 const mockCallLLM = jest.fn();
@@ -96,7 +96,12 @@ describe('buildAskResponse', () => {
   it('sends the bare question as the prompt, with no keyword prefix', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
-    await buildAskResponse({ question: 'how do I set up ODS?', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    await buildAskResponse({
+      question: 'how do I set up ODS?',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
 
     const [, prompts] = mockCallLLM.mock.calls[0];
     expect(prompts).toEqual([{ role: 'user', content: 'how do I set up ODS?' }]);
@@ -112,7 +117,11 @@ describe('buildAskResponse', () => {
       ...ids,
     });
 
-    expect(response.blocks[0]).toEqual({ type: 'context', block_id: 'ask_question', elements: [{ type: 'plain_text', text: 'You asked: q', emoji: false }] });
+    expect(response.blocks[0]).toEqual({
+      type: 'context',
+      block_id: 'ask_question',
+      elements: [{ type: 'plain_text', text: 'You asked: q', emoji: false }],
+    });
     expect(response.blocks[1]).toEqual({ type: 'markdown', text: 'answer' });
     expect(response.blocks[2]).toEqual({ type: 'divider' });
     expect(response.blocks[3].block_id).toBe('feedback|ask|app_mention');
@@ -124,7 +133,12 @@ describe('buildAskResponse', () => {
       mockCallLLM.mockImplementation(answersWith('answer'));
       const question = 'is *this* <https://evil.example|a link> or <@U123> or `code`?';
 
-      const { response } = await buildAskResponse({ question, logger: mockLogger, interactionType: 'slash_ask', ...ids });
+      const { response } = await buildAskResponse({
+        question,
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
 
       expect(response.blocks[0]).toEqual({
         type: 'context',
@@ -151,7 +165,12 @@ describe('buildAskResponse', () => {
     it('is not added to error replies', async () => {
       mockCallLLM.mockRejectedValue(new Error('down'));
 
-      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
 
       expect(response.blocks.map((block) => block.type)).toEqual(['section']);
     });
@@ -176,7 +195,12 @@ describe('buildAskResponse', () => {
   it('suppresses link unfurling so a cited answer does not explode into previews', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
-    const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    const { response } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
 
     expect(response).toMatchObject({ unfurl_links: false, unfurl_media: false });
   });
@@ -184,10 +208,16 @@ describe('buildAskResponse', () => {
   // llm-caller linkifies markers as standard Markdown. Slack's mrkdwn shows
   // that as literal text; the markdown block renders it as a link.
   it('delivers linkified citation markers in a block that renders Markdown links', async () => {
-    const answer = 'ODS/API 7 supports this [[1]](https://docs.ed-fi.org/a). **Note:** see [[2]](https://docs.ed-fi.org/b).';
+    const answer =
+      'ODS/API 7 supports this [[1]](https://docs.ed-fi.org/a). **Note:** see [[2]](https://docs.ed-fi.org/b).';
     mockCallLLM.mockImplementation(answersWith(answer));
 
-    const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    const { response } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
 
     expect(response.blocks[1]).toEqual({ type: 'markdown', text: answer });
   });
@@ -198,7 +228,12 @@ describe('buildAskResponse', () => {
     expect(answer.length).toBeGreaterThan(3000);
     mockCallLLM.mockImplementation(answersWith(answer));
 
-    const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    const { response } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
 
     const markdownBlocks = response.blocks.filter((b) => b.type === 'markdown');
     expect(markdownBlocks).toEqual([{ type: 'markdown', text: answer }]);
@@ -211,7 +246,12 @@ describe('buildAskResponse', () => {
       const answer = lines(130).join('\n');
       mockCallLLM.mockImplementation(answersWith(answer));
 
-      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
 
       const [block] = response.blocks.filter((b) => b.type === 'markdown');
       expect(block.text.length).toBeLessThanOrEqual(12000);
@@ -225,7 +265,12 @@ describe('buildAskResponse', () => {
       const answer = `Example:\n\`\`\`\n${lines(130).join('\n')}\n\`\`\``;
       mockCallLLM.mockImplementation(answersWith(answer));
 
-      const { response } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+      const { response } = await buildAskResponse({
+        question: 'q',
+        logger: mockLogger,
+        interactionType: 'slash_ask',
+        ...ids,
+      });
 
       const [block] = response.blocks.filter((b) => b.type === 'markdown');
       expect(block.text.length).toBeLessThanOrEqual(12000);
@@ -244,7 +289,12 @@ describe('buildAskResponse', () => {
   it('captures the conversation under the caller’s entry point when capture() runs', async () => {
     mockCallLLM.mockImplementation(answersWith('answer'));
 
-    const { capture } = await buildAskResponse({ question: 'q', logger: mockLogger, interactionType: 'slash_ask', ...ids });
+    const { capture } = await buildAskResponse({
+      question: 'q',
+      logger: mockLogger,
+      interactionType: 'slash_ask',
+      ...ids,
+    });
     await capture();
 
     expect(mockCaptureConversation).toHaveBeenCalledWith(

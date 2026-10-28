@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockRecordFeedback = jest.fn().mockResolvedValue(undefined);
 
@@ -175,9 +175,7 @@ describe('feedbackReasonViewCallback', () => {
 
     await feedbackReasonViewCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });
 
-    expect(mockRecordFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ userMessage: null, botResponse: null }),
-    );
+    expect(mockRecordFeedback).toHaveBeenCalledWith(expect.objectContaining({ userMessage: null, botResponse: null }));
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
@@ -409,7 +407,6 @@ describe('feedbackReasonViewCallback', () => {
     expect(mockLogger.error).toHaveBeenCalled();
   });
 });
-
 
 // AI-182. Before `ask` had its own branch it fell through to the search path,
 // which would have run extractSearchQuery over an LLM answer and invented a
@@ -671,7 +668,9 @@ describe('feedbackReasonClosedCallback', () => {
       interactionType: 'assistant_message',
     });
     mockClient.conversations.replies = jest.fn().mockResolvedValueOnce({
-      messages: [{ ts: '1234567890.000001', text: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.' }],
+      messages: [
+        { ts: '1234567890.000001', text: '🔍 No sources found for _"missing topic"_. Try rephrasing your query.' },
+      ],
     });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
@@ -785,7 +784,10 @@ describe('feedbackReasonClosedCallback — ask response type', () => {
   });
 
   it('keeps the stored question when a thumbs-up modal is dismissed', async () => {
-    mockView.private_metadata = JSON.stringify({ ...JSON.parse(mockView.private_metadata), question: 'What is Ed-Fi?' });
+    mockView.private_metadata = JSON.stringify({
+      ...JSON.parse(mockView.private_metadata),
+      question: 'What is Ed-Fi?',
+    });
     const { feedbackReasonClosedCallback } = await import('../../../src/listeners/views/feedback_reason.js');
 
     await feedbackReasonClosedCallback({ ack: mockAck, view: mockView, client: mockClient, logger: mockLogger });

@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 import {
   ASK_QUESTION_DISPLAY_MAX_CHARS,
   ASK_QUESTION_DISPLAY_MAX_LENGTH,
