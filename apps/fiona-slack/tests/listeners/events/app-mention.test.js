@@ -470,7 +470,12 @@ describe('appMentionCallback', () => {
     beforeEach(() => {
       captureConversation.mockClear();
       callLLM.mockResolvedValue({
-        metadata: { finalize_state: 'ready_to_finalize', sources: [{ url: 'https://a.com' }], source_index_map: {}, provider: 'perplexity' },
+        metadata: {
+          finalize_state: 'ready_to_finalize',
+          sources: [{ url: 'https://a.com' }],
+          source_index_map: {},
+          provider: 'perplexity',
+        },
         botText: 'Bot answer here.',
         systemPromptVersion: 'v1',
       });
@@ -604,7 +609,11 @@ describe('appMentionCallback', () => {
       ['@here', '<@UFIONA> ask Does <!here> need to know?', 'Does @here need to know?'],
       ['@channel', '<@UFIONA> ask Does <!channel> need to know?', 'Does @channel need to know?'],
       ['@everyone with a label', '<@UFIONA> ask Does <!everyone|@everyone> know?', 'Does @everyone know?'],
-      ['a date, by its label', '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?', 'Is Nov 14 the release?'],
+      [
+        'a date, by its label',
+        '<@UFIONA> ask Is <!date^1700000000^{date}|Nov 14> the release?',
+        'Is Nov 14 the release?',
+      ],
       ['a token with no label', '<@UFIONA> ask Is <!date^1700000000^{date}> the release?', 'Is the release?'],
     ])('keeps the place of %s mentioned inside an ask question', async (_label, text, question) => {
       mockEvent.text = text;
@@ -761,7 +770,12 @@ describe('appMentionCallback', () => {
 
     // A bare `ask` used to reach the LLM as the question "ask", answered in the
     // channel for everyone, on the keyword that promises a private answer.
-    it.each(['ask', 'ASK', 'ask   ', 'fiona ask'])('answers a bare "@fiona %s" with help, not the LLM', async (text) => {
+    it.each([
+      'ask',
+      'ASK',
+      'ask   ',
+      'fiona ask',
+    ])('answers a bare "@fiona %s" with help, not the LLM', async (text) => {
       mockEvent.text = `<@UFIONA> ${text}`;
 
       await appMentionCallback({ event: mockEvent, client: mockClient, logger: mockLogger, say: mockSay });

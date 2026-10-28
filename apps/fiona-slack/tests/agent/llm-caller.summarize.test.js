@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockCreate = jest.fn();
 jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
@@ -30,9 +30,7 @@ describe('summarizeForEscalation', () => {
     await summarizeForEscalation('*<@U1>:* help with SIS');
 
     const body = mockCreate.mock.calls[0][0];
-    expect(body.input).toEqual([
-      { type: 'message', role: 'user', content: '*<@U1>:* help with SIS' },
-    ]);
+    expect(body.input).toEqual([{ type: 'message', role: 'user', content: '*<@U1>:* help with SIS' }]);
     expect(body.instructions).toEqual(expect.stringContaining('summarize a Slack conversation'));
     expect(body.stream).toBe(false);
     // Summarizing a transcript we already hold needs no grounding.

@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, afterEach } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 jest.unstable_mockModule('@perplexity-ai/perplexity_ai', () => ({
   default: jest.fn().mockImplementation(() => ({
@@ -71,13 +71,10 @@ describe('assertLLMConfigured – model validation at boot', () => {
     expect(() => assertLLMConfigured()).toThrow(/perplexity\/sonar/);
   });
 
-  it.each(['sonar-pro', 'sonar-reasoning', 'sonar-deep-research'])(
-    'rejects retired Sonar model %s',
-    async (model) => {
-      const assertLLMConfigured = await assertWithModel(model);
-      expect(() => assertLLMConfigured()).toThrow(/PERPLEXITY_API_MODEL is invalid/);
-    },
-  );
+  it.each(['sonar-pro', 'sonar-reasoning', 'sonar-deep-research'])('rejects retired Sonar model %s', async (model) => {
+    const assertLLMConfigured = await assertWithModel(model);
+    expect(() => assertLLMConfigured()).toThrow(/PERPLEXITY_API_MODEL is invalid/);
+  });
 
   it('rejects an Agent API preset name and explains presets are a separate field', async () => {
     const assertLLMConfigured = await assertWithModel('fast');

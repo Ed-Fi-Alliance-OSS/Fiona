@@ -3,7 +3,7 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // The describe blocks below predate link checking (AI-227) and assert the
 // exact max_results sent; link checking asks for a few extra results. Its own
@@ -84,9 +84,7 @@ describe('searchForSources', () => {
   it('caps max_results at 10 even when maxSources exceeds 10', async () => {
     mockSearchOk([]);
     await searchForSources('query', { maxSources: 20 });
-    expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ max_results: 10 }),
-    );
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 10 }));
   });
 
   // max_results is the clamped count plus 3 extras, to fill in for dropped results.
@@ -98,9 +96,7 @@ describe('searchForSources', () => {
   ])('clamps %s maxSources to a valid max_results value', async (_label, maxSources, expectedMaxResults) => {
     mockSearchOk([]);
     await searchForSources('query', { maxSources });
-    expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ max_results: expectedMaxResults }),
-    );
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: expectedMaxResults }));
   });
 
   it('passes max_results to the SDK and caps results to maxSources', async () => {
@@ -112,9 +108,7 @@ describe('searchForSources', () => {
     mockSearchOk(manyResults);
     const sources = await searchForSources('query', { maxSources: 3 });
     expect(sources).toHaveLength(3);
-    expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ max_results: 6 }),
-    );
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ max_results: 6 }));
   });
 
   it('drops denylisted results even with link checking off', async () => {
@@ -126,9 +120,7 @@ describe('searchForSources', () => {
   it('passes search_domain_filter to the SDK', async () => {
     mockSearchOk([]);
     await searchForSources('query');
-    expect(mockSearchCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ search_domain_filter: expect.any(Array) }),
-    );
+    expect(mockSearchCreate).toHaveBeenCalledWith(expect.objectContaining({ search_domain_filter: expect.any(Array) }));
   });
 
   it('warns and rethrows when the SDK throws', async () => {
@@ -229,9 +221,7 @@ describe('formatSearchResults', () => {
     const { text, blocks } = formatSearchResults('query', sources);
     const link = blocks.find((b) => b.type === 'section' && b.text?.text?.startsWith('1. '));
     // Exactly one link opens and closes: no injected second `<...|...>` construct.
-    expect(link.text.text).toBe(
-      '1. *<https://docs.ed-fi.org/a%3E%3Chttps://evil.example/phish%7CSign in%3E|A>*',
-    );
+    expect(link.text.text).toBe('1. *<https://docs.ed-fi.org/a%3E%3Chttps://evil.example/phish%7CSign in%3E|A>*');
     expect(text).not.toContain('|Sign in>');
   });
 
