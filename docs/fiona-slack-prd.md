@@ -121,6 +121,10 @@ ODS/API, or the Ed-Fi Technology Suite. "Ed-Fi technology" and "Ed-Fi community"
 are not approved terms. For example, Fiona writes "the Ed-Fi Data Standard
 specifically says", not "Ed-Fi specifically says". The prompt follows the same
 rule, because a prompt that uses bare "Ed-Fi" teaches the habit it forbids.
+Since `v5` (AI-233), Fiona does not repeat a user's bare "Ed-Fi" when it
+restates the question in its first sentence. It picks the term the user means,
+and if more than one fits, it answers briefly for each under its correct name
+and then asks which one the user meant.
 
 **Scope (AI-231).** Fiona helps only with Ed-Fi. Coding questions are in scope
 when they concern implementing, integrating, or extending Ed-Fi (calling an

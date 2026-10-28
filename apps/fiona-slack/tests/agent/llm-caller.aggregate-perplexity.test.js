@@ -1139,6 +1139,19 @@ describe('callLLM returns botText alongside metadata', () => {
       expect(system).toMatch(/where it applies/i);
     });
 
+    it('keeps the terminology rules when the first sentence echoes a bare "Ed-Fi"', async () => {
+      // Measured on the 106-question baseline: the first-sentence rule made the model
+      // repeat the user's bare "Ed-Fi" ("Ed-Fi aligns with CEDS"), 24 → 35 bare uses.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/first sentence[^\n]*Terminology/i);
+      const terminology = system.slice(system.indexOf('## Terminology'), system.indexOf('## Grounding'));
+      expect(terminology).toMatch(/do not repeat the user's wording/i);
+      // When it is unclear which the user means, cover each candidate by its
+      // correct name, then ask which they meant.
+      expect(terminology).toMatch(/if more than one (?:fits|could apply)/i);
+      expect(terminology).toMatch(/ask which (?:one )?they mean/i);
+    });
+
     it('names and answers both readings of an ambiguous question', async () => {
       // Q-009 (rated 5/5): Fiona named the ambiguity and answered both readings.
       const system = await getSystemPrompt();
