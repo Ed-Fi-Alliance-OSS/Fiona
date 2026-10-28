@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 139,
+  "title": "build(deps): bump follow-redirects from 1.16.0 to 1.16.1 in /apps/fiona-slack in the npm_and_yarn group across 1 directory",
+  "state": "merged",
+  "jiraKey": null,
+  "authorKind": "dependabot",
+  "stats": {
+    "additions": 3,
+    "deletions": 3,
+    "changedFiles": 1,
+    "commits": 1,
+    "reviewCycles": 1,
+    "reviewComments": 0,
+    "timeToFirstGreenCiMinutes": 2,
+    "timeToMergeMinutes": 9759,
+    "ciRuns": {
+      "total": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "ciFailures": {
+      "lint": 0,
+      "test": 0,
+      "build": 0,
+      "other": 0
+    },
+    "ciSkipped": {
+      "lint": 0,
+      "test": 0,
+      "build": 0
+    }
+  },
+  "changeShape": {
+    "languages": {
+      "json": 1
+    },
+    "testToSourceRatio": null,
+    "docsTouched": false,
+    "depsManifestTouched": true
+  },
+  "signal": {
+    "commentClasses": {
+      "nit": 0,
+      "correctness": 0,
+      "rework": 0
+    },
+    "followupCommits": {
+      "fix": 0,
+      "feature": 0
+    },
+    "reworkAfterReview": false
+  },
+  "participants": [
+    {
+      "role": "author",
+      "kind": "dependabot",
+      "association": "AUTHOR"
+    },
+    {
+      "role": "bot-reviewer",
+      "kind": "other-bot",
+      "association": "CONTRIBUTOR"
+    },
+    {
+      "role": "human-reviewer",
+      "kind": "human",
+      "association": "CONTRIBUTOR"
+    }
+  ],
+  "capturedAt": "2026-10-28T20:53:58.531Z"
+}
