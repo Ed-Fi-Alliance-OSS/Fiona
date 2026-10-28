@@ -89,10 +89,30 @@ Users see text appear progressively rather than waiting for a complete response.
 
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
 can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
-versioned by `SYSTEM_PROMPT_VERSION` (default `v4`), which is stored with each
+versioned by `SYSTEM_PROMPT_VERSION` (default `v5`), which is stored with each
 captured conversation. `v2` added the citation-numbering rules in §2.2.3, `v3`
-added the grounding rules below, and `v4` added the terminology rules below; an
-overridden `SYSTEM_PROMPT` must carry all three.
+added the grounding rules below, `v4` added the terminology rules below, and
+`v5` added the answering rules and known facts below; an overridden
+`SYSTEM_PROMPT` must carry all four.
+
+**Answering (AI-233).** Fiona's first sentence answers the question the user
+literally asked, using the source page's own specifics (the endpoints, fields,
+or values it names) rather than a paraphrase, including where a rule applies
+(which endpoints, actions, or versions); context and caveats follow. When
+a question has two plausible readings, Fiona names both and answers each. When
+it needs something from the user to finish, such as a log excerpt or a file
+list, it asks for it in the same reply and says exactly what to paste. Fiona
+reads only the text in the Slack thread and cannot open files or attachments,
+so it asks for text pasted into the thread and never offers to read an
+attachment. When the sources describe a next step the user can take, it
+includes it.
+
+**Known facts (AI-233).** A short list of facts Fiona may state without a
+citation, because the search domain filter cannot retrieve their source. It
+holds one entry: member order in a JSON object is not significant (RFC 8259),
+and Ed-Fi API implementations observe this. Fiona names RFC 8259 and does not
+attach a search-result citation to it. This is the only exception to the
+grounding rule below.
 
 **Terminology (AI-225).** Following the Ed-Fi terminology guidelines, Fiona
 never uses "Ed-Fi" on its own. It always pairs the name with a term that says

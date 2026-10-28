@@ -997,7 +997,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
-    expect(result).toHaveProperty('systemPromptVersion', 'v4');
+    expect(result).toHaveProperty('systemPromptVersion', 'v5');
   });
 
   it('instructs the model to cite result numbers and not to write its own source list', async () => {
@@ -1098,5 +1098,90 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(bareUses).toEqual([]);
     // Not approved terms (PR #135 review): "Ed-Fi Technology Suite" is the correct name.
     expect(system).not.toMatch(/Ed-Fi (?:technology|community)\b/);
+  });
+
+  describe('answering policy (AI-233)', () => {
+    async function getSystemPrompt() {
+      const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+      mockCreate.mockResolvedValueOnce(
+        (async function* () {
+          yield { type: 'response.completed', response: { status: 'completed' } };
+        })(),
+      );
+
+      await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+        error: jest.fn(),
+        warn: jest.fn(),
+        info: jest.fn(),
+      });
+
+      return mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    }
+
+    it('gives the answering rules their own section ahead of Grounding', async () => {
+      // Learned in AI-231: a rule held reliably only in its own section near the top.
+      const system = await getSystemPrompt();
+      expect(system).toContain('## Answering');
+      expect(system.indexOf('## Answering')).toBeLessThan(system.indexOf('## Grounding'));
+    });
+
+    it("leads with the direct answer, in the source page's own specifics", async () => {
+      // Q-003, Q-007, Q-011: correct material, wrong focus. Q-003 left out the
+      // /deletes endpoint, the one fact that answered the question.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/first sentence/i);
+      expect(system).toMatch(/question the user (?:literally )?asked/i);
+      expect(system).toMatch(/context and caveats (?:come )?after/i);
+      expect(system).toMatch(/source page's own/i);
+      expect(system).toContain('/deletes');
+      // Measured on v5 drafts: Q-003 named the ReadChanges action but only
+      // sometimes the endpoints it covers.
+      expect(system).toMatch(/where it applies/i);
+    });
+
+    it('names and answers both readings of an ambiguous question', async () => {
+      // Q-009 (rated 5/5): Fiona named the ambiguity and answered both readings.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/two plausible readings/i);
+      expect(system).toMatch(/name both/i);
+      expect(system).toMatch(/answer (?:both|each)/i);
+    });
+
+    it('asks for missing information in the same reply', async () => {
+      // Q-018, Q-019: Fiona saw what was missing, then stalled instead of asking for it.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/ask for it in the same reply/i);
+      expect(system).toMatch(/exactly what to (?:send|paste)/i);
+    });
+
+    it('offers only an input path Fiona can read', async () => {
+      // Q-020: Fiona offered "attach a .txt file; either works". It cannot read files.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/cannot open (?:files|attachments)/i);
+      expect(system).toMatch(/paste .*into this thread/i);
+      expect(system).toMatch(/never offer to read an? (?:attachment|file)/i);
+    });
+
+    it('states the next step when there is one', async () => {
+      // Q-001: the user wanted to know how to take part, not just that groups exist.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/next step/i);
+    });
+
+    it('states that JSON member order is not significant, and exempts it from citation', async () => {
+      // Q-008: the domain filter can't retrieve RFC 8259, so this is a prompt rule.
+      const system = await getSystemPrompt();
+      expect(system).toContain('RFC 8259');
+      expect(system).toMatch(/order of (?:JSON )?(?:members|properties|keys) is not significant/i);
+      expect(system).toMatch(/Ed-Fi API implementations/);
+      // Measured on v5 drafts: the model stated the rule but dropped "RFC 8259",
+      // and pinned a search-result citation on a claim no result made.
+      expect(system).toMatch(/name RFC 8259/i);
+      expect(system).toMatch(/do not cite a search result for (?:it|this|these|them)/i);
+      // Grounding must allow it, or the two rules contradict each other.
+      const grounding = system.slice(system.indexOf('## Grounding'), system.indexOf('## High-Risk Topics'));
+      expect(grounding).toMatch(/except.*Known Facts/i);
+      expect(system).toContain('## Known Facts');
+    });
   });
 });
