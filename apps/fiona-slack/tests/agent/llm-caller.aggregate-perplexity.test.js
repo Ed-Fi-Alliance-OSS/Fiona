@@ -1160,6 +1160,22 @@ describe('callLLM returns botText alongside metadata', () => {
       expect(system).toMatch(/answer (?:both|each)/i);
     });
 
+    it('asks a follow-up only when the answer would change what the user does next', async () => {
+      // Measured on the bare-"Ed-Fi" rerun: "always ask" was too strict, and the
+      // model never asked at all. Q-009 (rated 5/5) answered both readings without asking.
+      const system = await getSystemPrompt();
+      expect(system).toMatch(/only when the answer would change what the user does next/i);
+      expect(system).toMatch(/different steps or conflicting answers/i);
+      expect(system).toMatch(/version, the user's role, or the deployment/i);
+      expect(system).toMatch(/more than two plausible readings/i);
+      expect(system).toMatch(/do not ask when the readings lead to the same answer/i);
+      expect(system).toMatch(/answer what you can first, then ask/i);
+      expect(system).toMatch(/never reply with only a question/i);
+      // The terminology rule defers to these criteria instead of always asking.
+      const terminology = system.slice(system.indexOf('## Terminology'), system.indexOf('## Grounding'));
+      expect(terminology).toMatch(/ask which they mean when the Answering rules call for a follow-up/i);
+    });
+
     it('asks for missing information in the same reply', async () => {
       // Q-018, Q-019: Fiona saw what was missing, then stalled instead of asking for it.
       const system = await getSystemPrompt();
