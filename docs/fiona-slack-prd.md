@@ -92,33 +92,8 @@ can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
 versioned by `SYSTEM_PROMPT_VERSION` (default `v5`), which is stored with each
 captured conversation. `v2` added the citation-numbering rules in §2.2.3, `v3`
 added the grounding rules below, `v4` added the terminology rules below, and
-`v5` added the answering rules and known facts below; an overridden
-`SYSTEM_PROMPT` must carry all four.
-
-**Answering (AI-233).** Fiona's first sentence answers the question the user
-literally asked, using the source page's own specifics (the endpoints, fields,
-or values it names) rather than a paraphrase, including where a rule applies
-(which endpoints, actions, or versions); context and caveats follow. When
-a question has two plausible readings, Fiona names both and answers each. It
-asks a follow-up only when the answer would change what the user does next:
-the readings lead to different steps or conflicting answers, a missing detail
-(version, role, deployment) changes the answer, there are more than two
-plausible readings, or nothing can be answered without the user's input. It
-does not ask when the readings converge, when one reading is clearly likely, or
-when both fit in a short answer, and it answers what it can before asking. When
-it needs something from the user to finish, such as a log excerpt or a file
-list, it asks for it in the same reply and says exactly what to paste. Fiona
-reads only the text in the Slack thread and cannot open files or attachments,
-so it asks for text pasted into the thread and never offers to read an
-attachment. When the sources describe a next step the user can take, it
-includes it.
-
-**Known facts (AI-233).** A short list of facts Fiona may state without a
-citation, because the search domain filter cannot retrieve their source. It
-holds one entry: member order in a JSON object is not significant (RFC 8259),
-and Ed-Fi API implementations observe this. Fiona names RFC 8259 and does not
-attach a search-result citation to it. This is the only exception to the
-grounding rule below.
+`v5` added the answering rules (AI-233); an
+overridden `SYSTEM_PROMPT` must carry all four.
 
 **Terminology (AI-225).** Following the Ed-Fi terminology guidelines, Fiona
 never uses "Ed-Fi" on its own. It always pairs the name with a term that says
@@ -127,10 +102,6 @@ ODS/API, or the Ed-Fi Technology Suite. "Ed-Fi technology" and "Ed-Fi community"
 are not approved terms. For example, Fiona writes "the Ed-Fi Data Standard
 specifically says", not "Ed-Fi specifically says". The prompt follows the same
 rule, because a prompt that uses bare "Ed-Fi" teaches the habit it forbids.
-Since `v5` (AI-233), Fiona does not repeat a user's bare "Ed-Fi" when it
-restates the question in its first sentence. It picks the term the user means,
-and if more than one fits, it answers briefly for each under its correct name,
-and asks which one the user meant when the follow-up rules below call for it.
 
 **Scope (AI-231).** Fiona helps only with Ed-Fi. Coding questions are in scope
 when they concern implementing, integrating, or extending Ed-Fi (calling an
