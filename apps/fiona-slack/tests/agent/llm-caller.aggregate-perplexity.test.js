@@ -1003,7 +1003,7 @@ describe('callLLM returns botText alongside metadata', () => {
 
     expect(result).toHaveProperty('metadata');
     expect(result).toHaveProperty('botText', 'Hello world');
-    expect(result).toHaveProperty('systemPromptVersion', 'v4');
+    expect(result).toHaveProperty('systemPromptVersion', 'v5');
   });
 
   it('instructs the model to cite result numbers and not to write its own source list', async () => {
@@ -1104,5 +1104,32 @@ describe('callLLM returns botText alongside metadata', () => {
     expect(bareUses).toEqual([]);
     // Not approved terms (PR #135 review): "Ed-Fi Technology Suite" is the correct name.
     expect(system).not.toMatch(/Ed-Fi (?:technology|community)\b/);
+  });
+
+  describe('answering policy (AI-233)', () => {
+    async function getSystemPrompt() {
+      const fakeStreamer = { append: jest.fn().mockResolvedValue(undefined), stop: jest.fn() };
+      mockCreate.mockResolvedValueOnce(
+        (async function* () {
+          yield { type: 'response.completed', response: { status: 'completed' } };
+        })(),
+      );
+
+      await callLLM(fakeStreamer, [{ role: 'user', content: 'hi' }], {
+        error: jest.fn(),
+        warn: jest.fn(),
+        info: jest.fn(),
+      });
+
+      return mockCreate.mock.calls.at(-1)[0].input.find((item) => item.role === 'system').content;
+    }
+
+    it('gives the answering rules their own section ahead of Grounding', async () => {
+      // Structure only; the wording is reviewed by reading the prompt. Learned in AI-231:
+      // a rule held reliably only in its own section near the top.
+      const system = await getSystemPrompt();
+      expect(system).toContain('## Answering');
+      expect(system.indexOf('## Answering')).toBeLessThan(system.indexOf('## Grounding'));
+    });
   });
 });

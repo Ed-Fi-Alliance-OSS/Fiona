@@ -89,10 +89,11 @@ Users see text appear progressively rather than waiting for a complete response.
 
 A default system prompt defines Fiona's persona, guidelines, and guardrails. It
 can be overridden via the `SYSTEM_PROMPT` environment variable. The default is
-versioned by `SYSTEM_PROMPT_VERSION` (default `v4`), which is stored with each
+versioned by `SYSTEM_PROMPT_VERSION` (default `v5`), which is stored with each
 captured conversation. `v2` added the citation-numbering rules in §2.2.3, `v3`
-added the grounding rules below, and `v4` added the terminology rules below; an
-overridden `SYSTEM_PROMPT` must carry all three.
+added the grounding rules below, `v4` added the terminology rules below, and
+`v5` added the answering rules (AI-233); an
+overridden `SYSTEM_PROMPT` must carry all four.
 
 **Terminology (AI-225).** Following the Ed-Fi terminology guidelines, Fiona
 never uses "Ed-Fi" on its own. It always pairs the name with a term that says
