@@ -577,6 +577,21 @@ describe('logCitationTelemetry', () => {
     );
   });
 
+  it('adds the link-check outcome when the check ran', () => {
+    const logger = { info: jest.fn() };
+
+    logCitationTelemetry(logger, {
+      finalize_state: 'READY_TO_FINALIZE',
+      sources: [{}],
+      grounding: 'regenerated_dead_sources',
+      link_check: { dead: 2, regenerated: true },
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[citations] state=READY_TO_FINALIZE sources=1 grounding=regenerated_dead_sources dead=2 regenerated=true',
+    );
+  });
+
   it('logs nothing without metadata', () => {
     const logger = { info: jest.fn() };
 
