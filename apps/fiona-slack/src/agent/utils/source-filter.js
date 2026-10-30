@@ -31,7 +31,7 @@ export function urlKey(url) {
 /** The page a URL points to: its urlKey without the #fragment. */
 export const pageKey = (url) => urlKey(url).split('#')[0];
 
-const URL_IN_TEXT = /https?:\/\/[^\s<>\]]+/g;
+const URL_IN_TEXT = /https?:\/\/[^\s<>\[\]]+/g;
 const TRAILING_PUNCTUATION = /[.,;:!?'"*_`]+$/;
 
 const count = (text, char) => text.split(char).length - 1;
