@@ -23,11 +23,14 @@ Here is an overview of Fiona usage, product alignment, and work completed at the
 | Positive feedback | <% or — when no ratings> | | |
 | Avg. interactions/user | <1 decimal> | | |
 
-<One paragraph: totals, errors, week-over-week change from `previous`, where growth came from (internal vs external), new vs returning, feedback volume and who rated.>
+<Paragraph 1: "This week, …" totals, week-over-week change from `previous` (declines stated neutrally, no guessed cause), new vs returning, internal vs external.>
+
+<Paragraph 2: errors, then feedback volume and who rated.>
 
 ### What users are saying
 
-- **Positive / Negative:** <Paraphrase the question topic and what Fiona did. No names, IDs or invented quotes.>
+- **Positive / Negative:** <Facts only: paraphrase the question topic, what Fiona did, and whether a comment came with the rating. No names, IDs or invented quotes.>
+  <Separate paragraph: the likely issue (your interpretation), plus any SME follow-up the user mentions.>
 
 <One or two sentences: what the feedback says about answer quality or documentation gaps, tied to a ticket only if the user agrees.>
 
@@ -35,7 +38,9 @@ Here is an overview of Fiona usage, product alignment, and work completed at the
 
 <Paragraph: what changed in scope this week (PRD updates, features shipped or deferred), with PR numbers. Bullets for items moved to future work.>
 
-<Paragraph: non-functional requirements, naming the new tickets that turned gaps into work.>
+<Separate short paragraph: what Fiona work comes next, then bullets for in-flight PRs.>
+
+<Paragraph: non-functional requirements, naming the new tickets that turned gaps into work. If no row changed status, say so in one sentence ("Omitting the table this week to save space.") and leave the table out.>
 
 | Requirement | Status | Notes |
 |---|---|---|
@@ -45,6 +50,8 @@ Here is an overview of Fiona usage, product alignment, and work completed at the
 ## Feature work and expected delivery
 
 <Paragraph: the sprint's focus and headline counts.>
+
+<Separate short paragraph: Fiona tickets closed (or "No Fiona tickets closed this week") and what remains in QA.>
 
 ### Done / In progress: Fiona
 
@@ -59,14 +66,18 @@ Here is an overview of Fiona usage, product alignment, and work completed at the
 
 <One sentence: share Done or in QA, per-epic progress, Next queue.>
 
+<Paragraph: "Done this week: DOC-… (topic), …">
+
+<Separate paragraph: "In progress: DOC-… (topic)." and In QA, if any.>
+
 ### Upcoming
 
 | Ticket | Topic | Notes |
 |---|---|---|
-| <AI tickets moved into next sprint> | | |
-| <DOC tickets in Next, collapsed into one row> | | |
+| <AI tickets in the current sprint (Jira sprint field), not Planning backlog> | | |
+| <DOC In Progress row(s), then High/Highest Next tickets collapsed into one row; max 5 DOC tickets> | | |
 
-<Closing paragraph: why the next sprint's focus matters.>
+<Closing paragraph: how the rest of the sprint balances documentation and Fiona feature work, and why it matters. Do not frame it as a pivot to one side.>
 
 Thank you, and I hope everyone has a great weekend.
 

@@ -12,7 +12,7 @@ delete process.env.COSMOS_ENDPOINT;
 delete process.env.DEPLOYMENT_TYPE;
 
 // Importing must not require Cosmos configuration; only the CLI entry point does.
-const { main } = await import('../../scripts/weekly-usage-data.js');
+const { defaultOutputDir, main } = await import('../../scripts/weekly-usage-data.js');
 
 const NOW = new Date('2026-10-16T12:00:00.000Z');
 
@@ -69,5 +69,15 @@ describe('weekly-usage-data main', () => {
     buildReportData.mockRejectedValue(new Error('status 403'));
     await expect(run()).rejects.toThrow('status 403');
     expect(fs.readdirSync(outputDir)).toEqual([]);
+  });
+});
+
+describe('defaultOutputDir', () => {
+  it('puts each run in a reports folder named for its UTC run date', () => {
+    expect(defaultOutputDir(NOW, {})).toBe(path.join(process.cwd(), 'reports', '2026-10-16'));
+  });
+
+  it('lets REPORT_OUTPUT_DIR override the run folder', () => {
+    expect(defaultOutputDir(NOW, { REPORT_OUTPUT_DIR: '/tmp/out' })).toBe('/tmp/out');
   });
 });

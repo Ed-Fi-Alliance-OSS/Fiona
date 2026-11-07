@@ -10,6 +10,8 @@
 // generate-executive-report-artifact.js, it renders no PDF.
 //
 // Usage: node scripts/weekly-usage-data.js [--now <ISO date>]
+// Output goes to reports/<run date>/ (one folder per weekly run) unless
+// REPORT_OUTPUT_DIR is set.
 // Needs COSMOS_ENDPOINT and an `az login` session (or an AccountKey connection string).
 
 import fs from 'node:fs';
@@ -20,8 +22,16 @@ import { buildExecutiveReportData } from '../lib/report-data.js';
 import { createCosmosContainers } from './generate-executive-report-artifact.js';
 
 const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE || 'production';
-const OUTPUT_DIR = process.env.REPORT_OUTPUT_DIR || path.join(process.cwd(), 'reports');
+const REPORTS_ROOT = path.join(process.cwd(), 'reports');
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The run's own folder, `reports/<YYYY-MM-DD>` for the UTC day of `now`, so
+ * each week's data, email and chart stay together. REPORT_OUTPUT_DIR overrides it.
+ */
+export function defaultOutputDir(now, env = process.env) {
+  return env.REPORT_OUTPUT_DIR || path.join(REPORTS_ROOT, now.toISOString().slice(0, 10));
+}
 
 /**
  * Builds the current and previous week's data and writes it to
@@ -30,7 +40,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export async function main({
   now = new Date(),
-  outputDir = OUTPUT_DIR,
+  outputDir = defaultOutputDir(now),
   createContainers = createCosmosContainers,
   buildReportData = buildExecutiveReportData,
 } = {}) {

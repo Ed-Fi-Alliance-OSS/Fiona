@@ -20,9 +20,13 @@ Skeleton and wording conventions: `template.md` in this directory.
 
 Order: Community usage → Product alignment → Feature work (Done / Documentation stats → pie chart → Upcoming) → assemble.
 
+## Run folder
+
+Each weekly run lives in its own folder, `apps/usage-report-function/reports/<run date>/` (UTC date of the run, e.g. `reports/2026-10-23/`). The usage data, DOC chart and email for that week all go there. Never write into the flat `reports/` root.
+
 ## Dates
 
-- **Last week's email:** newest `apps/usage-report-function/reports/weekly-email-*.md`, unless the user pastes or names one. Its filename date is the **since date** for git, PR and Jira queries.
+- **Last week's email:** newest `apps/usage-report-function/reports/*/weekly-email-*.md`, unless the user pastes or names one. Its filename date is the **since date** for git, PR and Jira queries.
 - **Usage window:** 7 whole UTC days ending at the run day's UTC midnight (run Fri 10-23 → 10-16 through 10-22), same as the Slack report. `previous` is the 7 days before.
 - **Done this week (AI tickets):** status Done *and* not already listed as Done in last week's email.
 
@@ -32,7 +36,7 @@ Commands below run from the repo root unless noted.
 
 | Section | Source | How |
 |---|---|---|
-| Usage | Production Cosmos | From `apps/usage-report-function`: `COSMOS_ENDPOINT='https://fiona-db-dev-cosmos.documents.azure.com:443/' node scripts/weekly-usage-data.js` (add `--now <ISO>` to rerun a past week). Writes `reports/weekly-usage-production-<start>-to-<end>.json` with `current`, `previous` (for WoW) and `feedbackDetails`. No PDF needed. |
+| Usage | Production Cosmos | From `apps/usage-report-function`: `COSMOS_ENDPOINT='https://fiona-db-dev-cosmos.documents.azure.com:443/' node scripts/weekly-usage-data.js` (add `--now <ISO>` to rerun a past week). Writes `reports/<run date>/weekly-usage-production-<start>-to-<end>.json` with `current`, `previous` (for WoW) and `feedbackDetails`. No PDF needed. |
 | Product alignment | Merged work since last email | `git fetch origin && git log --oneline --since=<last email date> origin/main`; `gh pr list --state all --search "updated:>=<date>"`; read the diff of any PRD/doc PR (`git show <sha>`) before summarizing it. |
 | Product alignment, Feature work | Jira project **AI** | `project = AI AND updated >= "<last email date>" ORDER BY updated DESC`, fields `summary,status,updated,labels`. |
 | Documentation stats | Jira project **DOC** | `project = DOC AND labels = improve-fiona`, fields `summary,status,resolutiondate,parent`, maxResults 100. |
@@ -46,7 +50,7 @@ The account is named `-dev-` but holds production records; `deploymentType: 'pro
 The DOC search result is too large to return inline; the tool saves it to a file. Pass that file straight to the script (there is no `jq` on this machine):
 
 ```bash
-node .claude/skills/writing-fiona-weekly-email/scripts/doc-status-pie.mjs <saved-result-file> apps/usage-report-function/reports <YYYY-MM-DD>
+node .claude/skills/writing-fiona-weekly-email/scripts/doc-status-pie.mjs <saved-result-file> apps/usage-report-function/reports/<YYYY-MM-DD> <YYYY-MM-DD>
 ```
 
 It prints the status × epic Markdown table (DOC-310 SME Cycle 1, DOC-326 GEO/AIO), lists the tickets it left out (no epic, or another project), and renders `improve-fiona-docs-pie-<date>.png` (1280×680, insert at ~640px) with headless Edge/Chrome. Do not use matplotlib (not installed) or pick new colors. The script uses a validated single-hue ordinal ramp. View the PNG before reporting it done. Present the table first, and render the chart only after the user confirms the counts and scope.
@@ -58,9 +62,20 @@ It prints the status × epic Markdown table (DOC-310 SME Cycle 1, DOC-326 GEO/AI
 - **Feedback volume.** If ratings per interaction drop sharply, flag it.
 - **Sprint framing.** Mid-sprint or close? Confirm the sprint number.
 - **Status wording for sensitive features** (e.g. ticket creation). Keep last week's wording unless the user changes it.
+- **Upcoming scope.** Only tickets actually in the current sprint (check the Jira sprint field, `customfield_10020`), not ones parked in the Planning backlog, even if they were bulk-updated with the sprint move. Add DOC tickets that are In Progress or Next at High/Highest priority, capped at 5.
+- **Usage declines.** State them neutrally ("eased from 20 to 13"). Don't offer an unverified cause.
+
+## Style (learned from the user's final edits)
+
+- **One idea per paragraph.** Split totals/WoW from errors/feedback; split "no tickets closed" from the sprint-focus sentence; put "Done this week" and "In progress" in separate paragraphs.
+- **Feedback examples:** first paragraph is facts only (question, what Fiona did, whether a comment came with the rating); interpretation ("The likely issue…") goes in its own paragraph.
+- **Non-functional requirements table:** omit it when no row changed status, and say so in one sentence ("Omitting the table this week to save space."). Include it when anything changed.
+- **Closing paragraph:** describe the balance of work (docs plus Fiona features) rather than announcing a pivot to one side.
+- Em dashes for appositives; comma after an opening "This week,".
 
 ## Output
 
-- Save `apps/usage-report-function/reports/weekly-email-<YYYY-MM-DD>.md` with an `[INSERT CHART: <png>, ~640px wide]` marker. `reports/` is gitignored on purpose. Emails and charts are not committed.
-- Offer an HTML version for pasting into Outlook (Markdown tables don't paste).
+- Save `apps/usage-report-function/reports/<YYYY-MM-DD>/weekly-email-<YYYY-MM-DD>.md` with an `[INSERT CHART: <png>, ~640px wide]` marker. `reports/` is gitignored on purpose. Emails and charts are not committed.
+- Offer an HTML version for pasting into Outlook (Markdown tables don't paste): `node .claude/skills/writing-fiona-weekly-email/scripts/email-md-to-html.mjs <run folder>/weekly-email-<date>.md <run folder>/weekly-email-<date>.html`.
+- If the user pastes the version they actually sent, overwrite the run's `weekly-email-<date>.md` with it (converted back to Markdown) so next week compares against what was sent, and fold any new style patterns into the Style section above.
 - Remind the user to review before sending and to disclose AI assistance. Paraphrase feedback; never invent quotes from users or grantees; no user IDs or names.
