@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@azure/cosmos": "^4.9.1",
-    "@azure/identity": "^4.13.0",
+    "@azure/identity": "^4.14.1",
     "@perplexity-ai/perplexity_ai": "^0.37.0",
     "@slack/bolt": "^4.6.0",
     "axios": "^1.20.0",
